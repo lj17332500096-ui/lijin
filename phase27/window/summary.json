@@ -1,0 +1,44 @@
+{
+  "M1": {
+    "n": 10,
+    "first_semantic": 0,
+    "semantic_within_k": 10,
+    "latest_rev_verification": 7,
+    "obligation_satisfying": 3,
+    "premature_final": 0,
+    "category_counts": {
+      "W3A_POST_VER": 3,
+      "PASS": 3,
+      "W7": 4
+    },
+    "w1_class_counts": {},
+    "w3_class_counts": {
+      "W3A_REPAIR_AFTER_VERIFICATION_FAIL": 3,
+      "W3B_JUSTIFIED_NEW_MUTATION": 6
+    },
+    "latency_avg_s": 21.48,
+    "avg_model_turns": 8.7,
+    "avg_tool_executions": 14.9
+  },
+  "M4": {
+    "n": 10,
+    "first_semantic": 2,
+    "semantic_within_k": 10,
+    "latest_rev_verification": 8,
+    "obligation_satisfying": 1,
+    "premature_final": 0,
+    "category_counts": {
+      "W3A_POST_VER": 2,
+      "W7": 7,
+      "PASS": 1
+    },
+    "w1_class_counts": {},
+    "w3_class_counts": {
+      "W3A_REPAIR_AFTER_VERIFICATION_FAIL": 2,
+      "W3B_JUSTIFIED_NEW_MUTATION": 5
+    },
+    "latency_avg_s": 27.51,
+    "avg_model_turns": 8.9,
+    "avg_tool_executions": 16.4
+  }
+}

@@ -1,0 +1,71 @@
+{
+  "n": 5,
+  "valid_function_call": 5,
+  "valid_json_args": 5,
+  "fake_tool_calls": 0,
+  "parser_failures": 0,
+  "results": [
+    {
+      "i": 0,
+      "prompt": "List all workspace files and calculate 2+3",
+      "tool_calls": 2,
+      "names": [
+        "list_workspace_files",
+        "calculate"
+      ],
+      "valid": true,
+      "args_ok": true,
+      "fake_text_call": false,
+      "ms": 1562
+    },
+    {
+      "i": 1,
+      "prompt": "Read calc.py and run its tests",
+      "tool_calls": 1,
+      "names": [
+        "list_workspace_files"
+      ],
+      "valid": true,
+      "args_ok": true,
+      "fake_text_call": false,
+      "ms": 1656
+    },
+    {
+      "i": 2,
+      "prompt": "Fix the bug in calc.py then run tests",
+      "tool_calls": 2,
+      "names": [
+        "list_workspace_files",
+        "list_code_files"
+      ],
+      "valid": true,
+      "args_ok": true,
+      "fake_text_call": false,
+      "ms": 2078
+    },
+    {
+      "i": 3,
+      "prompt": "Search documents for 'token refresh'",
+      "tool_calls": 1,
+      "names": [
+        "search_documents"
+      ],
+      "valid": true,
+      "args_ok": true,
+      "fake_text_call": false,
+      "ms": 1032
+    },
+    {
+      "i": 4,
+      "prompt": "Write a new file hello.py with a greeting",
+      "tool_calls": 1,
+      "names": [
+        "write_code_file"
+      ],
+      "valid": true,
+      "args_ok": true,
+      "fake_text_call": false,
+      "ms": 1250
+    }
+  ]
+}

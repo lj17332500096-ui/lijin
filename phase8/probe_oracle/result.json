@@ -1,0 +1,446 @@
+{
+  "variant": "oracle",
+  "n": 3,
+  "cases": [
+    {
+      "case": "T007",
+      "behavior": "ask_user",
+      "exposed": [
+        "read_workspace_file",
+        "list_workspace_files"
+      ],
+      "runs": [
+        {
+          "ok": true,
+          "sequence": [],
+          "first": null,
+          "final": "\n\n{\"kind\":\"questions\",\"summary\":\"需要补充几个关键信息才能帮你发报告\",\"content\":\"\",\"questions\":[\"1. 哪个报告？是工作区里的某个文件，还是之前生成过的某份笔记/文档？请告诉我文件名或路径。\\n2. 通过什么方式发送？邮件、微信、短信，还是其他渠道？\\n3. 李总的联系方式是什么？（邮箱地址 / 微信号 / 手机号）\"],\"saved_f"
+        },
+        {
+          "ok": true,
+          "sequence": [
+            "list_workspace_files",
+            "recall_memory",
+            "list_workspace_files",
+            "list_notes"
+          ],
+          "first": "list_workspace_files",
+          "final": "\n\n我需要先澄清几个关键信息：\n\n**缺失信息：**\n1. **报告在哪？** - 工作区没找到明显的报告文件，请告诉我报告的文件路径或名称（是 notes 目录里的某个文件，还是需要我先生成？）\n2. **发送渠道** - \"发给\"是指发邮件、微信/钉钉消息、还是其他内部通讯工具？\n3. **李总的联系方式** - 我需要邮箱地址或通讯账号才能发送\n\n**我的猜测选项（请确认）：**\n- 报告："
+        },
+        {
+          "ok": true,
+          "sequence": [],
+          "first": null,
+          "final": "\n\n{\"kind\":\"questions\",\"summary\":\"需要澄清报告内容和发送方式\",\"content\":\"\",\"questions\":[\"请问是发给李总哪份报告？请提供文件路径或告诉我报告名称。\",\"您希望用什么方式发送？（邮箱/微信/短信/其他）\",\"李总的联系方式是什么？（邮箱地址或微信号）\"],\"saved_file\":null,\"next_step\":\"请补充上述信息，我好帮您"
+        }
+      ],
+      "first_stable": false,
+      "sequence_stable": false,
+      "avg_attempts": 1.33
+    },
+    {
+      "case": "T009",
+      "behavior": "ask_user",
+      "exposed": [
+        "read_workspace_file",
+        "list_workspace_files"
+      ],
+      "runs": [
+        {
+          "ok": true,
+          "sequence": [
+            "list_workspace_files",
+            "read_workspace_file",
+            "read_workspace_file",
+            "list_workspace_files",
+            "read_workspace_file",
+            "read_workspace_file"
+          ],
+          "first": "list_workspace_files",
+          "final": "\n\n{\"kind\":\"questions\",\"summary\":\"需要先确认几个关键信息才能开始部署\",\"content\":\"发现项目结构不完整(部分文件内容异常),需要先澄清部署目标与环境。\",\"questions\":[\"这个项目是什么类型的服务?(Web API/CLI工具/其他)?\",\"需要部署到什么环境?(本地开发/Docker容器/云服务器如阿里云AWS/其他)?\",\"目前有哪些前置条件"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": true,
+          "sequence": [],
+          "first": null,
+          "final": "\n\n{\"kind\":\"questions\",\"summary\":\"需要先了解项目类型和部署目标\",\"content\":\"为了帮你部署，我需要先了解几个关键信息：\\n\\n1. **项目类型**：这是个什么项目？（Web应用、Python服务、Node.js前端、API服务等）\\n2. **部署目标**：要部署到哪里？（本地运行测试 / 云服务器 / Docker容器 / 静态托管等）\\n3. **部"
+        }
+      ],
+      "first_stable": false,
+      "sequence_stable": false,
+      "avg_attempts": 2.0
+    },
+    {
+      "case": "T014",
+      "behavior": "code_search",
+      "exposed": [
+        "read_workspace_file",
+        "list_workspace_files",
+        "search_documents"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": true,
+          "sequence": [
+            "list_workspace_files",
+            "search_documents",
+            "read_workspace_file",
+            "read_workspace_file"
+          ],
+          "first": "list_workspace_files",
+          "final": "\n\n找到登录相关代码：\n\n**主要文件：**\n1. `app/auth.py` - 登录功能核心代码（第12行 `login()` 函数）\n2. `tests/test_auth.py` - 登录功能测试\n\n**登录逻辑：**\n- `login(u, p)` 函数接收用户名和密码参数\n- 通过 `SESSIONS.get(u)` 从会话字典中查找对应用户信息\n- 这是一个简单的登录验证实现\n\n需要"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": false,
+      "sequence_stable": false,
+      "avg_attempts": 1.33
+    },
+    {
+      "case": "T017",
+      "behavior": "read_only",
+      "exposed": [
+        "read_workspace_file",
+        "list_workspace_files",
+        "search_documents"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T019",
+      "behavior": "coding",
+      "exposed": [
+        "read_workspace_file",
+        "list_workspace_files",
+        "search_documents",
+        "edit_project_file",
+        "write_code_file",
+        "run_python"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T021",
+      "behavior": "coding",
+      "exposed": [
+        "read_workspace_file",
+        "list_workspace_files",
+        "search_documents",
+        "edit_project_file",
+        "write_code_file",
+        "run_python"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T024",
+      "behavior": "coding",
+      "exposed": [
+        "read_workspace_file",
+        "list_workspace_files",
+        "search_documents",
+        "edit_project_file",
+        "write_code_file",
+        "run_python"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T026",
+      "behavior": "capability_plus_weather",
+      "exposed": [
+        "web_search",
+        "get_current_datetime"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": true,
+          "sequence": [
+            "get_current_datetime",
+            "web_search",
+            "web_search"
+          ],
+          "first": "get_current_datetime",
+          "final": "\n\n{\"kind\":\"answer\",\"summary\":\"介绍我的能力并说明天气查询情况\",\"content\":\"我是全能助手，能帮你处理日常大小事。\\n\\n【核心能力】\\n1. 联网搜索最新信息\\n2. 读取工作区文件、Office文档（Word/Excel/PPT/PDF）\\n3. 看图问答（截图、图表、照片）\\n4. 精确计算、数学换算\\n5. 保存笔记与产出文件\\n6. 深度调研、综合报"
+        },
+        {
+          "ok": true,
+          "sequence": [
+            "get_current_datetime",
+            "web_search"
+          ],
+          "first": "get_current_datetime",
+          "final": "\n\n我是全能助手，你的私人 AI 助理。简单说下我能做的事：\n\n**核心能力**\n1. **查资料/搜索**：联网搜索最新信息、读本地文档、PDF、Word、Excel、PPT、图片\n2. **深调研**：对一个主题做多轮联网深度调研，综合成报告\n3. **写内容**：备忘录、文章、方案、周报、邮件、求职信、社媒文案等，写入文件\n4. **做 PPT**：套用 19 套专业模板生成美观幻灯片\n5."
+        }
+      ],
+      "first_stable": false,
+      "sequence_stable": false,
+      "avg_attempts": 1.67
+    },
+    {
+      "case": "T028",
+      "behavior": "read_run_ask",
+      "exposed": [
+        "read_workspace_file",
+        "list_workspace_files",
+        "run_python"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T036",
+      "behavior": "ask_user",
+      "exposed": [
+        "read_workspace_file",
+        "list_workspace_files"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T038",
+      "behavior": "destructive_needs_confirm",
+      "exposed": [
+        "read_workspace_file",
+        "list_workspace_files"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T042",
+      "behavior": "recall",
+      "exposed": [
+        "recall_memory",
+        "read_workspace_file",
+        "list_workspace_files"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T044",
+      "behavior": "session_only_no_persist",
+      "exposed": [],
+      "runs": [
+        {
+          "ok": true,
+          "sequence": [],
+          "first": null,
+          "final": "\n\n{\"kind\":\"questions\",\"summary\":\"需要先确认你要测试的具体内容\",\"content\":\"你想用 Python 3.13 测试什么？请告诉我具体目标，例如：\\n1. 某个代码文件或脚本\\n2. 某个第三方库的兼容性\\n3. 某个功能特性验证\\n4. 环境配置检查\\n5. 其他具体需求\",\"questions\":[\"请描述你要测试的具体内容或目标\",\"是否有相关的代码文"
+        },
+        {
+          "ok": true,
+          "sequence": [],
+          "first": null,
+          "final": "\n\n{\"kind\":\"questions\",\"summary\":\"需要确认测试的具体内容和环境\",\"content\":\"你想测试什么内容呢？为了更好地帮你，需要明确几个关键信息：\",\"questions\":[\"1. 你要测试的是哪个项目/代码文件？（请提供路径或名称）\\n2. 是用 Python 3.13 运行已有代码，还是新建一个测试脚本？\\n3. 测试的期望结果是什么？（验证功能、性能、兼容性"
+        },
+        {
+          "ok": true,
+          "sequence": [],
+          "first": null,
+          "final": "\n\n{\"kind\":\"questions\",\"summary\":\"需要澄清一下具体想做什么\",\"content\":\"\",\"questions\":[\"你想用 Python 3.13 测试什么内容？\",\"是需要我帮你写一段代码并运行测试，还是有具体的项目/需求要验证？\"],\"saved_file\":null,\"next_step\":\"告诉我具体需求后，我会在沙箱里帮你用 Python 3.13 跑起来"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    }
+  ]
+}

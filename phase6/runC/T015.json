@@ -1,0 +1,75 @@
+{
+  "id": "T015",
+  "prompt": "帮我记一下：正式环境数据库不能直接执行 destructive migration。",
+  "container_id": "tk_6e1074a1",
+  "run_id": "task_f775bdee",
+  "observed_state_at_deadline": "completed",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T06:19:55+00:00",
+  "terminal_state": "completed",
+  "terminal_at": "2026-09-11T06:19:55+00:00",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 10.23,
+  "model_turns": 3,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [
+    {
+      "name": "remember",
+      "normalized_args": "{}",
+      "status": "succeeded",
+      "invocation_id": "call_f3e3cb1edbad45cda6622561",
+      "result_excerpt": "已记住到本项目记忆（id=pmem_228f3f3f）。当前为“仅此项目”模式，不会写入全局记忆。"
+    }
+  ],
+  "answer": "{\n  \"content\": \"已记录并记住：正式环境数据库禁止直接执行 destructive migration。\\n\\n后续在进行相关数据库迁移操作时，系统会自动提醒此规则。\"\n}",
+  "reply_kind": "done",
+  "tool_truth": {
+    "attempts": 1,
+    "blocked": 0,
+    "executions": 1,
+    "successes": 1,
+    "failures": 0,
+    "budget_consumed": 1,
+    "db_unique_executions": 1
+  },
+  "_exec": {
+    "remember": 1
+  },
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 3984.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2704.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2297.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

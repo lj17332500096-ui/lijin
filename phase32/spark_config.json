@@ -1,0 +1,24 @@
+{
+  "config": {
+    "model_path": "G:\\models\\Spark-X2.5-4B.gguf",
+    "model_sha256": "8cecf405a41a4a10f833530910c2e13fde9fb39c325c8afc3c5d10e4181e1a14",
+    "llama_server_sha256": "4462d49b0b331f3202e6a64b9773cb62bdd068af29a0f5ee20aa2b8aadafa367",
+    "llama_commit": "4a3635c32",
+    "llama_build": 10514,
+    "backend": "Vulkan",
+    "gpu_identity": "Intel(R) Arc(TM) A770 Graphics",
+    "gpu_layers": 40,
+    "context": 16384,
+    "threads": 12,
+    "temperature": 0.7,
+    "top_p": 0.95,
+    "seed": -1,
+    "max_tokens": 2048,
+    "chat_template": "gguf-embedded",
+    "tool_parser": "llama.cpp-native",
+    "provider": "local",
+    "base_url": "http://localhost:8080/v1"
+  },
+  "canonical_json": "{\"backend\":\"Vulkan\",\"base_url\":\"http://localhost:8080/v1\",\"chat_template\":\"gguf-embedded\",\"context\":16384,\"gpu_identity\":\"Intel(R) Arc(TM) A770 Graphics\",\"gpu_layers\":40,\"llama_build\":10514,\"llama_commit\":\"4a3635c32\",\"llama_server_sha256\":\"4462d49b0b331f3202e6a64b9773cb62bdd068af29a0f5ee20aa2b8aadafa367\",\"max_tokens\":2048,\"model_path\":\"G:\\\\models\\\\Spark-X2.5-4B.gguf\",\"model_sha256\":\"8cecf405a41a4a10f833530910c2e13fde9fb39c325c8afc3c5d10e4181e1a14\",\"provider\":\"local\",\"seed\":-1,\"temperature\":0.7,\"threads\":12,\"tool_parser\":\"llama.cpp-native\",\"top_p\":0.95}",
+  "spark_test_config_hash": "0c8830434416d9533a13cac9b068723bc24ad5dccda7abd2df027898434523c3"
+}

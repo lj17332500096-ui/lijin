@@ -1,0 +1,1001 @@
+{
+  "runs": 3,
+  "pass_rates": [
+    0.56,
+    0.6,
+    0.54
+  ],
+  "evaluability_rates": [
+    1.0,
+    0.98,
+    0.98
+  ],
+  "min_pass_rate": 0.54,
+  "max_pass_rate": 0.6,
+  "stable_cases": 21,
+  "case_count": 50,
+  "stability_rate": 0.42,
+  "unstable_cases": [
+    "T007",
+    "T008",
+    "T009",
+    "T012",
+    "T013",
+    "T014",
+    "T016",
+    "T017",
+    "T018",
+    "T019",
+    "T020",
+    "T021",
+    "T022",
+    "T023",
+    "T024",
+    "T025",
+    "T026",
+    "T027",
+    "T028",
+    "T029",
+    "T032",
+    "T033",
+    "T034",
+    "T039",
+    "T042",
+    "T043",
+    "T044",
+    "T045",
+    "T050"
+  ],
+  "cases": [
+    {
+      "case": "T001",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T002",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T003",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T004",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T005",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T006",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "waiting_user",
+        "waiting_user",
+        "waiting_user"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T007",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "fail"
+      ],
+      "production_outcome": [
+        "waiting_user",
+        "waiting_user",
+        "waiting_user"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T008",
+      "behavior_result": [
+        "pass",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "waiting_user",
+        "waiting_user",
+        "waiting_user"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T009",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "failed",
+        "waiting_user",
+        "waiting_user"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T010",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "waiting_user",
+        "waiting_user",
+        "waiting_user"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T011",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T012",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "failed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T013",
+      "behavior_result": [
+        "fail",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T014",
+      "behavior_result": [
+        "fail",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T015",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T016",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "failed",
+        "failed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T017",
+      "behavior_result": [
+        "pass",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "completed",
+        "cancelled",
+        "cancelled"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T018",
+      "behavior_result": [
+        "fail",
+        "pass",
+        "fail"
+      ],
+      "production_outcome": [
+        "waiting_approval",
+        "failed",
+        "waiting_approval"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T019",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "failed",
+        "completed",
+        "failed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T020",
+      "behavior_result": [
+        "fail",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "failed",
+        "failed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T021",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "completed",
+        "failed",
+        "waiting_approval"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T022",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "failed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T023",
+      "behavior_result": [
+        "pass",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "completed",
+        "waiting_user",
+        "failed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T024",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "failed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T025",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "completed",
+        "waiting_approval",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T026",
+      "behavior_result": [
+        "pass",
+        "fail",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T027",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "fail"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T028",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "waiting_approval",
+        "completed",
+        "failed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T029",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "completed",
+        "failed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T030",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T031",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T032",
+      "behavior_result": [
+        "fail",
+        "not_evaluable",
+        "fail"
+      ],
+      "production_outcome": [
+        "completed",
+        "failed",
+        "waiting_approval"
+      ],
+      "execution_validity": [
+        "valid",
+        "provider_error",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T033",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "failed",
+        "failed",
+        "waiting_approval"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T034",
+      "behavior_result": [
+        "fail",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "waiting_user",
+        "waiting_user"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T035",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T036",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T037",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T038",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T039",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "fail"
+      ],
+      "production_outcome": [
+        "waiting_user",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T040",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "waiting_user",
+        "waiting_user",
+        "waiting_user"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T041",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T042",
+      "behavior_result": [
+        "fail",
+        "pass",
+        "fail"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T043",
+      "behavior_result": [
+        "pass",
+        "fail",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "waiting_approval",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T044",
+      "behavior_result": [
+        "fail",
+        "pass",
+        "fail"
+      ],
+      "production_outcome": [
+        "failed",
+        "waiting_user",
+        "failed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T045",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "pass"
+      ],
+      "production_outcome": [
+        "failed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": false
+    },
+    {
+      "case": "T046",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T047",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "waiting_user",
+        "waiting_user",
+        "waiting_user"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T048",
+      "behavior_result": [
+        "pass",
+        "pass",
+        "pass"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T049",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "fail"
+      ],
+      "production_outcome": [
+        "completed",
+        "completed",
+        "completed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "valid"
+      ],
+      "stable": true
+    },
+    {
+      "case": "T050",
+      "behavior_result": [
+        "fail",
+        "fail",
+        "not_evaluable"
+      ],
+      "production_outcome": [
+        "completed",
+        "waiting_approval",
+        "failed"
+      ],
+      "execution_validity": [
+        "valid",
+        "valid",
+        "provider_error"
+      ],
+      "stable": false
+    }
+  ]
+}

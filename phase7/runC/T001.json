@@ -1,0 +1,56 @@
+{
+  "id": "T001",
+  "prompt": "介绍一下你能帮我做什么。",
+  "container_id": "tk_11bd9016",
+  "run_id": "task_c82afaa5",
+  "observed_state_at_deadline": "completed",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T11:46:04+00:00",
+  "terminal_state": "completed",
+  "terminal_at": "2026-09-11T11:46:04+00:00",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 8.22,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "我是全能助手，能帮你处理日常大大小小的事情，主要分为以下几类：\n\n📋 **信息查检**  \n- 搜索最新新闻、天气、价格等实时信息  \n- 读取你工作区里的文档、笔记、代码  \n- 查看图片内容（截图、海报、照片、图表问答）  \n- 读取和总结 PDF / Word / Excel / PPT  \n\n✍️ **内容创作与写作**  \n- 写文章、博客、公众号、社媒文案  \n- 起草/回复邮件、内部沟通公告  \n- 会议记录整理成结构化纪要  \n- 多语言高质量中英互译（快速/标准/精细三档）  \n- 简历定制与求职信优化  \n\n📚 **学习 & 知识整理**  \n- 把零散资料（课本、讲义、笔记）整理成结构化知识库  \n- 做周复盘、每日计划  \n- 深度调研某主题，生成综合报告  \n\n💻 **代码 & 技术**  \n- 在沙箱里编写、运行、调试 Python 代码  \n- 抓取 GitHub 仓库阅读源码并解答  \n- 直接编辑项目文件（修改/新建/重构）  \n\n🎨 **PPT & 演示文稿**  \n- 用内置专业模板生成漂亮 PPT  \n- 套用品牌色与字体规范  \n- 修改已有 PPT 的文字内容  \n\n⏰ **自动化 & 效率**  \n- 创建定时任务（每天/每周自动提醒你）  \n- 记住你的偏好和长期目标（跨会话记忆）  \n- 处理数学计算、数据换算、表格核对  \n\n如果你告诉我具体要做什么，我就直接开干；如果缺关键信息，我会先问你确认再行动。有什么想办的？",
+  "reply_kind": "answer",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0,
+    "db_unique_executions": 0
+  },
+  "_exec": {},
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 3578.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 3125.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

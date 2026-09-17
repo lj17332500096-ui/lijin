@@ -1,0 +1,78 @@
+{
+  "mode": "focus",
+  "n": 1,
+  "cases": [
+    {
+      "case": "M1",
+      "runs": [
+        {
+          "case": "M1",
+          "kind": "single_file_fix_test",
+          "state": "failed",
+          "terminal_kind": "no_progress",
+          "behavior_pass": false,
+          "mutation": true,
+          "verification_pass": false,
+          "verification_attempted": false,
+          "first_after_mutation": {
+            "capability": "READ",
+            "tool": "read_workspace_file"
+          },
+          "first_decision_correct": true,
+          "latest_revision_covered": false,
+          "available_verification_tools": [
+            "run_python",
+            "code_loop"
+          ],
+          "verification_available": true,
+          "capability_counts": {
+            "DISCOVERY": 3,
+            "READ": 3,
+            "MUTATION": 2,
+            "VERIFICATION": 0
+          },
+          "executions": 8,
+          "invocations": 9,
+          "obligation_blocked": 1,
+          "completion_ready_forced": 0
+        }
+      ]
+    },
+    {
+      "case": "M4",
+      "runs": [
+        {
+          "case": "M4",
+          "kind": "fix_then_pass",
+          "state": "failed",
+          "terminal_kind": "no_progress",
+          "behavior_pass": false,
+          "mutation": true,
+          "verification_pass": false,
+          "verification_attempted": false,
+          "first_after_mutation": {
+            "capability": "DISCOVERY",
+            "tool": "list_workspace_files"
+          },
+          "first_decision_correct": true,
+          "latest_revision_covered": false,
+          "available_verification_tools": [
+            "run_python",
+            "code_loop"
+          ],
+          "verification_available": true,
+          "capability_counts": {
+            "DISCOVERY": 3,
+            "READ": 4,
+            "MUTATION": 1,
+            "VERIFICATION": 0
+          },
+          "executions": 8,
+          "invocations": 9,
+          "obligation_blocked": 1,
+          "completion_ready_forced": 0
+        }
+      ]
+    }
+  ]
+}

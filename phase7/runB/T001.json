@@ -1,0 +1,56 @@
+{
+  "id": "T001",
+  "prompt": "介绍一下你能帮我做什么。",
+  "container_id": "tk_6969f46b",
+  "run_id": "task_1d1fa49a",
+  "observed_state_at_deadline": "completed",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T11:25:12+00:00",
+  "terminal_state": "completed",
+  "terminal_at": "2026-09-11T11:25:12+00:00",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 10.22,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "{\n  \"content\": \"我能帮你处理日常办公、学习和工作中的大多数事情，具体包括：\\n\\n**1. 查资料与问答**\\n- 联网搜索最新信息（新闻、天气、价格等）\\n- 解答各类知识性问题\\n\\n**2. 阅读与整理文档**\\n- 读取工作区内的文本、PDF、Word、Excel、PPT\\n- 把零散资料整理成结构化笔记\\n- 从会议记录中提取要点和待办事项\\n\\n**3. 内容创作**\\n- 写博客、公众号、小红书文案\\n- 起草邮件、内部公告\\n- 翻译（中英互译，支持快速/标准/精细三种模式）\\n\\n**4. 计划与复盘**\\n- 制定每日/每周计划\\n- 做周复盘，总结成果与卡点\\n- 针对岗位定制简历\\n\\n**5. 办公文档生成**\\n- 生成 Word、Excel、PPT 文件\\n- 套用专业主题美化幻灯片\\n\\n**6. 代码与项目**\\n- 在沙箱里写、跑、调试 Python 代码\\n- 读取和分析 GitHub 仓库源码\\n- 修改你的项目文件（需授权）\\n\\n**7. 其他**\\n- 数学计算与数据核对\\n- 创建定时任务\\n- 深度调研某个主题\\n\\n简单来说，你日常遇到的大多数事情都可以交给我来处理。\\n\\n下一步：告诉我你想先做什么。\"\n}",
+  "reply_kind": "answer",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0,
+    "db_unique_executions": 0
+  },
+  "_exec": {},
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2750.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 6953.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

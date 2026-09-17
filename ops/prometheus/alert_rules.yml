@@ -1,0 +1,50 @@
+# Prometheus 告警规则：FORGE Router 监控
+# 加载方式：prometheus.yml 的 rule_files 数组加 "prometheus/alert_rules.yml"
+
+groups:
+  - name: forge-router-alerts
+    interval: 1m
+    rules:
+      # 命中率超 5% 持续 10 分钟 → 告警
+      - alert: ForgeRouterHitZeroRateHigh
+        expr: forge_router_hit_zero_rate > 0.05
+        for: 10m
+        labels:
+          severity: warning
+          service: forge-router
+        annotations:
+          summary: "FORGE Router 命中率异常"
+          description: "hit_zero_rate = {{ $value }}，超过 5% 阈值已持续 10 分钟。检查 router 词表是否有回归。"
+
+      # 命中率超 15% 持续 5 分钟 → 严重告警
+      - alert: ForgeRouterHitZeroRateCritical
+        expr: forge_router_hit_zero_rate > 0.15
+        for: 5m
+        labels:
+          severity: critical
+          service: forge-router
+        annotations:
+          summary: "FORGE Router 大面积误判"
+          description: "hit_zero_rate = {{ $value }}，超过 15% 严重阈值。立即检查 logs/tool_router.jsonl 最近 hit_zero=true 的查询模式。"
+
+      # 指标服务无数据 15 分钟 → 服务异常
+      - alert: ForgeRouterMetricsStale
+        expr: time() - forge_router_last_observed_timestamp > 900
+        for: 15m
+        labels:
+          severity: warning
+          service: forge-router
+        annotations:
+          summary: "FORGE Router 指标停更"
+          description: "forge_router_last_observed_timestamp 超过 15 分钟未更新，C1 日志或 /metrics 服务可能挂了。"
+
+      # 平均选中工具数 > 14 → 模型决策空间过大
+      - alert: ForgeRouterAvgToolsHigh
+        expr: forge_router_avg_selected_tools > 14
+        for: 15m
+        labels:
+          severity: info
+          service: forge-router
+        annotations:
+          summary: "FORGE Router 平均工具数偏高"
+          description: "avg_selected_tools = {{ $value }}，超过 14 个，模型决策漂移风险上升，考虑收紧词表或开启 fast mode 兜底。"

@@ -1,0 +1,78 @@
+{
+  "self": {
+    "M1": {
+      "n": 5,
+      "commitments": {
+        "null": 2,
+        "REVISE": 2,
+        "VERIFICATION_PREPARATION": 1
+      },
+      "verify_commit_rate": 0.0,
+      "preferred_rate": 0.0,
+      "semantic_rate": 0.0,
+      "follow_through_rate": 0.0,
+      "follow_through_denom": 0,
+      "commit_latency_avg_s": 55.18,
+      "decision_latency_avg_s": 77.94,
+      "total_latency_avg_s": 133.12,
+      "status_counts": {
+        "DECISION_CAPTURED": 5
+      }
+    },
+    "M4": {
+      "n": 5,
+      "commitments": {
+        "VERIFICATION_PREPARATION": 2,
+        "VERIFY": 2,
+        "null": 1
+      },
+      "verify_commit_rate": 0.4,
+      "preferred_rate": 0.8,
+      "semantic_rate": 0.8,
+      "follow_through_rate": 0.5,
+      "follow_through_denom": 2,
+      "commit_latency_avg_s": 56.58,
+      "decision_latency_avg_s": 95.04,
+      "total_latency_avg_s": 151.62,
+      "status_counts": {
+        "DECISION_CAPTURED": 5
+      }
+    }
+  },
+  "oracle": {
+    "M1": {
+      "n": 5,
+      "commitments": {
+        "VERIFY": 5
+      },
+      "verify_commit_rate": 1.0,
+      "preferred_rate": 0.0,
+      "semantic_rate": 0.0,
+      "follow_through_rate": 0.0,
+      "follow_through_denom": 5,
+      "commit_latency_avg_s": 0.0,
+      "decision_latency_avg_s": 15.56,
+      "total_latency_avg_s": 15.56,
+      "status_counts": {
+        "DECISION_CAPTURED": 5
+      }
+    },
+    "M4": {
+      "n": 5,
+      "commitments": {
+        "VERIFY": 5
+      },
+      "verify_commit_rate": 1.0,
+      "preferred_rate": 0.4,
+      "semantic_rate": 0.4,
+      "follow_through_rate": 0.4,
+      "follow_through_denom": 5,
+      "commit_latency_avg_s": 0.0,
+      "decision_latency_avg_s": 18.03,
+      "total_latency_avg_s": 18.03,
+      "status_counts": {
+        "DECISION_CAPTURED": 5
+      }
+    }
+  }
+}

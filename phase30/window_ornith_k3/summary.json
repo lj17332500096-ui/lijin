@@ -1,0 +1,22 @@
+{
+  "M4": {
+    "n": 5,
+    "first_semantic": 0,
+    "semantic_within_k": 4,
+    "latest_rev_verification": 4,
+    "obligation_satisfying": 2,
+    "premature_final": 0,
+    "category_counts": {
+      "W3C_UNJUSTIFIED_POST_PASS_MUTATION": 1,
+      "W7_SCOPE_INSUFFICIENT": 2,
+      "PASS": 2
+    },
+    "w1_class_counts": {},
+    "w3_class_counts": {
+      "W3C_UNJUSTIFIED_POST_PASS_MUTATION": 1
+    },
+    "latency_avg_s": 17.93,
+    "avg_model_turns": 4.0,
+    "avg_non_blocked_executions": 3.0
+  }
+}

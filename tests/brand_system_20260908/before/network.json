@@ -1,0 +1,119 @@
+{
+  "currentBrowserURL": "http://127.0.0.1:8765/",
+  "network": [
+    {
+      "url": "http://127.0.0.1:8765/",
+      "status": 200,
+      "type": "document",
+      "sha256": "1661335607d2a25d0eed42ddf184a2050f043efe2d26bd32fe48f3645d9a1c5e"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/types.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "c75d6a9eabbe9a522ac292444612bcc5341c6fa18a5e138f4d97ae193fc30fbf"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/api/http.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "c46b31f368142bbf52a8f55009c3d430e45e30fb9b83a78cb37f74fa56e7d40d"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/design.css?v=223",
+      "status": 200,
+      "type": "stylesheet",
+      "sha256": "f6ab2af509c3aa309f56b574b8a64506e0f3b77f456a2877e11c7d59e9c6992f"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/api/client.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "4a8d56f64a194a07343c66b01447f530dc9c031baec79d687131068666efc29d"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/api/index.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "30f05006589f99b7d5680fbcead22b4853db182978388d010902447e21aebf9a"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/api/mock.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "53bc80cb420e4a22b1abff40f6d13193086bec5856bf1f37c5c03b31a925f286"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/eventClient.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "c7334f9dc980b320138aafe28fe7444157a499722ea542ad836c1895c744cde0"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/eventReducer.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "dde2163a49fd035d562c63977680d769755ef770076e29c5372c69ef132a33dc"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/taskStore.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "83009b9267056bcf21064711b44918a23d93c3f9b16c24c34ece280cec43e48d"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/components.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "445d14de800e765d23a0382f02067a12b19544020f1fae75f177c950e29dfa6f"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/markdown.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "457e6fa5e7b1d59afa3373c12b72ecda1bdfc23ee115ce2e16204b32033fcc5c"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/activity.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "36fd303fe8e34367521386c86d736558f2b2a7518d738375550caaa5135b98bd"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/pages.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "fd402fbf03c65fad25a0482e9d759e6506b7a6d8238764d3195a4a8f3187a865"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/workspace.js?v=223",
+      "status": 200,
+      "type": "script",
+      "sha256": "d6ad0f057148e49d4c0e13e9701b525a9839e9389aeccb30232fdd511d8fe961"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/brand-favicon.svg",
+      "status": 200,
+      "type": "other",
+      "sha256": "96ef30a17b8d11545c20f302c25f2bfc190fe85c720042c111a6df2716205a14"
+    }
+  ],
+  "styles": [
+    "http://127.0.0.1:8765/rt/design.css?v=223"
+  ],
+  "scripts": [
+    "http://127.0.0.1:8765/rt/types.js?v=223",
+    "http://127.0.0.1:8765/rt/api/http.js?v=223",
+    "http://127.0.0.1:8765/rt/api/client.js?v=223",
+    "http://127.0.0.1:8765/rt/api/mock.js?v=223",
+    "http://127.0.0.1:8765/rt/api/index.js?v=223",
+    "http://127.0.0.1:8765/rt/eventClient.js?v=223",
+    "http://127.0.0.1:8765/rt/eventReducer.js?v=223",
+    "http://127.0.0.1:8765/rt/taskStore.js?v=223",
+    "http://127.0.0.1:8765/rt/components.js?v=223",
+    "http://127.0.0.1:8765/rt/activity.js?v=223",
+    "http://127.0.0.1:8765/rt/markdown.js?v=223",
+    "http://127.0.0.1:8765/rt/workspace.js?v=223",
+    "http://127.0.0.1:8765/rt/pages.js?v=223"
+  ]
+}

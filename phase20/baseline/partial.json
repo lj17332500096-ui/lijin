@@ -1,0 +1,435 @@
+{
+  "M1": [
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "write_project_file",
+      "normalized_args": {
+        "path": "my_creative_agent/micro_fixture/calc.py",
+        "content": "def add(a, b):\n    return a + b\n\n\ndef multiply(a, b):\n    return a * b"
+      },
+      "capability": "MUTATION",
+      "semantic_action_class": "REVISE",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "write_project_file"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 91.22,
+      "final_text": null,
+      "error": null,
+      "i": 0,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_python",
+      "normalized_args": {
+        "project": "code_sandbox",
+        "code": "import sys\nsys.path.insert(0, r\"F:\\Byong-hermes\\Byong-hermes\\my_creative_agent\\micro_fixture\")\nfrom calc import add, multiply\nprint(\"add(3,4) =\", add(3,4))\nprint(\"multiply(3,4) =\", multiply(3,4))",
+        "timeout": 10
+      },
+      "capability": "CODE_EXECUTION",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "run_python"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 16.61,
+      "final_text": null,
+      "error": null,
+      "i": 1,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "edit_project_file",
+      "normalized_args": {
+        "path": "my_creative_agent/micro_fixture/calc.py",
+        "old_string": "def add(a, b):\n    # BUG\n    return a - b",
+        "new_string": "def add(a, b):\n    return a + b",
+        "replace_all": false,
+        "diff": true
+      },
+      "capability": "MUTATION",
+      "semantic_action_class": "REVISE",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "edit_project_file"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 143.72,
+      "final_text": null,
+      "error": null,
+      "i": 2,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "read_workspace_file",
+      "normalized_args": {
+        "path": "my_creative_agent/micro_fixture/calc.py",
+        "max_chars": 200
+      },
+      "capability": "READ",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "read_workspace_file"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 9.67,
+      "final_text": null,
+      "error": null,
+      "i": 3,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "write_project_file",
+      "normalized_args": {
+        "path": "my_creative_agent/micro_fixture/calc.py",
+        "content": "def add(a, b):\n    return a + b\n\n\ndef multiply(a, b):\n    return a * b"
+      },
+      "capability": "MUTATION",
+      "semantic_action_class": "REVISE",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "write_project_file"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 16.8,
+      "final_text": null,
+      "error": null,
+      "i": 4,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "read_workspace_file",
+      "normalized_args": {
+        "path": "my_creative_agent/micro_fixture/calc.py",
+        "max_chars": 1000
+      },
+      "capability": "READ",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "read_workspace_file"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 8.22,
+      "final_text": null,
+      "error": null,
+      "i": 5,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "write_project_file",
+      "normalized_args": {
+        "path": "my_creative_agent/micro_fixture/calc.py",
+        "content": "def add(a, b):\n    return a + b\n\n\ndef multiply(a, b):\n    return a * b"
+      },
+      "capability": "MUTATION",
+      "semantic_action_class": "REVISE",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "write_project_file"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 58.22,
+      "final_text": null,
+      "error": null,
+      "i": 6,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "list_workspace_files",
+      "normalized_args": {
+        "directory": "my_creative_agent/micro_fixture",
+        "max_entries": 50
+      },
+      "capability": "DISCOVERY",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "list_workspace_files"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 7.89,
+      "final_text": null,
+      "error": null,
+      "i": 7,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "write_project_file",
+      "normalized_args": {
+        "path": "my_creative_agent/micro_fixture/calc.py",
+        "content": "def add(a, b):\n    return a + b\n\n\ndef multiply(a, b):\n    return a * b"
+      },
+      "capability": "MUTATION",
+      "semantic_action_class": "REVISE",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "write_project_file"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 18.92,
+      "final_text": null,
+      "error": null,
+      "i": 8,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "read_workspace_file",
+      "normalized_args": {
+        "path": "my_creative_agent/micro_fixture/calc.py",
+        "max_chars": 12000
+      },
+      "capability": "READ",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "read_workspace_file"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 11.7,
+      "final_text": null,
+      "error": null,
+      "i": 9,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    }
+  ],
+  "M4": [
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "extra_args": "-q",
+        "target": "test_calc.py"
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 12.14,
+      "final_text": null,
+      "error": null,
+      "i": 0,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_python",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "code": "from calc import add, multiply\n# 验证 add\nassert add(2, 3) == 5, f\"add(2,3) 结果为 {add(2, 3)}，预期 5\"\nassert add(-1, 1) == 0, f\"add(-1,1) 结果为 {add(-1, 1)}，预期 0\"\n# 验证 multiply 没被改动\nassert multiply(2, 3) == 6\nprint(\"所有测试通过，add 修复正确\")",
+        "timeout": 40
+      },
+      "capability": "CODE_EXECUTION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "run_python"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 25.89,
+      "final_text": null,
+      "error": null,
+      "i": 1,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "list_workspace_files",
+      "normalized_args": {
+        "directory": "F:\\Byong-hermes\\Byong-hermes\\my_creative_agent\\micro_fixture",
+        "max_entries": 50
+      },
+      "capability": "DISCOVERY",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "list_workspace_files"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 20.98,
+      "final_text": null,
+      "error": null,
+      "i": 2,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "target": "test_calc.py",
+        "extra_args": "-v",
+        "timeout": 120
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 9.72,
+      "final_text": null,
+      "error": null,
+      "i": 3,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "target": "test_calc.py"
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 24.59,
+      "final_text": null,
+      "error": null,
+      "i": 4,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "list_workspace_files",
+      "normalized_args": {
+        "directory": "F:\\Byong-hermes\\Byong-hermes\\my_creative_agent\\micro_fixture",
+        "max_entries": 20
+      },
+      "capability": "DISCOVERY",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "list_workspace_files"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 12.03,
+      "final_text": null,
+      "error": null,
+      "i": 5,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "list_workspace_files",
+      "normalized_args": {
+        "directory": "F:\\Byong-hermes\\Byong-hermes\\my_creative_agent\\micro_fixture",
+        "max_entries": 50
+      },
+      "capability": "DISCOVERY",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "list_workspace_files"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 9.44,
+      "final_text": null,
+      "error": null,
+      "i": 6,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "list_workspace_files",
+      "normalized_args": {
+        "directory": "F:\\Byong-hermes\\Byong-hermes\\my_creative_agent\\micro_fixture",
+        "max_entries": 20
+      },
+      "capability": "DISCOVERY",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "list_workspace_files"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 11.7,
+      "final_text": null,
+      "error": null,
+      "i": 7,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "target": "test_calc.py",
+        "timeout": 120
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 8.7,
+      "final_text": null,
+      "error": null,
+      "i": 8,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "list_workspace_files",
+      "normalized_args": {
+        "directory": "F:\\Byong-hermes\\Byong-hermes\\my_creative_agent\\micro_fixture",
+        "max_entries": 20
+      },
+      "capability": "DISCOVERY",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "list_workspace_files"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 11.24,
+      "final_text": null,
+      "error": null,
+      "i": 9,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    }
+  ]
+}

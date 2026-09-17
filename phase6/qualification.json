@@ -1,0 +1,75 @@
+{
+  "qualification_id": "pq-20260911050451",
+  "timestamp": "2026-09-11T05:04:51+00:00",
+  "provider": "https://apihub.agnes-ai.cn/v1",
+  "model": "agnes-2.5-flash",
+  "success_rate": 1.0,
+  "P50_latency_ms": 1234.0,
+  "P95_latency_ms": 2093.0,
+  "max_latency_ms": 2093.0,
+  "provider_error_count": 0,
+  "timeout_count": 0,
+  "environment_degraded": false,
+  "results": [
+    {
+      "ok": true,
+      "latency_ms": 1625.0,
+      "tokens": true,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_ms": 1234.0,
+      "tokens": true,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_ms": 953.0,
+      "tokens": true,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_ms": 1063.0,
+      "tokens": true,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_ms": 1484.0,
+      "tokens": true,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_ms": 1109.0,
+      "tokens": true,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_ms": 985.0,
+      "tokens": true,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_ms": 1562.0,
+      "tokens": true,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_ms": 1235.0,
+      "tokens": true,
+      "error": null
+    },
+    {
+      "ok": true,
+      "latency_ms": 2093.0,
+      "tokens": true,
+      "error": null
+    }
+  ]
+}

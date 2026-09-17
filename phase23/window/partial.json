@@ -1,0 +1,134 @@
+{
+  "M4": {
+    "n": 5,
+    "success": 5,
+    "first_action_verification": 5,
+    "success_rate": 1.0,
+    "first_action_rate": 1.0,
+    "category_counts": {
+      "PASS": 5
+    },
+    "latency_avg_s": 102.27,
+    "runs": [
+      {
+        "i": 0,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "FINAL_TEXT",
+        "latency_s": 109.19,
+        "error": null,
+        "action_count": 7,
+        "first_tool": "run_tests",
+        "tool_sequence": [
+          "run_tests",
+          "run_python",
+          "run_python",
+          "list_workspace_files",
+          "read_workspace_file",
+          "list_code_files",
+          "read_workspace_file"
+        ],
+        "window_category": "PASS",
+        "window_success": true,
+        "semantic_action_class": "SEMANTIC_VERIFICATION",
+        "semantic_verification": true
+      },
+      {
+        "i": 1,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 97.02,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "action_count": 9,
+        "first_tool": "run_tests",
+        "tool_sequence": [
+          "run_tests",
+          "list_workspace_files",
+          "run_python",
+          "run_python",
+          "read_workspace_file",
+          "list_code_files",
+          "read_workspace_file",
+          "read_workspace_file",
+          "read_workspace_file"
+        ],
+        "window_category": "PASS",
+        "window_success": true,
+        "semantic_action_class": "SEMANTIC_VERIFICATION",
+        "semantic_verification": true
+      },
+      {
+        "i": 2,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 112.62,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "action_count": 9,
+        "first_tool": "run_tests",
+        "tool_sequence": [
+          "run_tests",
+          "run_python",
+          "read_workspace_file",
+          "run_python",
+          "read_workspace_file",
+          "run_python",
+          "write_code_file",
+          "run_python",
+          "list_code_files"
+        ],
+        "window_category": "PASS",
+        "window_success": true,
+        "semantic_action_class": "SEMANTIC_VERIFICATION",
+        "semantic_verification": true
+      },
+      {
+        "i": 3,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 117.92,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "action_count": 9,
+        "first_tool": "run_tests",
+        "tool_sequence": [
+          "run_tests",
+          "run_python",
+          "list_code_files",
+          "read_workspace_file",
+          "list_workspace_files",
+          "write_code_file",
+          "read_workspace_file",
+          "write_code_file",
+          "list_code_files"
+        ],
+        "window_category": "PASS",
+        "window_success": true,
+        "semantic_action_class": "SEMANTIC_VERIFICATION",
+        "semantic_verification": true
+      },
+      {
+        "i": 4,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "FINAL_TEXT",
+        "latency_s": 74.61,
+        "error": null,
+        "action_count": 5,
+        "first_tool": "run_tests",
+        "tool_sequence": [
+          "run_tests",
+          "run_python",
+          "run_python",
+          "read_code_file",
+          "run_python"
+        ],
+        "window_category": "PASS",
+        "window_success": true,
+        "semantic_action_class": "SEMANTIC_VERIFICATION",
+        "semantic_verification": true
+      }
+    ]
+  }
+}

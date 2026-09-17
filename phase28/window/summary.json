@@ -1,0 +1,44 @@
+{
+  "M1": {
+    "n": 10,
+    "first_semantic": 0,
+    "semantic_within_k": 4,
+    "latest_rev_verification": 7,
+    "obligation_satisfying": 5,
+    "premature_final": 0,
+    "category_counts": {
+      "W7_SCOPE_INSUFFICIENT": 2,
+      "W3C_UNJUSTIFIED_POST_PASS_MUTATION": 2,
+      "PASS": 5,
+      "W1_NO_VERIFICATION": 1
+    },
+    "w1_class_counts": {},
+    "w3_class_counts": {
+      "W3C_UNJUSTIFIED_POST_PASS_MUTATION": 2
+    },
+    "latency_avg_s": 5.02,
+    "avg_model_turns": 2.4,
+    "avg_non_blocked_executions": 3.4
+  },
+  "M4": {
+    "n": 10,
+    "first_semantic": 0,
+    "semantic_within_k": 4,
+    "latest_rev_verification": 7,
+    "obligation_satisfying": 5,
+    "premature_final": 0,
+    "category_counts": {
+      "PASS": 5,
+      "W7_SCOPE_INSUFFICIENT": 2,
+      "W1B_FINAL_BLOCKED_BUT_NO_RECOVERY": 2,
+      "W1_NO_VERIFICATION": 1
+    },
+    "w1_class_counts": {
+      "W1B_FINAL_BLOCKED_BUT_NO_RECOVERY": 2
+    },
+    "w3_class_counts": {},
+    "latency_avg_s": 4.73,
+    "avg_model_turns": 2.0,
+    "avg_non_blocked_executions": 2.9
+  }
+}

@@ -1,0 +1,70 @@
+# GitHub Actions：Router Gate CI
+# 触发：改动 router 相关文件时，PR / push / 手动触发
+# 放行条件：scripts/ci_router_gate.py 全过（79 条测试）
+
+name: Router Gate
+
+on:
+  pull_request:
+    paths:
+      - "runtime/tool_router.py"
+      - "runtime/runner.py"
+      - "tests/test_tool_router.py"
+      - "agent.py"
+      - "main.py"
+      - ".github/workflows/router-gate.yml"
+  push:
+    branches: [main, master]
+    paths:
+      - "runtime/tool_router.py"
+      - "runtime/runner.py"
+      - "tests/test_tool_router.py"
+      - "agent.py"
+      - "main.py"
+  workflow_dispatch:  # 支持手动触发
+
+# 并发限制：同一 workflow + 同一 PR/分支 只跑一个，新提交取消旧的（cancel-in-progress）
+# 避免多个 PR 或快速连续 push 浪费 runner 配额。
+# github.event_name == 'pull_request' 时取 PR head SHA，push 时取 commit SHA，
+# 这样同一 PR 的多个 run 会因 group 相同而被 cancel-in-progress 取消。
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.pull_request.number) || github.sha }}
+  cancel-in-progress: true
+
+jobs:
+  router-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Run Router Gate
+        run: python scripts/ci_router_gate.py
+
+      - name: Upload test report (on failure)
+        if: failure()
+        run: |
+          mkdir -p artifacts
+          pytest tests/test_tool_router.py -v --tb=short --junitxml=artifacts/test-results.xml || true
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: router-gate-results
+          path: artifacts/
+          if-no-files-found: ignore

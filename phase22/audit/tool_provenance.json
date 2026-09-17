@@ -1,0 +1,972 @@
+[
+  {
+    "tool_name": "save_note",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MUTATION",
+    "category": "filesystem",
+    "side_effect": true,
+    "risk": "low",
+    "schema_hash": "e2e83a4db0516a35"
+  },
+  {
+    "tool_name": "read_note",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "READ",
+    "category": "filesystem",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "e1d790986e7f3bcb"
+  },
+  {
+    "tool_name": "list_notes",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "DISCOVERY",
+    "category": "filesystem",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "e27733b7e8918805"
+  },
+  {
+    "tool_name": "web_search",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "EXTERNAL_FACT",
+    "category": "web",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "d14b4d6fa50dbbd5"
+  },
+  {
+    "tool_name": "get_current_datetime",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "EXTERNAL_FACT",
+    "category": "utility",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "3231ac4240a170ec"
+  },
+  {
+    "tool_name": "read_workspace_file",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "READ",
+    "category": "filesystem",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "61a67a948905adb3"
+  },
+  {
+    "tool_name": "list_workspace_files",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "DISCOVERY",
+    "category": "filesystem",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "031fc42906a6ad60"
+  },
+  {
+    "tool_name": "calculate",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "OTHER",
+    "category": "math",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "f953a19952d8b301"
+  },
+  {
+    "tool_name": "remember",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MEMORY",
+    "category": "memory",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "12288b1514f9592a"
+  },
+  {
+    "tool_name": "recall_memory",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MEMORY",
+    "category": "memory",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "f778ba7939adf82f"
+  },
+  {
+    "tool_name": "forget_memory",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MEMORY",
+    "category": "memory",
+    "side_effect": true,
+    "risk": "high",
+    "schema_hash": "d83a65d5890a062c"
+  },
+  {
+    "tool_name": "index_workspace",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "DISCOVERY",
+    "category": "rag",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "99c46b67d629b3e1"
+  },
+  {
+    "tool_name": "search_documents",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "DISCOVERY",
+    "category": "rag",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "c8416c002304cc3d"
+  },
+  {
+    "tool_name": "schedule_add",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "COMMUNICATION",
+    "category": "scheduler",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "da8be5356e924c86"
+  },
+  {
+    "tool_name": "schedule_list",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "DISCOVERY",
+    "category": "scheduler",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "fe7724b0fb9ddf81"
+  },
+  {
+    "tool_name": "schedule_remove",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "COMMUNICATION",
+    "category": "scheduler",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "881a5ad74d7c7f68"
+  },
+  {
+    "tool_name": "schedule_set_enabled",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "COMMUNICATION",
+    "category": "scheduler",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "3805f390389579d3"
+  },
+  {
+    "tool_name": "ask_image",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "OTHER",
+    "category": "vision",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "8cabcd2575ac6cdf"
+  },
+  {
+    "tool_name": "deep_research",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "EXTERNAL_FACT",
+    "category": "research",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "4997e15b6972f381"
+  },
+  {
+    "tool_name": "fetch_github_repo",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "DISCOVERY",
+    "category": "github",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "ceb437df27579be4"
+  },
+  {
+    "tool_name": "write_code_file",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MUTATION",
+    "category": "code",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "509f3aab80ae3de3"
+  },
+  {
+    "tool_name": "read_code_file",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "READ",
+    "category": "code",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "3ce51be6c7739ec0"
+  },
+  {
+    "tool_name": "list_code_files",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "DISCOVERY",
+    "category": "code",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "ad64880679afc830"
+  },
+  {
+    "tool_name": "run_python",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "CODE_EXECUTION",
+    "category": "code",
+    "side_effect": true,
+    "risk": "high",
+    "schema_hash": "ff5816db0dd9fa99"
+  },
+  {
+    "tool_name": "run_tests",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "VERIFICATION",
+    "category": "code",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "eda4a8023aa8bcfb"
+  },
+  {
+    "tool_name": "code_loop",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MUTATION_VERIFICATION_LOOP",
+    "category": "code",
+    "side_effect": true,
+    "risk": "high",
+    "schema_hash": "5035ea870dc433c0"
+  },
+  {
+    "tool_name": "sandbox_snapshot",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "DISCOVERY",
+    "category": "sandbox",
+    "side_effect": true,
+    "risk": "low",
+    "schema_hash": "ff2fea5b2c2f8c3b"
+  },
+  {
+    "tool_name": "sandbox_rollback",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MUTATION",
+    "category": "sandbox",
+    "side_effect": true,
+    "risk": "high",
+    "schema_hash": "f707e2ca41ad76e6"
+  },
+  {
+    "tool_name": "list_sandbox_snapshots",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "DISCOVERY",
+    "category": "sandbox",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "ad5836ae36340b38"
+  },
+  {
+    "tool_name": "read_office_file",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "READ",
+    "category": "office",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "6ab2f65c9651c5be"
+  },
+  {
+    "tool_name": "read_spreadsheet",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "READ",
+    "category": "office",
+    "side_effect": false,
+    "risk": "low",
+    "schema_hash": "526893d3a0bff7ff"
+  },
+  {
+    "tool_name": "save_word_doc",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MUTATION",
+    "category": "office",
+    "side_effect": true,
+    "risk": "low",
+    "schema_hash": "a9cd245d0e3762ab"
+  },
+  {
+    "tool_name": "save_excel_workbook",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MUTATION",
+    "category": "office",
+    "side_effect": true,
+    "risk": "low",
+    "schema_hash": "da7d22a35348868a"
+  },
+  {
+    "tool_name": "save_ppt_deck",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MUTATION",
+    "category": "office",
+    "side_effect": true,
+    "risk": "low",
+    "schema_hash": "6ad6b0b773aaac05"
+  },
+  {
+    "tool_name": "write_project_file",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MUTATION",
+    "category": "filesystem",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "82244643b62148d0"
+  },
+  {
+    "tool_name": "edit_project_file",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MUTATION",
+    "category": "filesystem",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "c90b90b7c813310a"
+  },
+  {
+    "tool_name": "search_sources",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "da6285e802d4f893"
+  },
+  {
+    "tool_name": "gorden_ppt_templates",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "OTHER",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "9d56e2c5c8bf2580"
+  },
+  {
+    "tool_name": "gorden_ppt_template_intro",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "OTHER",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "349c57643de11628"
+  },
+  {
+    "tool_name": "gorden_ppt_build",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "b8c6452083577ebc"
+  },
+  {
+    "tool_name": "gorden_ppt_apply_custom",
+    "source": "CORE_RUNTIME",
+    "source_detail": "native",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "14c738d686305ebc"
+  },
+  {
+    "tool_name": "gitee_compare_branches_tags",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "d912e59e68a073b4"
+  },
+  {
+    "tool_name": "gitee_create_comment",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "cac82205f8008292"
+  },
+  {
+    "tool_name": "gitee_create_issue",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "70e4ae75c1d948fb"
+  },
+  {
+    "tool_name": "gitee_create_pull",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "74ee45a2b750ebee"
+  },
+  {
+    "tool_name": "gitee_create_release",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "305f72c7b1ba147d"
+  },
+  {
+    "tool_name": "gitee_create_repo",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "835bbcdeb2e1dabf"
+  },
+  {
+    "tool_name": "gitee_fork_repository",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "44ce7b23357038cb"
+  },
+  {
+    "tool_name": "gitee_get_diff_files",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "READ",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "c95ae400ddaa4a42"
+  },
+  {
+    "tool_name": "gitee_get_file_content",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "READ",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "33577e1a22eb6d43"
+  },
+  {
+    "tool_name": "gitee_get_pull_detail",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "READ",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "fed145c3fd560d6e"
+  },
+  {
+    "tool_name": "gitee_get_repo_issue_detail",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "READ",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "f3343314db03e203"
+  },
+  {
+    "tool_name": "gitee_get_user_info",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "READ",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "27c87f4b2f1e1c6e"
+  },
+  {
+    "tool_name": "gitee_list_comments",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "1ee698ca93846b4f"
+  },
+  {
+    "tool_name": "gitee_list_releases",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "b2c14dc7e0adadcf"
+  },
+  {
+    "tool_name": "gitee_list_repo_issues",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "12e6e38d705e33c7"
+  },
+  {
+    "tool_name": "gitee_list_repo_pulls",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "b981e712cccfc459"
+  },
+  {
+    "tool_name": "gitee_list_user_notifications",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "514c2bac2dcd76ef"
+  },
+  {
+    "tool_name": "gitee_list_user_repos",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "1b333a2ba7cf3b3f"
+  },
+  {
+    "tool_name": "gitee_manage_pull_review",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "OTHER",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "82c4e45a269b1cad"
+  },
+  {
+    "tool_name": "gitee_merge_pull",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "45312332dd4da91b"
+  },
+  {
+    "tool_name": "gitee_search_files_by_content",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "READ",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "b0e99b1f181c4347"
+  },
+  {
+    "tool_name": "gitee_search_open_source_repositories",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "d277f181ef32712a"
+  },
+  {
+    "tool_name": "gitee_search_users",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "df7011e76b9ab4ae"
+  },
+  {
+    "tool_name": "gitee_update_issue",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "e06ebc0e193a9e69"
+  },
+  {
+    "tool_name": "gitee_update_pull",
+    "source": "MCP",
+    "source_detail": "gitee",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "07e747f23c4e6933"
+  },
+  {
+    "tool_name": "chrome_click",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "04b077b616c74459"
+  },
+  {
+    "tool_name": "chrome_close_page",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "OTHER",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "285a1582fb09fb42"
+  },
+  {
+    "tool_name": "chrome_drag",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "00fe9894d84e400a"
+  },
+  {
+    "tool_name": "chrome_emulate",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "OTHER",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "eda550b5bb793c0e"
+  },
+  {
+    "tool_name": "chrome_evaluate_script",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "538e77b64b2fed3a"
+  },
+  {
+    "tool_name": "chrome_fill",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "f1b07273dbbb0f37"
+  },
+  {
+    "tool_name": "chrome_fill_form",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "bdb7e7896393f539"
+  },
+  {
+    "tool_name": "chrome_get_console_message",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "READ",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "2eaff4a5e5fc12af"
+  },
+  {
+    "tool_name": "chrome_get_network_request",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "READ",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "0bbb695a1ca08829"
+  },
+  {
+    "tool_name": "chrome_handle_dialog",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "OTHER",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "87d2a4007b950054"
+  },
+  {
+    "tool_name": "chrome_hover",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "OTHER",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "7efd47601a216dd0"
+  },
+  {
+    "tool_name": "chrome_lighthouse_audit",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "309bbc10f1cf36c2"
+  },
+  {
+    "tool_name": "chrome_list_console_messages",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "86efdfb9579c9502"
+  },
+  {
+    "tool_name": "chrome_list_network_requests",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "f4952f71f10fd809"
+  },
+  {
+    "tool_name": "chrome_list_pages",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "d4df0137bb185907"
+  },
+  {
+    "tool_name": "chrome_navigate_page",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "73e3a5005e905758"
+  },
+  {
+    "tool_name": "chrome_new_page",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "OTHER",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "47ee4ec37d7626a0"
+  },
+  {
+    "tool_name": "chrome_performance_analyze_insight",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "OTHER",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "f7b2ab8e5f9aa415"
+  },
+  {
+    "tool_name": "chrome_performance_start_trace",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "d05556aeabd52cc8"
+  },
+  {
+    "tool_name": "chrome_performance_stop_trace",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "154d28df412825ce"
+  },
+  {
+    "tool_name": "chrome_press_key",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "51dbe1f362e3d486"
+  },
+  {
+    "tool_name": "chrome_resize_page",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "OTHER",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "da27ec388123a955"
+  },
+  {
+    "tool_name": "chrome_select_page",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "OTHER",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "bc5c6cb8c0a282e9"
+  },
+  {
+    "tool_name": "chrome_take_heapsnapshot",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "d934e0e95e65ef17"
+  },
+  {
+    "tool_name": "chrome_take_screenshot",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "5350a64cfb0d8c78"
+  },
+  {
+    "tool_name": "chrome_take_snapshot",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "DISCOVERY",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "806326a54b8e4416"
+  },
+  {
+    "tool_name": "chrome_type_text",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "44c4431a8c15ce7d"
+  },
+  {
+    "tool_name": "chrome_upload_file",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "MUTATION",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "1250a2565f8a3321"
+  },
+  {
+    "tool_name": "chrome_wait_for",
+    "source": "MCP",
+    "source_detail": "chrome",
+    "capability": "OTHER",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "31c63b81cc01cb30"
+  },
+  {
+    "tool_name": "youtube_get-transcript",
+    "source": "MCP",
+    "source_detail": "youtube",
+    "capability": "READ",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "231581bea051b177"
+  },
+  {
+    "tool_name": "youtube_get-transcript-languages",
+    "source": "MCP",
+    "source_detail": "youtube",
+    "capability": "READ",
+    "category": "utility",
+    "side_effect": true,
+    "risk": "medium",
+    "schema_hash": "e51a38bd0a937feb"
+  }
+]

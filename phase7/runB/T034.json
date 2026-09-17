@@ -1,0 +1,56 @@
+{
+  "id": "T034",
+  "prompt": "XXX 公司今天股价是多少？",
+  "container_id": "tk_2bdfb058",
+  "run_id": "task_211233cb",
+  "observed_state_at_deadline": "waiting_user",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T11:42:16+00:00",
+  "terminal_state": "waiting_user",
+  "terminal_at": "2026-09-11T11:42:16+00:00",
+  "final_status": "waiting_user",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 60.61,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "needs_user_input",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "{\n  \"content\": \"请问您想查询的是哪家公司的股价？请提供公司全称或股票代码（例如：腾讯 00700.HK、苹果 AAPL、茅台 600519.SH 等）。\\n\\n另外，您关注的是哪个市场的股票？（A股/港股/美股等）\"\n}",
+  "reply_kind": "questions",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0,
+    "db_unique_executions": 0
+  },
+  "_exec": {},
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1906.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 57235.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

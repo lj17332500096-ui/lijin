@@ -1,0 +1,69 @@
+{
+  "tool": "run_python",
+  "rows": [
+    {
+      "strict": true,
+      "n": 3,
+      "selection_rate": 0.0,
+      "valid_arg_rate": 0.0,
+      "runs": [
+        {
+          "tool": "run_python",
+          "strict": true,
+          "selected": false,
+          "calls": [],
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded",
+          "final": ""
+        },
+        {
+          "tool": "run_python",
+          "strict": true,
+          "selected": false,
+          "calls": [],
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded",
+          "final": ""
+        },
+        {
+          "tool": "run_python",
+          "strict": true,
+          "selected": false,
+          "calls": [],
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded",
+          "final": ""
+        }
+      ]
+    },
+    {
+      "strict": false,
+      "n": 3,
+      "selection_rate": 0.0,
+      "valid_arg_rate": 0.0,
+      "runs": [
+        {
+          "tool": "run_python",
+          "strict": false,
+          "selected": false,
+          "calls": [],
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded",
+          "final": ""
+        },
+        {
+          "tool": "run_python",
+          "strict": false,
+          "selected": false,
+          "calls": [],
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded",
+          "final": ""
+        },
+        {
+          "tool": "run_python",
+          "strict": false,
+          "selected": false,
+          "calls": [],
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded",
+          "final": ""
+        }
+      ]
+    }
+  ]
+}

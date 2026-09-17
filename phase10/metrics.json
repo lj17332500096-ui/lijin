@@ -1,0 +1,20 @@
+{
+  "coding_runs": 30,
+  "runs_with_mutation": 23,
+  "runs_with_verification_pass": 14,
+  "premature_mutation_runs": 21,
+  "post_mutation": {
+    "total": 295,
+    "avg_per_run": 12.83,
+    "median": 12,
+    "p95": 27
+  },
+  "post_verify": {
+    "total": 196,
+    "avg_per_run": 14,
+    "median": 13.0,
+    "p95": 22,
+    "unjustified_total": 196,
+    "unjustified_avg_per_run": 14
+  }
+}

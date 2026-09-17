@@ -1,0 +1,9 @@
+# Prometheus 抓取配置（仅 forge-router job 片段）
+# 把这段合进你的 prometheus.yml 的 scrape_configs 数组。
+
+scrape_configs:
+  - job_name: forge-router
+    static_configs:
+      - targets: ['127.0.0.1:9095']
+    scrape_interval: 60s
+    scrape_timeout: 10s

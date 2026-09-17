@@ -1,0 +1,15 @@
+{
+  "name": "readiness-fixture-app",
+  "version": "1.0.0",
+  "private": true,
+  "description": "隔离的 Task Readiness Coding fixture（仅用于 E2E，禁止作为真实产品仓库）",
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "jest"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.5.0",
+    "jest": "^29.7.0",
+    "typescript": "^5.0.0"
+  }
+}

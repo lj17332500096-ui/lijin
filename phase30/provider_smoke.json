@@ -1,0 +1,42 @@
+{
+  "P1_models": {
+    "status": 200,
+    "ids": [
+      "G:\\models\\Ornith-1.5-9B-Q5_K_M.gguf"
+    ],
+    "error": null
+  },
+  "P2_completion": {
+    "status": 200,
+    "elapsed": 10.36,
+    "content": "OK",
+    "reasoning_present": true,
+    "error": null
+  },
+  "P4_streaming": {
+    "status": null,
+    "error": "JSONDecodeError: Expecting value: line 1 column 1 (char 0)",
+    "note": "non-stream path only (urllib)"
+  },
+  "FC_A_calculate": {
+    "n": 5,
+    "tool_call_generated": 5,
+    "tool_name_correct": 5,
+    "valid_json_args": 5,
+    "latency_avg": 17.9
+  },
+  "FC_B_run_tests": {
+    "n": 5,
+    "tool_call_generated": 5,
+    "valid_json_args": 5,
+    "semantic_verification": 5,
+    "latency_avg": 26.0
+  },
+  "FC_C_14tools": {
+    "n": 5,
+    "tool_call_generated": 5,
+    "valid_json_args": 5,
+    "plain_text_fake_tool_call": 0,
+    "latency_avg": 36.0
+  }
+}

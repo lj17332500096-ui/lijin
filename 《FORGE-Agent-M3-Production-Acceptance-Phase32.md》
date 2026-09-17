@@ -1,0 +1,467 @@
+# FORGE Agent — Phase 32 Report：Regression Truth + M3 Closed Loop + run_tests Production Acceptance
+
+> **Date**: 2026-09-14
+> **Status**: ⚠️ PARTIAL — Regression Truth PASS；M3 Closed Loop FAIL
+> **Behavior Model**: `G:\models\Spark-X2.5-4B.gguf`（FULL_GPU，Vulkan）
+
+---
+
+## 1. Executive Summary
+
+Phase 32 完成三件事：**Regression Truth**（逐项分类 16 个失败）、**M3 基础设施 + 闭环实测**、**run_tests Production 判定**。
+
+关键结论：
+
+1. **Regression Truth**：16 个失败全部归入 A/B/C 三类，**无一个被标为 "pre-existing" 跳过**：
+   - **A. REAL REGRESSION = 1**（`test_guard_a_suppresses_exact_repeat_read`）→ 已在 `runtime/runner.py` 修复
+   - **B. TEST OBSOLETE AFTER INTENTIONAL SEMANTIC CHANGE = 10**（Phase 24 三态 mutation 语义使旧 fixture 文本失效）→ 已更新 fixture 文本，断言保留
+   - **C. TEST/HARNESS BUG = 0**
+   - **NON-RUNTIME（UI/theme）= 5**（`test_theme_cdp.py`，需要后端 :8765 + Edge CDP，与 Agent Runtime 无关）
+2. 修复过程中额外发现并修复 **3 个真实缺陷**：
+   - `completion._MUTATION_PASS_MARKERS` 与 `runner._MUTATION_SUCCESS_MARKERS` 不一致（"覆盖"/"回滚"/"❌ 失败"）
+   - **审批暂停 + resume 丢失 mutation/verification 证据**（obligation gate 误报缺失）
+   - `_workspace_hash` 纳入易变缓存（`__pycache__`/`.pytest_cache`）导致 Full Replay Fidelity 不稳定
+3. **Runtime Acceptance Suite** 建立并 **100% PASS（430 tests）**。
+4. **Spark Config Hash** canonical 化：`0c8830434416d9533a13cac9b068723bc24ad5dccda7abd2df027898434523c3`
+5. **FC-C N=5 = 5/5 PASS**（valid call / valid JSON args / 0 fake / 0 parser failure）。
+6. **M1/M4 重验证 = 10/10 PASS**（修复后无回归）。
+7. **M3 = 0/3 FAIL**：Spark-X2.5-4B 无法稳定完成 `FAIL→REPAIR→PASS→COMPLETE` 闭环。
+
+**run_tests 维持 EXPERIMENTAL**（M3 Gate 未通过）。
+
+---
+
+## 2. Phase 31 Truth Corrections
+
+| Phase 31 写法 | Phase 32 修正 |
+|--------------|--------------|
+| `Spark config hash = 4462d49b...`（binary SHA 前缀） | 真正的 canonical `SPARK_TEST_CONFIG_HASH`（见 §7） |
+| `FC-C = 1/1` | 补齐为 `FC-C = 5/5`（N=5） |
+| `code_loop Live Truth = PASS` | 修正为 `code_loop deterministic truth = PASS`；`live compound changed+pass = NOT ESTABLISHED` |
+| `797 passed / 16 failed`（未分类） | 逐项分类 + 修复（见 §4-6） |
+| M1/M4 20/20（Phase 31 旧代码） | 修复后重验证 10/10（§9） |
+
+---
+
+## 3. Runtime Acceptance Suite
+
+**Manifest**: `runtime_acceptance_suite.json`（16 类，去重 31 个测试文件）
+**Runner**: `tests/run_runtime_acceptance.py`
+
+覆盖：mutation truth / revision truth / verification obligation / repair semantics / completion /
+decision policy / code_loop / router / approval / permission / strict window / snapshot fidelity /
+run_tests / provider adapter / readiness / runtime core。
+
+```
+Runtime Acceptance Suite: 430 passed  (100% PASS)
+```
+
+| 类别 | 文件 | 结果 |
+|------|------|------|
+| mutation_truth | test_phase23_mutation_truth.py | ✅ |
+| revision_truth | test_phase24_evidence_truth.py | ✅ |
+| verification_obligation | test_phase12_obligations.py, test_verification.py | ✅ |
+| repair_semantics | test_phase18_repair_semantics.py | ✅ |
+| completion | test_phase11_completion.py, test_phase10_guards.py, test_completion_gate.py | ✅ |
+| decision_policy | test_phase9_decision_policy.py + convergence + terminalization | ✅ |
+| code_loop | test_phase26_codeloop_dual.py | ✅ |
+| router | test_tool_router.py, test_phase22_router_authority.py, test_budget_router.py | ✅ |
+| approval | test_approval.py | ✅ |
+| permission | test_trust.py, test_mcp_bridge_policy.py | ✅ |
+| strict_window | test_phase30_strict_window.py | ✅ |
+| snapshot_fidelity | test_phase30_strict_window.py | ✅ |
+| run_tests | test_tools.py, test_code_exec.py | ✅ |
+| provider_adapter | test_provider_errors.py, test_aux_provider_retry.py, test_model_select.py | ✅ |
+| readiness | test_readiness_closure.py, test_task_readiness.py | ✅ |
+| runtime_core | phase5/runtime/task_runtime/cleanup/guardrails/concurrency/production_closure | ✅ |
+
+---
+
+## 4. Full Repository Regression Truth
+
+```
+Full Repository Regression = 808 passed / 5 failed / 4 skipped
+Runtime-related regression failures = 0
+Non-runtime failures = 5 (test_theme_cdp.py, UI/theme CDP)
+```
+
+| 桶 | 数量 | 说明 |
+|----|------|------|
+| Runtime Acceptance Suite | 430 | 100% PASS |
+| 其余 runtime 测试 | 378 | PASS |
+| **Runtime-related failures** | **0** | — |
+| **Non-runtime failures（UI/theme）** | **5** | 需后端 :8765 + Edge headless；与 Agent Runtime 无关 |
+| skipped | 4 | — |
+
+**NON-RUNTIME REGRESSION BUCKET（明确列出）**：
+- `test_theme_cdp.py::LightThemeRegression::test_fail_card_light`
+- `test_theme_cdp.py::LightThemeRegression::test_home_hero_and_composer_light`
+- `test_theme_cdp.py::LightThemeRegression::test_settings_projectlist_light`
+- `test_theme_cdp.py::DarkThemeRegression::test_composer_dark_not_white`
+- `test_theme_cdp.py::DarkThemeRegression::test_wrap_gradient_dark`
+
+---
+
+## 5. Phase 12 Failure Audit
+
+| Test | Expected Old Semantics | Actual Current Semantics | Still Valid? | Regression? | Obsolete? | Root Cause |
+|------|----------------------|------------------------|--------------|-------------|-----------|-----------|
+| `VerificationDueTests::test_due_after_mutation_when_required` | mutation 后 `verification_due()=True` | `False` | ✅ 断言有效 | ❌ | ✅ fixture | fixture 用 `"edited"`（非 COMMITTED 标记）→ mutation_seen=False |
+| `VerificationDueTests::test_due_cleared_by_latest_verification` | 新 mutation 后重新 due | `False` | ✅ | ❌ | ✅ fixture | 同上 |
+
+**分类：B（TEST OBSOLETE AFTER INTENTIONAL SEMANTIC CHANGE）**
+
+- **Old expectation**：任意 mutation 工具结果 → `mutation_seen=True`
+- **New expectation（Phase 23/24 正式 contract）**：只有结果文本命中成功标记（COMMITTED）才推进 revision；UNKNOWN/FAILED 不推进
+- **为什么新语义正确**：Phase 24 三态 mutation outcome 是防止"失败/未知写操作被当作真实变更"的核心安全语义（见 `《FORGE-Agent-Evidence-Truth-Phase24》.md` §8）
+- **修复**：fixture 文本 `"edited"` → `"已修改 calc.py"`（断言未改，未删除）
+
+---
+
+## 6. Phase 18 Failure Audit
+
+| Test | Expected | Actual | Still Valid? | Regression? | Obsolete? | Root Cause |
+|------|----------|--------|--------------|-------------|-----------|-----------|
+| `RepairSemanticsTests::test_control_no_verification_required` | 无验证义务 → COMPLETED | FAILED | ✅ | ❌ | ✅ fixture | fixture 用 `"m"` → UNKNOWN |
+| `RepairSemanticsTests::test_new_mutation_new_deficit_then_pass_completes` | 修复后验证通过 → COMPLETED | FAILED | ✅ | ❌ | ✅ fixture | fixture 用 `"m1"/"m2"` → UNKNOWN |
+
+**分类：B**（同 §5 根因）。**修复**：fixture 文本 → `"已修改 a.py"` / `"已修改 b.py"`。
+
+### 6.1 其余 9 个 runtime 失败（Phase 9/10/11）
+
+| Test | 分类 | 根因 |
+|------|------|------|
+| `phase9::test_mutation_then_discovery_saturates` | B | fixture `"edited"` → UNKNOWN |
+| `phase10::test_completion_ready_requires_mutation_and_verification` | B | fixture `"edited"` |
+| `phase10::test_guard_b_announces_then_terminates` | B | fixture `"edited"` |
+| `phase11::test_eligible_after_mutation_and_latest_verification` | B | fixture `"edited"` |
+| `phase11::test_new_mutation_invalidates_old_pass` | B | fixture `"edited"/"edited2"` |
+| `phase11::test_no_obligation_requires_both` | B | fixture `"edited"` |
+| `phase10::test_guard_a_not_triggered_after_mutation` | B | `_make_tool` 返回 `"ok-edit_project_file"`（非 COMMITTED） |
+| **`phase10::test_guard_a_suppresses_exact_repeat_read`** | **A. REAL REGRESSION** | **见 §6.2** |
+
+### 6.2 REAL REGRESSION（A）：Guard A 失效
+
+**现象**：`test_guard_a_suppresses_exact_repeat_read` 失败——第二次读同一文件未被 redundant guard 抑制。
+
+**根因**：Phase 24 把**整个** `note_execution_identity` 调用门在 `_mut_outcome == "COMMITTED"` 之后：
+
+```python
+# 修复前（runtime/runner.py）
+if _mut_outcome == "COMMITTED":
+    rctx.note_execution_identity(name, effective_args)
+```
+
+但 `note_execution_identity` 对**非 mutation 工具**（read/search/verification）负责 `mark_exact_seen`。
+`_mut_outcome` 对非 mutation 工具恒为 `"UNKNOWN"` → `mark_exact_seen` **永不调用** → Guard A 完全失效。
+
+**修复**（runtime/runner.py）：
+
+```python
+if name in _P9_MUTATION_TOOLS:
+    if _mut_outcome == "COMMITTED":
+        rctx.note_execution_identity(name, effective_args)   # bump epoch
+else:
+    rctx.note_execution_identity(name, effective_args)       # mark exact-seen
+```
+
+即：只把 **epoch bump** 门在 COMMITTED 之后；非 mutation 的 exact-seen 标记始终执行。
+Phase 24 报告 §8 明确只要求 `evidence_epoch` 受 COMMITTED 门控，故此为回归修复而非语义回退。
+
+---
+
+## 7. Spark Config Fingerprint
+
+**Canonical JSON**（排序字段）+ `SHA256(canonical_json)`：
+
+```json
+{"backend":"Vulkan","base_url":"http://localhost:8080/v1","chat_template":"gguf-embedded",
+"context":16384,"gpu_identity":"Intel(R) Arc(TM) A770 Graphics","gpu_layers":40,
+"llama_build":10514,"llama_commit":"4a3635c32",
+"llama_server_sha256":"4462d49b0b331f3202e6a64b9773cb62bdd068af29a0f5ee20aa2b8aadafa367",
+"max_tokens":2048,"model_path":"G:\\models\\Spark-X2.5-4B.gguf",
+"model_sha256":"8cecf405a41a4a10f833530910c2e13fde9fb39c325c8afc3c5d10e4181e1a14",
+"provider":"local","seed":-1,"temperature":0.7,"threads":12,
+"tool_parser":"llama.cpp-native","top_p":0.95}
+```
+
+```
+SPARK_TEST_CONFIG_HASH = 0c8830434416d9533a13cac9b068723bc24ad5dccda7abd2df027898434523c3
+```
+
+- 已写入 `.env`：`FORGE_SPARK_CONFIG_HASH=0c883043...`
+- Snapshot v2 新增字段 `spark_config_hash`；`_provider_fingerprint()` 亦含该字段
+- Full Replay Fidelity 新增 **CONFIG_MISMATCH** 检查：snapshot hash ≠ env hash → HARNESS 拒绝，禁止合并统计
+- 生成器：`_spark_config_hash.py` → `phase32/spark_config.json`
+
+---
+
+## 8. FC-C N=5
+
+真实 14-tool Router profile：
+
+```
+FC-C [1/5] calls=2 names=['list_workspace_files','calculate']  valid=True args_ok=True fake=False
+FC-C [2/5] calls=1 names=['list_workspace_files']              valid=True args_ok=True fake=False
+FC-C [3/5] calls=2 names=['list_workspace_files','list_code_files'] valid=True args_ok=True fake=False
+FC-C [4/5] calls=1 names=['search_documents']                  valid=True args_ok=True fake=False
+FC-C [5/5] calls=1 names=['write_code_file']                   valid=True args_ok=True fake=False
+```
+
+| 指标 | 值 |
+|------|-----|
+| valid function call | **5/5** |
+| valid JSON args | **5/5** |
+| fake tool calls | **0** |
+| parser failures | **0** |
+
+**FC-C = PASS**（`phase32/fc_c_n5.json`）
+
+> 注：实测中 llama.cpp Vulkan server 在长时间高负载后会退化（`content=''`, `finish=length`），
+> 需重启 server 后 FC 才恢复正常。这是 **provider 稳定性**风险，见 §20。
+
+---
+
+## 9. M1/M4 Qualification（修复后重验证）
+
+Phase 31 快照因 fixture 变更 + 新增 `spark_config_hash` 失效，已 **重新 capture**：
+
+| 快照 | schema | workspace_hash | spark_config_hash |
+|------|--------|----------------|-------------------|
+| M1 | 2 | 91c314b1a679bc94 | 0c883043... |
+| M4 | 2 | 91c314b1a679bc94 | 0c883043... |
+
+K=3 重跑（N=5 each）：
+
+| Case | N | PASS | obligation_satisfying | latest_rev | avg_non_blocked |
+|------|---|------|----------------------|-----------|-----------------|
+| M1 | 5 | 5/5 | 5/5 | 5/5 | 3.0 |
+| M4 | 5 | 5/5 | 5/5 | 5/5 | 3.0 |
+| **合计** | **10** | **10/10** | **10/10** | **10/10** | **3.0** |
+
+**M1/M4 = 10/10（无回归）**。Phase 31 的 20/20 因快照重捕不再直接可比，本轮以 10/10 为准。
+
+---
+
+## 10. M3 Fixture Truth
+
+**Phase 12 原始 M3 定义**（`tests/test_phase12_obligations.py`）：
+```
+"M3": "修复 bug 并运行测试；如果测试失败，继续修复直到通过。"
+```
+
+**未重新发明 M3**，仅据其语义构造 fixture（Phase 32 新增）：
+
+| 项 | 内容 |
+|----|------|
+| initial workspace state | `micro_fixture/` 含 `calc.py` + `helpers.py` + `test_calc.py` |
+| initial bug | BUG 1: `calc.py::add` 返回 `a - b`；BUG 2: `helpers.py::multiply` 返回 `a + b` |
+| expected failing verification | 首轮修复（通常只改 calc.py）后运行 tests → `test_multiply` FAIL |
+| expected repair | 读取失败证据 → 修复 `helpers.py::multiply` → revision+1 |
+| expected final verification | PROJECT 级 tests 全 PASS |
+| expected final behavior | `verified_revision = rev2`，obligation 满足，completed |
+
+**设计意图**：两个独立缺陷分处两个文件，使单文件重写无法一次通过（失败来自真实代码/测试，非 prompt 强制）。
+
+---
+
+## 11. Existing Production Budget（审计）
+
+`runtime/task.py::RunBudget`：
+
+| 参数 | 值 |
+|------|-----|
+| max_turns | 20 |
+| max_tool_calls | 100 |
+| max_wall_seconds | 3600 |
+| max_failures | 3 |
+| max_output_tokens | 4096 |
+| mutation 上限（单工具） | 3（`note_mutation`） |
+| no-progress 收敛 | convergence_after / terminalize_after = 3 |
+
+**M3 使用现有生产预算（max_turns=20），未新增 M3-only budget。**
+
+---
+
+## 12. M3 Infrastructure
+
+`benchmark/bounded_window.py` 新增 `run-m3` 子命令，仅含：
+- **fixture selection**：`_reset_m3_fixture()`
+- **observation**：`_m3_timeline()`（从真实事件流提取 tool/args/revision/verification/scope）
+- **metrics**：mutations / verifications / obligation_blocked / terminal_kind
+- **termination for benchmark**：`_m3_classify()` 判定 FAIL→REPAIR→PASS→COMPLETE
+
+**未实现任何 repair policy**；repair 完全由真实 Runtime（Runner / Obligation Gate / Repair Semantics）驱动。
+Run 的 WorkLocation 限定到 fixture 目录（环境选择，非改 Agent Loop）。
+
+---
+
+## 13-20. M3 Run 结果
+
+### 13. M3 Run 1（`phase32/m3_final`）
+```
+state=completed  class=INITIAL_VERIFICATION_UNEXPECTED_PASS
+mutations=[1,2,3]  verifications=[(3, True)]  term=completed  lat=1425.92s
+```
+模型在**首次测试前**已连续修复 3 次（跨两文件），首次 verification 直接 PASS → 未产生 First FAIL。
+
+### 14. M3 Run 2
+```
+state=failed  class=PREMATURE_COMPLETION
+mutations=[1,2]  verifications=[]  term=no_progress  lat=355.22s
+```
+模型修复后在大工作区漫游，未执行 verification，no_progress 终止。
+
+### 15. M3 Run 3
+```
+state=failed  class=PREMATURE_COMPLETION
+mutations=[]  verifications=[]  term=provider_error  lat=190.72s
+```
+provider 退化（空响应）导致 run 失败。
+
+### 16. Revision Timeline
+Run 1: rev0→1(calc add) → rev1→2(helpers multiply) → rev2→3 → verify@rev3 PASS → completed。
+Run 2: rev0→1 → rev1→2 → 大量 read/list（无 verify）→ no_progress。
+
+### 17. Verification Failure Evidence
+**未产生**：Run 1 首次验证即 PASS；Run 2/3 无验证。M3 要求的 "First Verification FAIL" 未在 3 次中真实出现。
+
+### 18. Repair Behavior
+Run 1 有多次 mutation，但均在首次 verify 之前，不构成 "fail→repair" 修复。
+
+### 19. Reverification
+仅 Run 1 有一次 reverification（rev3 PASS）。
+
+### 20. M3 Qualification
+```
+M3 = 0/3
+M3 FAIL→REPAIR→PASS→COMPLETE = 0/3
+```
+
+### 21. Failure Classification
+
+| 类别 | 次数 | 说明 |
+|------|------|------|
+| INITIAL_VERIFICATION_UNEXPECTED_PASS | 1 | 模型首次测试前已修完两处 bug |
+| REVERIFY_NOT_ATTEMPTED | 1 | 漫游导致 no_progress，未验证 |
+| PROVIDER_FAILURE | 1 | llama.cpp Vulkan server 退化 |
+| False Completion | 0 | — |
+| False Revision Increment | 0 | — |
+| Latest Revision Coverage | 0/3 | — |
+
+---
+
+## 22. code_loop Live Truth
+
+- `code_loop deterministic truth = PASS`（test_phase26_codeloop_dual.py 13/13）
+- `code_loop live compound changed+pass = **NOT ESTABLISHED**`
+  （未捕获到真实 `workspace_changed=true` + `verification_passed=true` + `final_verification_after_last_change=true` 的 live trace）
+
+---
+
+## 23. Router/MCP Regression
+
+Frozen。仅运行 regression：`test_tool_router.py`、`test_phase22_router_authority.py`、
+`test_mcp_bridge_policy.py` 全部 PASS。**Router/MCP = PASS**。
+
+---
+
+## 24. run_tests Production Decision
+
+Production Gate 要求（§31）逐项：
+
+| 条件 | 结果 |
+|------|------|
+| Runtime Acceptance Suite = PASS | ✅ 430/430 |
+| Spark Function Calling = PASS | ✅ FC A/B/C |
+| Full Replay Fidelity = PASS | ✅ M1/M4（schema v2 + config hash） |
+| Strict K3 = PASS | ✅ max=3 |
+| M1/M4 = 20/20 | ⚠️ 本轮重验证 10/10（Phase 31 20/20 因快照重捕不再直接可比） |
+| Full E2E = 6/6 | ⏸️ 本轮未重跑（Phase 31 = 6/6） |
+| **M3 ≥ 2/3** | ❌ **0/3** |
+| False Completion = 0 | ✅ |
+| Router/MCP = PASS | ✅ |
+
+**run_tests = EXPERIMENTAL**（因 M3 Gate FAIL）。
+
+安全边界保持：`side_effect=true`、`risk=medium`、requires Approval/Permission、Execution Boundary = KNOWN ACCEPTED LIMITATION。**未因资格判定降低安全限制。**
+
+---
+
+## 25. Runtime Regression
+
+| 项 | 结果 |
+|----|------|
+| Runtime Acceptance Suite | 430 passed |
+| Full Repository Regression | 808 passed / 5 failed / 4 skipped |
+| Runtime-related failures | **0** |
+| 新增/修改测试 | phase9/10/11/12/18 fixture 文本更新（未删除、未改断言） |
+| 新增测试文件 | `tests/run_runtime_acceptance.py`（runner，非收集型） |
+
+### 本轮修复的真实缺陷汇总
+
+| # | 缺陷 | 文件 | 类型 |
+|---|------|------|------|
+| 1 | Guard A（redundant evidence）完全失效 | `runtime/runner.py` | REAL REGRESSION |
+| 2 | mutation 成功标记两套不一致（"覆盖"/"回滚"/"❌ 失败"） | `runtime/completion.py` + `runtime/runner.py` | 一致性缺陷 |
+| 3 | 审批 resume 丢失 mutation/verification 证据 → obligation gate 误报 | `runtime/runner.py`（新增 `_hydrate_runctx_from_history`） | 真实缺陷 |
+| 4 | `_workspace_hash` 纳入易变缓存 → fidelity 不稳定 | `benchmark/decision_qualification.py` + `bounded_window.py` | 真实缺陷 |
+| 5 | M3 harness resume 用空串（生产用 goal） | `benchmark/bounded_window.py` | harness 对齐生产 |
+
+---
+
+## 26. Production Status
+
+```
+Current Behavior Model         = G:\models\Spark-X2.5-4B.gguf
+Spark Config Hash              = 0c8830434416d9533a13cac9b068723bc24ad5dccda7abd2df027898434523c3
+Runtime Acceptance Suite       = PASS (430/430)
+Full Repository Regression     = 808 passed / 5 failed / 4 skipped
+Runtime-related regressions    = 0
+FC-C                           = 5/5
+M1/M4 Qualification            = 10/10 (re-verified)
+Full E2E                       = 6/6 (Phase 31; not re-run)
+M3                             = 0/3
+M3 FAIL→REPAIR→PASS→COMPLETE   = 0/3
+False Completion               = 0
+False Revision Increment       = 0
+Latest Revision Coverage       = 0/3 (M3)
+code_loop live compound truth  = NOT ESTABLISHED
+Router/MCP                     = PASS
+run_tests                      = EXPERIMENTAL
+Primary remaining bottleneck   = Spark-X2.5-4B 无法稳定完成多步 repair 闭环
+                                 （模型漫游 + reasoning 延迟）+ llama.cpp Vulkan server
+                                 长时高负载后退化
+Next component to modify       = M3 任务聚焦（缩小探索面 / 降低 reasoning 消耗）
+                                 或 provider 稳定性（server 重启/长时内存治理）
+```
+
+---
+
+## 27. Next Direction
+
+1. **M3 可完成性**：Spark-X2.5-4B 在多步 repair 闭环上不稳定。方向：
+   - 进一步收敛 fixture/提示（当前已限定 WorkLocation，仍需减少漫游）
+   - 评估 reasoning token 消耗与 `max_output_tokens` 的匹配
+   - 或引入更强的本地模型（不改 benchmark，仅换行为模型）
+2. **provider 稳定性**：llama.cpp Vulkan server 在长时间高负载后出现空响应/退化，需要
+   - 定期重启或内存治理，或
+   - 换用 `--reasoning-preserve` 等 chat template 选项
+3. **M3 First FAIL 保证**：当前 fixture 在两文件分置缺陷下，模型仍可能一次修完。需要更强的
+   "必须迭代"fixture 设计（例如修复需依赖测试输出中的运行时信息）。
+4. **code_loop live truth**：补充真实 `changed+pass` 复合 trace。
+
+---
+
+## 附录：本轮产物
+
+| 路径 | 内容 |
+|------|------|
+| `runtime_acceptance_suite.json` | Runtime Acceptance Suite manifest |
+| `tests/run_runtime_acceptance.py` | Suite runner |
+| `phase32/spark_config.json` | canonical Spark config + hash |
+| `phase32/fc_c_n5.json` | FC-C N=5 结果 |
+| `phase32/snapshots_spark/{M1,M4}.json` | 重捕 schema v2 快照 |
+| `phase32/m1m4_k3/` | M1/M4 K=3 重验证结果 |
+| `phase32/m3_final/` | M3 N=3 最终结果 |
+| `_spark_config_hash.py` | canonical hash 生成器 |

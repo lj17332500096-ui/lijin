@@ -1,0 +1,18 @@
+{
+  "M4": {
+    "n": 10,
+    "first_semantic": 10,
+    "semantic_within_k": 10,
+    "latest_rev_verification": 10,
+    "obligation_satisfying": 10,
+    "premature_final": 0,
+    "category_counts": {
+      "PASS": 10
+    },
+    "w1_class_counts": {},
+    "w3_class_counts": {},
+    "latency_avg_s": 27.16,
+    "avg_model_turns": 4.0,
+    "avg_non_blocked_executions": 3.0
+  }
+}

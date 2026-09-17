@@ -1,0 +1,48 @@
+{
+  "M1": {
+    "n": 1,
+    "preferred_run_tests": 0,
+    "semantic_verification": 0,
+    "discovery_or_read": 0,
+    "mutation": 0,
+    "no_action": 0,
+    "preferred_rate": 0.0,
+    "semantic_rate": 0.0,
+    "discovery_drift_rate": 0.0,
+    "status_counts": {
+      "DECISION_CAPTURED": 1
+    },
+    "latency_avg_s": 21.88,
+    "latency_p50_s": 21.88,
+    "latency_p95_s": 21.88,
+    "first_tools": {
+      "run_python": 1
+    },
+    "semantic_classes": {
+      "OTHER": 1
+    }
+  },
+  "M4": {
+    "n": 1,
+    "preferred_run_tests": 0,
+    "semantic_verification": 1,
+    "discovery_or_read": 0,
+    "mutation": 0,
+    "no_action": 0,
+    "preferred_rate": 0.0,
+    "semantic_rate": 1.0,
+    "discovery_drift_rate": 0.0,
+    "status_counts": {
+      "DECISION_CAPTURED": 1
+    },
+    "latency_avg_s": 43.3,
+    "latency_p50_s": 43.3,
+    "latency_p95_s": 43.3,
+    "first_tools": {
+      "run_python": 1
+    },
+    "semantic_classes": {
+      "SEMANTIC_VERIFICATION": 1
+    }
+  }
+}

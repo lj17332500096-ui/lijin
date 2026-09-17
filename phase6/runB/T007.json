@@ -1,0 +1,56 @@
+{
+  "id": "T007",
+  "prompt": "把这个报告发给李总。",
+  "container_id": "tk_8cf48e32",
+  "run_id": "task_f9cd2f75",
+  "observed_state_at_deadline": "waiting_user",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T05:42:39+00:00",
+  "terminal_state": "waiting_user",
+  "terminal_at": "2026-09-11T05:42:39+00:00",
+  "final_status": "waiting_user",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 12.24,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "needs_user_input",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "需要补充以下信息才能帮您发送报告：\n\n1. **报告确认**：请问是哪份报告？工作区里有多份文档，或者有具体的报告文件/名称吗？\n2. **发送方式**：您希望通过什么渠道发送？邮箱、微信、钉钉，或其他？\n3. **李总的联系方式**：请提供李总的邮箱地址或微信等信息。\n\n提供以上信息后，我来帮您完成发送。",
+  "reply_kind": "questions",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0,
+    "db_unique_executions": 0
+  },
+  "_exec": {},
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2109.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 9125.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

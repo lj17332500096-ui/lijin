@@ -1,0 +1,57 @@
+{
+  "generated_at": "2026-09-05T01:06:56",
+  "with_network": false,
+  "repeat": 1,
+  "summary": {
+    "passed": 1,
+    "total": 1,
+    "failed": 0
+  },
+  "scoreboard": [
+    {
+      "id": "存笔记",
+      "name": "文件产出真实落盘",
+      "reliability": null,
+      "avg": {
+        "outcome": 1.0,
+        "trajectory": 1.0,
+        "policy": 1.0,
+        "efficiency": 0.65
+      },
+      "metrics": {
+        "model_calls": 2,
+        "tool_calls": 1,
+        "tokens": 20701,
+        "seconds": 1.5
+      }
+    }
+  ],
+  "overall": {
+    "latency_p50": 1.5,
+    "latency_p95": 1.5,
+    "outcome_avg": 1.0,
+    "trajectory_avg": 1.0,
+    "policy_avg": 1.0,
+    "efficiency_avg": 0.65
+  },
+  "results": [
+    {
+      "scenario": "存笔记",
+      "runs": [
+        {
+          "outcome": 1.0,
+          "trajectory": 1.0,
+          "policy": 1.0,
+          "efficiency": 0.65,
+          "metrics": {
+            "seconds": 1.5,
+            "model_calls": 2,
+            "tool_calls": 1,
+            "input_tokens": 20267,
+            "output_tokens": 434
+          }
+        }
+      ]
+    }
+  ]
+}

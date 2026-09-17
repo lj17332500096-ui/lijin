@@ -1,0 +1,55 @@
+T001 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T002 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T003 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T004 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T005 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T006 [A_stable_pass           ] A=pass   B=pass   C=pass   root=-
+T007 [C_flaky                 ] A=pass   B=pass   C=fail   root=R16 Final Answer Semantics
+T008 [C_flaky                 ] A=pass   B=fail   C=fail   root=R16 Final Answer Semantics
+T009 [B_stable_fail           ] A=fail   B=fail   C=fail   root=R9 Completion Rejection
+T010 [A_stable_pass           ] A=pass   B=pass   C=pass   root=-
+T011 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T012 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R8 Premature Completion
+T013 [C_flaky                 ] A=fail   B=pass   C=pass   root=R14 Mutation Scope Error
+T014 [C_flaky                 ] A=fail   B=pass   C=pass   root=R10 Repeated / Wandering Tool Search
+T015 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T016 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R9 Completion Rejection
+T017 [C_flaky                 ] A=pass   B=fail   C=fail   root=R10 Repeated / Wandering Tool Search
+T018 [C_flaky                 ] A=fail   B=pass   C=fail   root=R8 Premature Completion
+T019 [B_stable_fail           ] A=fail   B=fail   C=fail   root=R9 Completion Rejection
+T020 [C_flaky                 ] A=fail   B=pass   C=pass   root=R9 Completion Rejection
+T021 [B_stable_fail           ] A=fail   B=fail   C=fail   root=R9 Completion Rejection
+T022 [B_stable_fail           ] A=fail   B=fail   C=fail   root=R9 Completion Rejection
+T023 [C_flaky                 ] A=pass   B=fail   C=fail   root=R9 Completion Rejection
+T024 [B_stable_fail           ] A=fail   B=fail   C=fail   root=R9 Completion Rejection
+T025 [B_stable_fail           ] A=fail   B=fail   C=fail   root=R10 Repeated / Wandering Tool Search
+T026 [C_flaky                 ] A=pass   B=fail   C=pass   root=R3 Tool Selection
+T027 [C_flaky                 ] A=pass   B=pass   C=fail   root=R10 Repeated / Wandering Tool Search
+T028 [B_stable_fail           ] A=fail   B=fail   C=fail   root=R8 Premature Completion
+T029 [B_stable_fail           ] A=fail   B=fail   C=fail   root=R9 Completion Rejection
+T030 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T031 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T032 [D_infrastructure_invalid] A=fail   B=not_evaluable C=fail   root=R17 Provider / Model Invalid
+T033 [B_stable_fail           ] A=fail   B=fail   C=fail   root=R9 Completion Rejection
+T034 [C_flaky                 ] A=fail   B=pass   C=pass   root=R16 Final Answer Semantics
+T035 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T036 [B_stable_fail           ] A=fail   B=fail   C=fail   root=R2 Missing Information / Readiness
+T037 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T038 [B_stable_fail           ] A=fail   B=fail   C=fail   root=R14 Mutation Scope Error
+T039 [C_flaky                 ] A=pass   B=pass   C=fail   root=R10 Repeated / Wandering Tool Search
+T040 [A_stable_pass           ] A=pass   B=pass   C=pass   root=-
+T041 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T042 [C_flaky                 ] A=fail   B=pass   C=fail   root=R10 Repeated / Wandering Tool Search
+T043 [C_flaky                 ] A=pass   B=fail   C=pass   root=R16 Final Answer Semantics
+T044 [C_flaky                 ] A=fail   B=pass   C=fail   root=R14 Mutation Scope Error
+T045 [C_flaky                 ] A=fail   B=fail   C=pass   root=R8 Premature Completion
+T046 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T047 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T048 [A_stable_pass           ] A=pass   B=pass   C=pass   root=R19 Unknown
+T049 [B_stable_fail           ] A=fail   B=fail   C=fail   root=R10 Repeated / Wandering Tool Search
+T050 [D_infrastructure_invalid] A=fail   B=fail   C=not_evaluable root=R17 Provider / Model Invalid
+
+A_stable_pass: 20 -> ['T001', 'T002', 'T003', 'T004', 'T005', 'T006', 'T010', 'T011', 'T012', 'T015', 'T016', 'T030', 'T031', 'T035', 'T037', 'T040', 'T041', 'T046', 'T047', 'T048']
+B_stable_fail: 12 -> ['T009', 'T019', 'T021', 'T022', 'T024', 'T025', 'T028', 'T029', 'T033', 'T036', 'T038', 'T049']
+C_flaky: 16 -> ['T007', 'T008', 'T013', 'T014', 'T017', 'T018', 'T020', 'T023', 'T026', 'T027', 'T034', 'T039', 'T042', 'T043', 'T044', 'T045']
+D_infrastructure_invalid: 2 -> ['T032', 'T050']

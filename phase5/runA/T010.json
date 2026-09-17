@@ -1,0 +1,24 @@
+{
+  "id": "T010",
+  "prompt": "提醒我去交资料。",
+  "container_id": "tk_3642cf15",
+  "run_id": "task_6e78d38c",
+  "final_status": "waiting_user",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 10.19,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "needs_user_input",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "无法设置提醒，需要补充以下信息：\n\n• 需要在什么时间提醒？（例如：明天上午9点 / 本周三下午 / 每周一早上）\n• 交的是什么资料？（方便提醒时写明具体内容）\n• 在哪里交？（线上提交还是线下柜台）\n\n告诉我以上信息，我马上帮你设置提醒。",
+  "reply_kind": "questions",
+  "_exec": {},
+  "_blocked": {},
+  "tool_calls_total": 0,
+  "blocked_events": 0
+}

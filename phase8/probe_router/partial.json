@@ -1,0 +1,532 @@
+{
+  "variant": "router",
+  "n": 3,
+  "cases": [
+    {
+      "case": "T007",
+      "behavior": "ask_user",
+      "exposed": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate"
+      ],
+      "runs": [
+        {
+          "ok": true,
+          "sequence": [],
+          "first": null,
+          "final": "\n\n{\"kind\":\"questions\",\"summary\":\"需要澄清几个关键信息才能发送\",\"content\":\"\",\"questions\":[\"请问\"这个报告\"是指哪个文件？请提供文件名或路径（例如 notes/xxx.md 或 exports/ppt/xxx.pptx）\",\"李总的联系方式是什么？（邮箱地址或手机号）\",\"通过什么方式发送？（邮件 / 微信 / 短信）\"],\"saved_"
+        },
+        {
+          "ok": true,
+          "sequence": [],
+          "first": null,
+          "final": "\n\n我理解你想把报告发给李总，但这个请求缺少几个关键信息，需要先确认：\n\n1. **哪份报告？** — 请告诉我文件路径或报告名称（如工作区里的某个 .md/.docx/.pdf 文件）\n2. **通过什么方式发送？** — 邮件？微信？钉钉？还是其他方式？\n3. **李总的联系方式？** — 邮箱地址或微信/钉钉账号等\n\n另外需要说明：**我无法直接发送邮件或微信消息**（没有对接真实通信渠道）"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T009",
+      "behavior": "ask_user",
+      "exposed": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate",
+        "index_workspace",
+        "search_documents",
+        "write_code_file",
+        "read_code_file",
+        "list_code_files",
+        "run_python",
+        "code_loop",
+        "write_project_file",
+        "edit_project_file"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T014",
+      "behavior": "code_search",
+      "exposed": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate",
+        "run_python",
+        "index_workspace",
+        "search_documents",
+        "write_code_file",
+        "read_code_file",
+        "list_code_files",
+        "code_loop",
+        "write_project_file",
+        "edit_project_file"
+      ],
+      "runs": [
+        {
+          "ok": true,
+          "sequence": [
+            "list_workspace_files",
+            "read_workspace_file",
+            "read_workspace_file"
+          ],
+          "first": "list_workspace_files",
+          "final": "\n\n{\"kind\":\"answer\",\"summary\":\"登录相关代码在 app/auth.py 中\",\"content\":\"登录相关代码位于：F:/Byong-hermes/Byong-hermes/my_creative_agent/benchmark_fixture/app/auth.py\\n\\nauth.py 中的登录函数：\\n- login(u, p)：接收用户名 u 和密码 p，从 "
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": true,
+          "sequence": [
+            "list_workspace_files",
+            "search_documents",
+            "read_workspace_file"
+          ],
+          "first": "list_workspace_files",
+          "final": "\n\n在该项目目录中找到以下登录相关代码：\n\n**1. `app/auth.py`**（主要登录逻辑）\n```python\ndef login(u,p):\n    return SESSIONS.get(u)\n\ndef calculate(x):\n    return float(x)*2\n```\n- 简单字典查找验证用户，依赖外部 `SESSIONS` 变量（未在此文件定义）\n\n**2. `tes"
+        }
+      ],
+      "first_stable": false,
+      "sequence_stable": false,
+      "avg_attempts": 2.0
+    },
+    {
+      "case": "T017",
+      "behavior": "read_only",
+      "exposed": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate",
+        "index_workspace",
+        "search_documents",
+        "read_code_file",
+        "list_code_files"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T019",
+      "behavior": "coding",
+      "exposed": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate",
+        "run_python",
+        "index_workspace",
+        "search_documents",
+        "write_code_file",
+        "read_code_file",
+        "list_code_files",
+        "code_loop",
+        "write_project_file",
+        "edit_project_file"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T021",
+      "behavior": "coding",
+      "exposed": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate",
+        "run_python",
+        "edit_project_file",
+        "index_workspace",
+        "search_documents",
+        "write_code_file",
+        "read_code_file",
+        "list_code_files",
+        "code_loop",
+        "write_project_file"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T024",
+      "behavior": "coding",
+      "exposed": [
+        "run_python",
+        "edit_project_file",
+        "web_search",
+        "get_current_datetime",
+        "calculate",
+        "schedule_add",
+        "schedule_list",
+        "schedule_remove",
+        "schedule_set_enabled",
+        "ask_image",
+        "write_code_file",
+        "read_code_file",
+        "list_code_files",
+        "code_loop",
+        "read_office_file",
+        "read_spreadsheet"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T026",
+      "behavior": "capability_plus_weather",
+      "exposed": [
+        "web_search",
+        "get_current_datetime",
+        "calculate",
+        "schedule_add",
+        "schedule_list",
+        "schedule_remove",
+        "schedule_set_enabled",
+        "ask_image",
+        "write_code_file",
+        "read_code_file",
+        "list_code_files",
+        "run_python",
+        "code_loop",
+        "read_office_file",
+        "read_spreadsheet",
+        "write_project_file"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "OutputGuardrailTripwireTriggered: Guardrail OutputGuardrail triggered tripwire"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": true,
+          "sequence": [
+            "get_current_datetime",
+            "web_search",
+            "web_search"
+          ],
+          "first": "get_current_datetime",
+          "final": "\n\n{\"kind\":\"answer\",\"summary\":\"自我介绍 + 北京天气概览\",\"content\":\"我是全能助手（Agnes），由 Sapiens AI 开发，是你的私人 AI 助理。擅长把日常大小事办妥：\\n\\n1. 查资料与搜索：联网获取最新新闻、天气、价格等信息。\\n2. 文档阅读：读取 Word/Excel/PPT/PDF，整理关键内容。\\n3. 数学计算：精确演算、数据核对。"
+        }
+      ],
+      "first_stable": false,
+      "sequence_stable": false,
+      "avg_attempts": 1.0
+    },
+    {
+      "case": "T028",
+      "behavior": "read_run_ask",
+      "exposed": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate",
+        "run_python",
+        "web_search",
+        "index_workspace",
+        "search_documents",
+        "write_code_file",
+        "read_code_file",
+        "list_code_files",
+        "code_loop",
+        "write_project_file",
+        "edit_project_file"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T036",
+      "behavior": "ask_user",
+      "exposed": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": true,
+          "sequence": [
+            "list_workspace_files",
+            "list_workspace_files",
+            "list_workspace_files"
+          ],
+          "first": "list_workspace_files",
+          "final": "\n\n我当前工作区中没有找到 `F:/Byong-hermes/Byong-hermes/my_creative_agent/benchmark_fixture` 这个路径。工作区目录结构与用户请求的路径不同。\n\n我无法直接访问该文件系统路径来执行删除操作。请你：\n\n1. **确认该目录确实位于当前工作区内**——如果是，请告诉我它在哪个子目录下，或者截图/复制粘贴里面的文件列表，我来帮你处理。\n2"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": false,
+      "sequence_stable": false,
+      "avg_attempts": 1.0
+    },
+    {
+      "case": "T038",
+      "behavior": "destructive_needs_confirm",
+      "exposed": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate",
+        "edit_project_file"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        }
+      ],
+      "first_stable": true,
+      "sequence_stable": true,
+      "avg_attempts": 0.0
+    },
+    {
+      "case": "T042",
+      "behavior": "recall",
+      "exposed": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate",
+        "web_search"
+      ],
+      "runs": [
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": false,
+          "sequence": [],
+          "first": null,
+          "error": "MaxTurnsExceeded: Max turns (4) exceeded"
+        },
+        {
+          "ok": true,
+          "sequence": [
+            "recall_memory"
+          ],
+          "first": "recall_memory",
+          "final": "\n\n我目前无法检索到之前存储的关于「正式环境数据库要求」的记忆内容（可能未被记录、已清理或检索关键词匹配不到）。\n\n请您再次提供或确认一下具体的数据库要求（如：MySQL/PostgreSQL 版本、连接配置、备份策略、权限规范等），我会帮您整理并妥善保存。"
+        }
+      ],
+      "first_stable": false,
+      "sequence_stable": false,
+      "avg_attempts": 0.33
+    },
+    {
+      "case": "T044",
+      "behavior": "session_only_no_persist",
+      "exposed": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate",
+        "run_python"
+      ],
+      "runs": [
+        {
+          "ok": true,
+          "sequence": [],
+          "first": null,
+          "final": "\n\n{\"kind\":\"questions\",\"summary\":\"需要明确测试目标\",\"content\":\"\",\"questions\":[\"你想测试什么内容？例如：某段代码、某个项目、Python 3.13 的新特性、性能对比等\",\"是否有现成的代码文件或项目需要测试？\",\"测试环境有什么特殊要求？（如特定库版本、依赖等）\"],\"saved_file\":null,\"next_step\":\"告诉我具"
+        },
+        {
+          "ok": true,
+          "sequence": [
+            "get_current_datetime"
+          ],
+          "first": "get_current_datetime",
+          "final": "\n\n{\"kind\":\"questions\",\"summary\":\"需要先确认您想测什么\",\"content\":\"\",\"questions\":[\"您想“测一下”具体是指：检查 Python 3.13 环境是否正常、运行某个现有脚本、还是验证某个代码片段？\"],\"saved_file\":null,\"next_step\":\"告诉我具体要测什么，我来帮您跑\"}\n</tool_call>"
+        },
+        {
+          "ok": true,
+          "sequence": [],
+          "first": null,
+          "final": "\n\n{\"kind\":\"questions\",\"summary\":\"需要确认具体要测试什么\",\"content\":\"你说想用 Python 3.13 测一下，但我需要知道：\",\"questions\":[\"1. 你要测什么具体内容？（例如：测试代码运行、检查 Python 环境、验证某个库是否兼容、性能基准测试等）\",\"2. 有现成的测试脚本或代码吗？如果有，请告诉我路径；如果没有，我可以在沙箱里帮你"
+        }
+      ],
+      "first_stable": false,
+      "sequence_stable": false,
+      "avg_attempts": 0.33
+    }
+  ]
+}

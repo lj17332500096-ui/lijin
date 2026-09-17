@@ -1,0 +1,75 @@
+{
+  "id": "T047",
+  "prompt": "调研一个技术问题,综合不同来源告诉我原因。",
+  "container_id": "tk_740ae9eb",
+  "run_id": "task_6b581ec9",
+  "observed_state_at_deadline": "waiting_user",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T06:46:49+00:00",
+  "terminal_state": "waiting_user",
+  "terminal_at": "2026-09-11T06:46:49+00:00",
+  "final_status": "waiting_user",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 22.3,
+  "model_turns": 3,
+  "provider_errors": 0,
+  "terminal_kind": "needs_user_input",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [
+    {
+      "name": "get_current_datetime",
+      "normalized_args": "{}",
+      "status": "succeeded",
+      "invocation_id": "call_50d5130b1f4148a28311a0a0",
+      "result_excerpt": "当前本地时间：2026-09-11 14:46:28 星期五（UTC+0800，按运行电脑的本地时区）"
+    }
+  ],
+  "answer": "{\n  \"content\": \"需要你明确具体的调研目标，例如：\\n\\n1. 某个软件报错的原因排查\\n2. 技术选型或架构方案的对比分析\\n3. 特定开源项目的实现原理研究\\n4. 其他具体的技术疑问\\n\\n提供详细信息后我可以进行深度调研并给出综合结论。\"\n}",
+  "reply_kind": "questions",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0,
+    "db_unique_executions": 1
+  },
+  "_exec": {
+    "get_current_datetime": 1
+  },
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2047.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 11812.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 6234.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

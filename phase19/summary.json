@@ -1,0 +1,18 @@
+{
+  "M1": {
+    "n": 10,
+    "verification": 3,
+    "discovery_or_read": 5,
+    "final_attempt": 0,
+    "verification_rate": 0.3,
+    "latency_avg": 21.1
+  },
+  "M4": {
+    "n": 10,
+    "verification": 6,
+    "discovery_or_read": 1,
+    "final_attempt": 0,
+    "verification_rate": 0.6,
+    "latency_avg": 11.8
+  }
+}

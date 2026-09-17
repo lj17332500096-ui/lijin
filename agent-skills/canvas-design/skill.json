@@ -1,0 +1,16 @@
+{
+  "name": "canvas-design",
+  "slug": "canvas-design",
+  "version": "1.0",
+  "description": "Create beautiful visual art in .png and .pdf documents using design philosophy. You should use this skill when the user asks to create a poster, piece of art, design, or other static piece. Create original visual designs, never copying existing artists' work to avoid copyright violations.",
+  "triggers": [],
+  "files": {
+    "portable": "SKILL.md",
+    "agent_zh": "skill.md",
+    "assets": [
+      "canvas-fonts"
+    ]
+  },
+  "requires_tools": false,
+  "agent_hint": "复制本目录到目标工程的 skills/<slug>/，并在 .env 的 SKILLS= 追加 slug；通用 agent 可直接读取 SKILL.md。"
+}

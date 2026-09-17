@@ -1,0 +1,125 @@
+{
+  "M6": [
+    {
+      "status": "NO_ACTION",
+      "first_tool": null,
+      "normalized_args": {},
+      "capability": null,
+      "semantic_action_class": "NO_ACTION",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [],
+      "llm_calls": 1,
+      "decision_latency_s": 54.52,
+      "final_text": "`add` 函数的作用是：\n\n- 接收两个参数 `a` 和 `b`\n- 返回 `a - b`（即 **a 减去 b 的结果**）\n\n从函数名看，它本意应该是做加法（`a + b`），但实际实现里写的是减号（`return a - b`），所以这个函数现在做的是减法运算。",
+      "error": null,
+      "i": 0,
+      "verification_due": false
+    },
+    {
+      "status": "NO_ACTION",
+      "first_tool": null,
+      "normalized_args": {},
+      "capability": null,
+      "semantic_action_class": "NO_ACTION",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [],
+      "llm_calls": 1,
+      "decision_latency_s": 18.34,
+      "final_text": "`add(a, b)` 函数的本意是实现**两数相加**，但从实现上看它实际上执行的是**减法**（`a - b`）。函数体内有一个 `# BUG` 注释，明确标注了这是有缺陷的实现。",
+      "error": null,
+      "i": 1,
+      "verification_due": false
+    }
+  ],
+  "M7": [
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_python",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "filename": "calc.py",
+        "code": "import sys\nsys.path.insert(0, '.')\nfrom calc import add, multiply\n\nprint(\"add(2, 3) =\", add(2, 3))\nprint(\"add(10, -7) =\", add(10, -7))\nprint(\"multiply(4, 5) =\", multiply(4, 5))"
+      },
+      "capability": "CODE_EXECUTION",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "run_python"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 58.17,
+      "final_text": null,
+      "error": null,
+      "i": 0,
+      "verification_due": false
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_python",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "filename": "calc.py"
+      },
+      "capability": "CODE_EXECUTION",
+      "semantic_action_class": "OTHER",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "run_python"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 5.42,
+      "final_text": null,
+      "error": null,
+      "i": 1,
+      "verification_due": false
+    }
+  ],
+  "M8": [
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "read_workspace_file",
+      "normalized_args": {
+        "path": "F:\\Byong-hermes\\Byong-hermes\\my_creative_agent\\micro_fixture/README.md",
+        "max_chars": 5000
+      },
+      "capability": "READ",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "read_workspace_file"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 20.75,
+      "final_text": null,
+      "error": null,
+      "i": 0,
+      "verification_due": false
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "read_workspace_file",
+      "normalized_args": {
+        "path": "F:\\Byong-hermes\\Byong-hermes\\my_creative_agent\\micro_fixture/README.md",
+        "max_chars": 8000
+      },
+      "capability": "READ",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "read_workspace_file"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 10.78,
+      "final_text": null,
+      "error": null,
+      "i": 1,
+      "verification_due": false
+    }
+  ]
+}

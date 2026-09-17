@@ -1,0 +1,471 @@
+{
+  "M1": [
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "list_code_files",
+      "normalized_args": {
+        "project": "micro_fixture"
+      },
+      "capability": "DISCOVERY",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "list_code_files"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 48.44,
+      "final_text": null,
+      "error": null,
+      "case": "M1",
+      "i": 0,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "target": "test_calc.py",
+        "extra_args": "-v"
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 33.36,
+      "final_text": null,
+      "error": null,
+      "case": "M1",
+      "i": 1,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "write_code_file",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "filename": "test_calc.py",
+        "content": "from calc import add, multiply\n\ndef test_add():\n    assert add(1, 2) == 3\n    assert add(-1, -2) == -3\n    assert add(0, 0) == 0\n    assert add(-1, 1) == 0\n\n\ndef test_multiply():\n    assert multiply(2, 3) == 6\n    assert multiply(-2, -3) == 6\n    assert multiply(0, 5) == 0\n    assert multiply(-1, 1) == -1\n"
+      },
+      "capability": "MUTATION",
+      "semantic_action_class": "REVISE",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "write_code_file"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 21.61,
+      "final_text": null,
+      "error": null,
+      "case": "M1",
+      "i": 2,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "timeout": 30
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 10.12,
+      "final_text": null,
+      "error": null,
+      "case": "M1",
+      "i": 3,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "target": "test_calc.py"
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 7.78,
+      "final_text": null,
+      "error": null,
+      "case": "M1",
+      "i": 4,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_python",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "code": "import sys; sys.path.insert(0, '.'); from calc import add; print(add(2,3)); print(add(-1,4))",
+        "filename": "test_calc.py"
+      },
+      "capability": "CODE_EXECUTION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "run_python"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 9.62,
+      "final_text": null,
+      "error": null,
+      "case": "M1",
+      "i": 5,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "target": "test_calc.py"
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 7.69,
+      "final_text": null,
+      "error": null,
+      "case": "M1",
+      "i": 6,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture"
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 9.41,
+      "final_text": null,
+      "error": null,
+      "case": "M1",
+      "i": 7,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "target": "test_calc.py"
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 21.12,
+      "final_text": null,
+      "error": null,
+      "case": "M1",
+      "i": 8,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_python",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "filename": "calc.py"
+      },
+      "capability": "CODE_EXECUTION",
+      "semantic_action_class": "OTHER",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "run_python"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 8.66,
+      "final_text": null,
+      "error": null,
+      "case": "M1",
+      "i": 9,
+      "verification_due": true,
+      "revision": 1
+    }
+  ],
+  "M4": [
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "list_code_files",
+      "normalized_args": {
+        "project": "micro_fixture"
+      },
+      "capability": "DISCOVERY",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "list_code_files"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 10.59,
+      "final_text": null,
+      "error": null,
+      "case": "M4",
+      "i": 0,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture"
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 8.72,
+      "final_text": null,
+      "error": null,
+      "case": "M4",
+      "i": 1,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_python",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "code": "import sys; sys.path.insert(0, 'calc')\nfrom calc import add, multiply\nprint(\"Testing add(3,4) =\", add(3,4))\nprint(\"Testing multiply(5,6) =\", multiply(5,6))",
+        "timeout": 40
+      },
+      "capability": "CODE_EXECUTION",
+      "semantic_action_class": "DISCOVERY",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "run_python"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 14.62,
+      "final_text": null,
+      "error": null,
+      "case": "M4",
+      "i": 2,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "target": "test_calc.py",
+        "timeout": 120
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 11.41,
+      "final_text": null,
+      "error": null,
+      "case": "M4",
+      "i": 3,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "target": "",
+        "extra_args": "-v",
+        "timeout": 30
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 12.92,
+      "final_text": null,
+      "error": null,
+      "case": "M4",
+      "i": 4,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "timeout": 120
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 38.34,
+      "final_text": null,
+      "error": null,
+      "case": "M4",
+      "i": 5,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_python",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "filename": "micro_fixture/calc.py",
+        "code": "from micro_fixture.calc import add, multiply\nassert add(2, 3) == 5\nassert multiply(2, 3) == 6\nprint(\"All tests passed.\")"
+      },
+      "capability": "CODE_EXECUTION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "run_python"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 13.19,
+      "final_text": null,
+      "error": null,
+      "case": "M4",
+      "i": 6,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "target": "test_calc.py"
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 9.19,
+      "final_text": null,
+      "error": null,
+      "case": "M4",
+      "i": 7,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_python",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "code": "import sys; sys.exit(__import__('pytest').main(['-q', '-x']))"
+      },
+      "capability": "CODE_EXECUTION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "run_python"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 12.02,
+      "final_text": null,
+      "error": null,
+      "case": "M4",
+      "i": 8,
+      "verification_due": true,
+      "revision": 1
+    },
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_tests",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "extra_args": "-v",
+        "timeout": 30
+      },
+      "capability": "VERIFICATION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": true,
+      "tool_sequence": [
+        "run_tests"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 14.14,
+      "final_text": null,
+      "error": null,
+      "case": "M4",
+      "i": 9,
+      "verification_due": true,
+      "revision": 1
+    }
+  ]
+}

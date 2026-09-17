@@ -1,0 +1,186 @@
+{
+  "mode": "baseline",
+  "n": 2,
+  "cases": [
+    {
+      "case": "M6",
+      "runs": [
+        {
+          "case": "M6",
+          "kind": "read_only",
+          "state": "completed",
+          "terminal_kind": "completed",
+          "behavior_pass": true,
+          "mutation": false,
+          "verification_pass": false,
+          "verification_attempted": false,
+          "first_after_mutation": null,
+          "first_decision_correct": null,
+          "latest_revision_covered": false,
+          "available_verification_tools": [
+            "run_tests"
+          ],
+          "verification_available": true,
+          "capability_counts": {
+            "DISCOVERY": 1,
+            "READ": 1,
+            "MUTATION": 0,
+            "VERIFICATION": 0
+          },
+          "executions": 2,
+          "invocations": 2,
+          "obligation_blocked": 0,
+          "completion_ready_forced": 0
+        },
+        {
+          "case": "M6",
+          "kind": "read_only",
+          "state": "completed",
+          "terminal_kind": "completed",
+          "behavior_pass": true,
+          "mutation": false,
+          "verification_pass": false,
+          "verification_attempted": false,
+          "first_after_mutation": null,
+          "first_decision_correct": null,
+          "latest_revision_covered": false,
+          "available_verification_tools": [
+            "run_tests"
+          ],
+          "verification_available": true,
+          "capability_counts": {
+            "DISCOVERY": 0,
+            "READ": 1,
+            "MUTATION": 0,
+            "VERIFICATION": 0
+          },
+          "executions": 1,
+          "invocations": 1,
+          "obligation_blocked": 0,
+          "completion_ready_forced": 0
+        }
+      ]
+    },
+    {
+      "case": "M7",
+      "runs": [
+        {
+          "case": "M7",
+          "kind": "mutation_no_verify",
+          "state": "completed",
+          "terminal_kind": "completed",
+          "behavior_pass": true,
+          "mutation": true,
+          "verification_pass": false,
+          "verification_attempted": false,
+          "first_after_mutation": null,
+          "first_decision_correct": null,
+          "latest_revision_covered": false,
+          "available_verification_tools": [
+            "run_tests"
+          ],
+          "verification_available": true,
+          "capability_counts": {
+            "DISCOVERY": 1,
+            "READ": 1,
+            "MUTATION": 1,
+            "VERIFICATION": 0
+          },
+          "executions": 3,
+          "invocations": 3,
+          "obligation_blocked": 0,
+          "completion_ready_forced": 0
+        },
+        {
+          "case": "M7",
+          "kind": "mutation_no_verify",
+          "state": "completed",
+          "terminal_kind": "completed",
+          "behavior_pass": true,
+          "mutation": true,
+          "verification_pass": false,
+          "verification_attempted": false,
+          "first_after_mutation": null,
+          "first_decision_correct": null,
+          "latest_revision_covered": false,
+          "available_verification_tools": [
+            "run_tests"
+          ],
+          "verification_available": true,
+          "capability_counts": {
+            "DISCOVERY": 0,
+            "READ": 1,
+            "MUTATION": 1,
+            "VERIFICATION": 0
+          },
+          "executions": 2,
+          "invocations": 2,
+          "obligation_blocked": 0,
+          "completion_ready_forced": 0
+        }
+      ]
+    },
+    {
+      "case": "M8",
+      "runs": [
+        {
+          "case": "M8",
+          "kind": "keyword_false_positive",
+          "state": "completed",
+          "terminal_kind": "completed",
+          "behavior_pass": true,
+          "mutation": true,
+          "verification_pass": false,
+          "verification_attempted": false,
+          "first_after_mutation": null,
+          "first_decision_correct": null,
+          "latest_revision_covered": false,
+          "available_verification_tools": [
+            "run_tests"
+          ],
+          "verification_available": true,
+          "capability_counts": {
+            "DISCOVERY": 1,
+            "READ": 1,
+            "MUTATION": 1,
+            "VERIFICATION": 0
+          },
+          "executions": 3,
+          "invocations": 3,
+          "obligation_blocked": 0,
+          "completion_ready_forced": 0
+        },
+        {
+          "case": "M8",
+          "kind": "keyword_false_positive",
+          "state": "completed",
+          "terminal_kind": "completed",
+          "behavior_pass": true,
+          "mutation": true,
+          "verification_pass": false,
+          "verification_attempted": false,
+          "first_after_mutation": {
+            "capability": "READ",
+            "tool": "read_workspace_file"
+          },
+          "first_decision_correct": true,
+          "latest_revision_covered": false,
+          "available_verification_tools": [
+            "run_tests"
+          ],
+          "verification_available": true,
+          "capability_counts": {
+            "DISCOVERY": 0,
+            "READ": 4,
+            "MUTATION": 2,
+            "VERIFICATION": 0
+          },
+          "executions": 6,
+          "invocations": 6,
+          "obligation_blocked": 0,
+          "completion_ready_forced": 0
+        }
+      ]
+    }
+  ]
+}

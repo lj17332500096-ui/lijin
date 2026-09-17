@@ -1,0 +1,56 @@
+{
+  "M3": {
+    "n": 3,
+    "m3_pass": 0,
+    "pass_rate": 0.0,
+    "fail_to_repair_to_pass_to_complete": 0,
+    "failure_classes": {
+      "PREMATURE_COMPLETION": 3
+    },
+    "latency_avg_s": 374.7,
+    "runs": [
+      {
+        "i": 0,
+        "state": "failed",
+        "error": null,
+        "latency_s": 388.75,
+        "m3_pass": false,
+        "failure_class": "PREMATURE_COMPLETION",
+        "terminal_kind": "final_response_failed",
+        "mutations": [],
+        "verifications": [],
+        "obligation_blocked": 0,
+        "completion_passed": false,
+        "timeline": []
+      },
+      {
+        "i": 1,
+        "state": "failed",
+        "error": null,
+        "latency_s": 369.77,
+        "m3_pass": false,
+        "failure_class": "PREMATURE_COMPLETION",
+        "terminal_kind": "final_response_failed",
+        "mutations": [],
+        "verifications": [],
+        "obligation_blocked": 0,
+        "completion_passed": false,
+        "timeline": []
+      },
+      {
+        "i": 2,
+        "state": "failed",
+        "error": null,
+        "latency_s": 365.59,
+        "m3_pass": false,
+        "failure_class": "PREMATURE_COMPLETION",
+        "terminal_kind": "final_response_failed",
+        "mutations": [],
+        "verifications": [],
+        "obligation_blocked": 0,
+        "completion_passed": false,
+        "timeline": []
+      }
+    ]
+  }
+}

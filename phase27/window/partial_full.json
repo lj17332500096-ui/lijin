@@ -1,0 +1,1854 @@
+{
+  "M1": {
+    "n": 10,
+    "first_semantic": 0,
+    "semantic_within_k": 6,
+    "latest_rev_verification": 4,
+    "obligation_satisfying": 1,
+    "premature_final": 2,
+    "category_counts": {
+      "PASS": 1,
+      "W1__PARSER_NO_ACTION": 1,
+      "W3A_POST_VER": 4,
+      "W7": 3,
+      "W1__FINAL_BLOCKED_BUT_NO_RECOVERY": 1
+    },
+    "w1_class_counts": {
+      "W1D_PARSER_NO_ACTION": 1,
+      "W1B_FINAL_BLOCKED_BUT_NO_RECOVERY": 1
+    },
+    "w3_class_counts": {
+      "W3A_REPAIR_AFTER_VERIFICATION_FAIL": 4,
+      "W3B_JUSTIFIED_NEW_MUTATION": 2
+    },
+    "latency_avg_s": 16.55,
+    "avg_model_turns": 6.4,
+    "avg_tool_executions": 9.7,
+    "runs": [
+      {
+        "i": 0,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 22.88,
+        "error": "OutputGuardrailTripwireTriggered: Guardrail OutputGuardrail triggered tripwire",
+        "model_turns": 2,
+        "tool_calls_proposed": 1,
+        "tool_executions": 1,
+        "mutation_commits": 0,
+        "verification_attempts": 1,
+        "premature_final": true,
+        "action_count": 1,
+        "first_tool": "code_loop",
+        "tool_sequence": [
+          "code_loop"
+        ],
+        "tool_outcomes": [
+          [
+            "code_loop",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "TARGET"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "window_reason": "Obligation-satisfying verification within window",
+        "current_epoch": 2,
+        "verified_revision": 2,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 1,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "ACTION_LIMIT",
+        "latency_s": 9.55,
+        "error": null,
+        "model_turns": 4,
+        "tool_calls_proposed": 4,
+        "tool_executions": 4,
+        "mutation_commits": 2,
+        "verification_attempts": 0,
+        "premature_final": false,
+        "action_count": 4,
+        "first_tool": "edit_project_file",
+        "tool_sequence": [
+          "edit_project_file",
+          "write_project_file",
+          "list_workspace_files",
+          "read_workspace_file"
+        ],
+        "tool_outcomes": [
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "write_project_file",
+            "CHANGED",
+            ""
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W1__PARSER_NO_ACTION",
+        "w1_class": "W1D_PARSER_NO_ACTION",
+        "w3_class": null,
+        "window_reason": "W1: W1D_PARSER_NO_ACTION",
+        "current_epoch": 4,
+        "verified_revision": null,
+        "verification_attempted": false,
+        "verification_passed": false,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 2,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 16.66,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "model_turns": 9,
+        "tool_calls_proposed": 14,
+        "tool_executions": 14,
+        "mutation_commits": 2,
+        "verification_attempts": 5,
+        "premature_final": false,
+        "action_count": 14,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "read_workspace_file",
+          "run_python",
+          "list_workspace_files",
+          "run_tests",
+          "read_workspace_file",
+          "code_loop",
+          "list_workspace_files",
+          "read_workspace_file",
+          "edit_project_file",
+          "read_workspace_file",
+          "run_python",
+          "read_workspace_file",
+          "edit_project_file"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "code_loop",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "TARGET",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W3A_POST_VER",
+        "w1_class": null,
+        "w3_class": "W3A_REPAIR_AFTER_VERIFICATION_FAIL",
+        "window_reason": "W3: W3A_REPAIR_AFTER_VERIFICATION_FAIL",
+        "current_epoch": 4,
+        "verified_revision": 3,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 3,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 30.39,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "model_turns": 9,
+        "tool_calls_proposed": 18,
+        "tool_executions": 18,
+        "mutation_commits": 9,
+        "verification_attempts": 6,
+        "premature_final": false,
+        "action_count": 18,
+        "first_tool": "edit_project_file",
+        "tool_sequence": [
+          "edit_project_file",
+          "write_code_file",
+          "list_workspace_files",
+          "write_project_file",
+          "run_python",
+          "run_tests",
+          "edit_project_file",
+          "write_code_file",
+          "run_tests",
+          "run_python",
+          "edit_project_file",
+          "run_tests",
+          "read_workspace_file",
+          "list_workspace_files",
+          "write_project_file",
+          "run_python",
+          "edit_project_file",
+          "write_project_file"
+        ],
+        "tool_outcomes": [
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "write_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "write_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "write_project_file",
+            "CHANGED",
+            ""
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W3A_POST_VER",
+        "w1_class": null,
+        "w3_class": "W3A_REPAIR_AFTER_VERIFICATION_FAIL",
+        "window_reason": "W3: W3A_REPAIR_AFTER_VERIFICATION_FAIL",
+        "current_epoch": 11,
+        "verified_revision": 9,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 4,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 18.95,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "model_turns": 9,
+        "tool_calls_proposed": 13,
+        "tool_executions": 13,
+        "mutation_commits": 4,
+        "verification_attempts": 3,
+        "premature_final": false,
+        "action_count": 13,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "read_workspace_file",
+          "edit_project_file",
+          "run_tests",
+          "write_project_file",
+          "edit_project_file",
+          "run_tests",
+          "read_workspace_file",
+          "read_workspace_file",
+          "read_workspace_file",
+          "edit_project_file",
+          "read_workspace_file",
+          "list_workspace_files"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "write_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W3A_POST_VER",
+        "w1_class": null,
+        "w3_class": "W3A_REPAIR_AFTER_VERIFICATION_FAIL",
+        "window_reason": "W3: W3A_REPAIR_AFTER_VERIFICATION_FAIL",
+        "current_epoch": 6,
+        "verified_revision": 5,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 5,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 19.47,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "model_turns": 9,
+        "tool_calls_proposed": 16,
+        "tool_executions": 16,
+        "mutation_commits": 7,
+        "verification_attempts": 6,
+        "premature_final": false,
+        "action_count": 16,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "read_workspace_file",
+          "list_workspace_files",
+          "edit_project_file",
+          "edit_project_file",
+          "run_tests",
+          "edit_project_file",
+          "run_tests",
+          "run_python",
+          "write_project_file",
+          "run_tests",
+          "write_code_file",
+          "write_code_file",
+          "run_tests",
+          "write_code_file",
+          "run_python"
+        ],
+        "tool_outcomes": [
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "write_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7",
+        "w1_class": null,
+        "w3_class": "W3B_JUSTIFIED_NEW_MUTATION",
+        "window_reason": "Verification PASS but scope insufficient (required=None, actual=None)",
+        "current_epoch": 9,
+        "verified_revision": 9,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 6,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "ACTION_LIMIT",
+        "latency_s": 24.31,
+        "error": null,
+        "model_turns": 8,
+        "tool_calls_proposed": 13,
+        "tool_executions": 13,
+        "mutation_commits": 3,
+        "verification_attempts": 5,
+        "premature_final": false,
+        "action_count": 13,
+        "first_tool": "edit_project_file",
+        "tool_sequence": [
+          "edit_project_file",
+          "run_python",
+          "read_workspace_file",
+          "read_workspace_file",
+          "run_python",
+          "read_workspace_file",
+          "run_python",
+          "write_project_file",
+          "edit_project_file",
+          "run_tests",
+          "run_python",
+          "read_workspace_file",
+          "read_workspace_file"
+        ],
+        "tool_outcomes": [
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "write_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7",
+        "w1_class": null,
+        "w3_class": "W3B_JUSTIFIED_NEW_MUTATION",
+        "window_reason": "Verification PASS but scope insufficient (required=None, actual=None)",
+        "current_epoch": 5,
+        "verified_revision": 5,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 7,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 4.39,
+        "error": "OutputGuardrailTripwireTriggered: Guardrail OutputGuardrail triggered tripwire",
+        "model_turns": 3,
+        "tool_calls_proposed": 3,
+        "tool_executions": 3,
+        "mutation_commits": 0,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "action_count": 3,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "read_workspace_file",
+          "read_workspace_file"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7",
+        "w1_class": null,
+        "w3_class": null,
+        "window_reason": "Verification PASS but scope insufficient (required=None, actual=None)",
+        "current_epoch": 2,
+        "verified_revision": 2,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 8,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 3.53,
+        "error": "OutputGuardrailTripwireTriggered: Guardrail OutputGuardrail triggered tripwire",
+        "model_turns": 2,
+        "tool_calls_proposed": 1,
+        "tool_executions": 1,
+        "mutation_commits": 0,
+        "verification_attempts": 0,
+        "premature_final": true,
+        "action_count": 1,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file"
+        ],
+        "tool_outcomes": [],
+        "scope_history": [
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W1__FINAL_BLOCKED_BUT_NO_RECOVERY",
+        "w1_class": "W1B_FINAL_BLOCKED_BUT_NO_RECOVERY",
+        "w3_class": null,
+        "window_reason": "W1: W1B_FINAL_BLOCKED_BUT_NO_RECOVERY",
+        "current_epoch": 2,
+        "verified_revision": null,
+        "verification_attempted": false,
+        "verification_passed": false,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 9,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 15.33,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "model_turns": 9,
+        "tool_calls_proposed": 14,
+        "tool_executions": 14,
+        "mutation_commits": 3,
+        "verification_attempts": 5,
+        "premature_final": false,
+        "action_count": 14,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "list_workspace_files",
+          "run_tests",
+          "read_workspace_file",
+          "run_python",
+          "write_code_file",
+          "code_loop",
+          "read_workspace_file",
+          "edit_project_file",
+          "read_workspace_file",
+          "run_tests",
+          "read_workspace_file",
+          "read_workspace_file",
+          "edit_project_file"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "code_loop",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "TARGET",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W3A_POST_VER",
+        "w1_class": null,
+        "w3_class": "W3A_REPAIR_AFTER_VERIFICATION_FAIL",
+        "window_reason": "W3: W3A_REPAIR_AFTER_VERIFICATION_FAIL",
+        "current_epoch": 5,
+        "verified_revision": 4,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      }
+    ]
+  },
+  "M4": {
+    "n": 10,
+    "first_semantic": 1,
+    "semantic_within_k": 6,
+    "latest_rev_verification": 9,
+    "obligation_satisfying": 2,
+    "premature_final": 0,
+    "category_counts": {
+      "W7": 7,
+      "PASS": 2,
+      "W1__PARSER_NO_ACTION": 1
+    },
+    "w1_class_counts": {
+      "W1D_PARSER_NO_ACTION": 1
+    },
+    "w3_class_counts": {
+      "W3B_JUSTIFIED_NEW_MUTATION": 5
+    },
+    "latency_avg_s": 17.89,
+    "avg_model_turns": 7.6,
+    "avg_tool_executions": 11.9,
+    "runs": [
+      {
+        "i": 0,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "ACTION_LIMIT",
+        "latency_s": 13.38,
+        "error": null,
+        "model_turns": 4,
+        "tool_calls_proposed": 5,
+        "tool_executions": 5,
+        "mutation_commits": 0,
+        "verification_attempts": 3,
+        "premature_final": false,
+        "action_count": 5,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "run_python",
+          "read_workspace_file",
+          "read_workspace_file",
+          "run_python"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7",
+        "w1_class": null,
+        "w3_class": null,
+        "window_reason": "Verification PASS but scope insufficient (required=None, actual=None)",
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 1,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "ACTION_LIMIT",
+        "latency_s": 15.28,
+        "error": null,
+        "model_turns": 5,
+        "tool_calls_proposed": 5,
+        "tool_executions": 5,
+        "mutation_commits": 0,
+        "verification_attempts": 3,
+        "premature_final": false,
+        "action_count": 5,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "read_workspace_file",
+          "run_python",
+          "run_python",
+          "run_tests"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "window_reason": "Obligation-satisfying verification within window",
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "PROJECT",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 2,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 20.25,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "model_turns": 9,
+        "tool_calls_proposed": 14,
+        "tool_executions": 14,
+        "mutation_commits": 0,
+        "verification_attempts": 4,
+        "premature_final": false,
+        "action_count": 14,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "read_workspace_file",
+          "code_loop",
+          "read_workspace_file",
+          "list_workspace_files",
+          "read_workspace_file",
+          "read_workspace_file",
+          "run_python",
+          "run_python",
+          "read_workspace_file",
+          "list_workspace_files",
+          "read_workspace_file",
+          "list_workspace_files",
+          "read_workspace_file"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "code_loop",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "TARGET",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7",
+        "w1_class": null,
+        "w3_class": null,
+        "window_reason": "Verification PASS but scope insufficient (required=None, actual=None)",
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 3,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 19.17,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "model_turns": 9,
+        "tool_calls_proposed": 14,
+        "tool_executions": 14,
+        "mutation_commits": 0,
+        "verification_attempts": 5,
+        "premature_final": false,
+        "action_count": 14,
+        "first_tool": "run_tests",
+        "tool_sequence": [
+          "run_tests",
+          "run_python",
+          "read_workspace_file",
+          "read_workspace_file",
+          "read_workspace_file",
+          "read_workspace_file",
+          "run_python",
+          "read_workspace_file",
+          "read_workspace_file",
+          "read_workspace_file",
+          "list_workspace_files",
+          "read_workspace_file",
+          "run_tests",
+          "run_python"
+        ],
+        "tool_outcomes": [
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": true,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7",
+        "w1_class": null,
+        "w3_class": null,
+        "window_reason": "Verification PASS but scope insufficient (required=None, actual=None)",
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 4,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 21.0,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "model_turns": 9,
+        "tool_calls_proposed": 15,
+        "tool_executions": 15,
+        "mutation_commits": 7,
+        "verification_attempts": 7,
+        "premature_final": false,
+        "action_count": 15,
+        "first_tool": "edit_project_file",
+        "tool_sequence": [
+          "edit_project_file",
+          "run_tests",
+          "write_project_file",
+          "run_tests",
+          "run_python",
+          "read_workspace_file",
+          "write_code_file",
+          "run_python",
+          "edit_project_file",
+          "run_tests",
+          "edit_project_file",
+          "edit_project_file",
+          "write_project_file",
+          "run_tests",
+          "code_loop"
+        ],
+        "tool_outcomes": [
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "write_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "write_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "code_loop",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "TARGET"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": "W3B_JUSTIFIED_NEW_MUTATION",
+        "window_reason": "Obligation-satisfying verification within window",
+        "current_epoch": 8,
+        "verified_revision": 8,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 5,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 20.92,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "model_turns": 9,
+        "tool_calls_proposed": 14,
+        "tool_executions": 14,
+        "mutation_commits": 2,
+        "verification_attempts": 8,
+        "premature_final": false,
+        "action_count": 14,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "run_python",
+          "read_workspace_file",
+          "edit_project_file",
+          "run_tests",
+          "run_python",
+          "write_code_file",
+          "read_workspace_file",
+          "run_python",
+          "code_loop",
+          "read_workspace_file",
+          "run_python",
+          "run_python",
+          "list_workspace_files"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "code_loop",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "TARGET",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7",
+        "w1_class": null,
+        "w3_class": "W3B_JUSTIFIED_NEW_MUTATION",
+        "window_reason": "Verification PASS but scope insufficient (required=None, actual=None)",
+        "current_epoch": 3,
+        "verified_revision": 3,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 6,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 19.2,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "model_turns": 9,
+        "tool_calls_proposed": 16,
+        "tool_executions": 16,
+        "mutation_commits": 3,
+        "verification_attempts": 3,
+        "premature_final": false,
+        "action_count": 16,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "read_workspace_file",
+          "run_python",
+          "read_workspace_file",
+          "edit_project_file",
+          "read_workspace_file",
+          "list_workspace_files",
+          "edit_project_file",
+          "edit_project_file",
+          "run_tests",
+          "read_workspace_file",
+          "list_workspace_files",
+          "read_workspace_file",
+          "list_workspace_files",
+          "read_workspace_file",
+          "list_workspace_files"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7",
+        "w1_class": null,
+        "w3_class": "W3B_JUSTIFIED_NEW_MUTATION",
+        "window_reason": "Verification PASS but scope insufficient (required=None, actual=None)",
+        "current_epoch": 4,
+        "verified_revision": 4,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 7,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 23.58,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "model_turns": 9,
+        "tool_calls_proposed": 14,
+        "tool_executions": 14,
+        "mutation_commits": 4,
+        "verification_attempts": 3,
+        "premature_final": false,
+        "action_count": 14,
+        "first_tool": "write_code_file",
+        "tool_sequence": [
+          "write_code_file",
+          "write_code_file",
+          "read_workspace_file",
+          "edit_project_file",
+          "read_workspace_file",
+          "edit_project_file",
+          "run_python",
+          "read_workspace_file",
+          "run_python",
+          "read_workspace_file",
+          "read_workspace_file",
+          "run_tests",
+          "read_workspace_file",
+          "list_workspace_files"
+        ],
+        "tool_outcomes": [
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "PROJECT",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7",
+        "w1_class": null,
+        "w3_class": "W3B_JUSTIFIED_NEW_MUTATION",
+        "window_reason": "Verification PASS but scope insufficient (required=None, actual=None)",
+        "current_epoch": 5,
+        "verified_revision": 5,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 8,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 7.89,
+        "error": "OutputGuardrailTripwireTriggered: Guardrail OutputGuardrail triggered tripwire",
+        "model_turns": 4,
+        "tool_calls_proposed": 6,
+        "tool_executions": 6,
+        "mutation_commits": 0,
+        "verification_attempts": 0,
+        "premature_final": false,
+        "action_count": 6,
+        "first_tool": "list_workspace_files",
+        "tool_sequence": [
+          "list_workspace_files",
+          "read_workspace_file",
+          "read_workspace_file",
+          "read_workspace_file",
+          "read_workspace_file",
+          "list_workspace_files"
+        ],
+        "tool_outcomes": [],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W1__PARSER_NO_ACTION",
+        "w1_class": "W1D_PARSER_NO_ACTION",
+        "w3_class": null,
+        "window_reason": "W1: W1D_PARSER_NO_ACTION",
+        "current_epoch": 1,
+        "verified_revision": null,
+        "verification_attempted": false,
+        "verification_passed": false,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 9,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 18.28,
+        "error": "MaxTurnsExceeded: Max turns (9) exceeded",
+        "model_turns": 9,
+        "tool_calls_proposed": 16,
+        "tool_executions": 16,
+        "mutation_commits": 2,
+        "verification_attempts": 2,
+        "premature_final": false,
+        "action_count": 16,
+        "first_tool": "edit_project_file",
+        "tool_sequence": [
+          "edit_project_file",
+          "read_workspace_file",
+          "read_workspace_file",
+          "read_workspace_file",
+          "read_workspace_file",
+          "list_workspace_files",
+          "list_workspace_files",
+          "read_workspace_file",
+          "read_workspace_file",
+          "edit_project_file",
+          "run_python",
+          "run_python",
+          "list_workspace_files",
+          "list_workspace_files",
+          "read_workspace_file",
+          "read_workspace_file"
+        ],
+        "tool_outcomes": [
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7",
+        "w1_class": null,
+        "w3_class": "W3B_JUSTIFIED_NEW_MUTATION",
+        "window_reason": "Verification PASS but scope insufficient (required=None, actual=None)",
+        "current_epoch": 3,
+        "verified_revision": 3,
+        "verification_attempted": true,
+        "verification_passed": true,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      }
+    ]
+  }
+}

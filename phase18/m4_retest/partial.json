@@ -1,0 +1,41 @@
+{
+  "mode": "baseline",
+  "n": 1,
+  "cases": [
+    {
+      "case": "M4",
+      "runs": [
+        {
+          "case": "M4",
+          "kind": "fix_then_pass",
+          "state": "failed",
+          "terminal_kind": "no_progress",
+          "behavior_pass": false,
+          "mutation": true,
+          "verification_pass": false,
+          "verification_attempted": false,
+          "first_after_mutation": {
+            "capability": "DISCOVERY",
+            "tool": "list_notes"
+          },
+          "first_decision_correct": false,
+          "latest_revision_covered": false,
+          "available_verification_tools": [
+            "run_tests"
+          ],
+          "verification_available": true,
+          "capability_counts": {
+            "DISCOVERY": 1,
+            "READ": 1,
+            "MUTATION": 1,
+            "VERIFICATION": 0
+          },
+          "executions": 3,
+          "invocations": 4,
+          "obligation_blocked": 1,
+          "completion_ready_forced": 0
+        }
+      ]
+    }
+  ]
+}

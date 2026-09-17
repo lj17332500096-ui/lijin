@@ -1,0 +1,65 @@
+{
+  "id": "T002",
+  "prompt": "Agent 和普通聊天模型有什么区别？",
+  "container_id": "tk_30a2cb10",
+  "run_id": "task_03271a2c",
+  "observed_state_at_deadline": "completed",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T11:46:12+00:00",
+  "terminal_state": "completed",
+  "terminal_at": "2026-09-11T11:46:12+00:00",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 8.22,
+  "model_turns": 3,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "{\n  \"content\": \"1. **能说话 vs 能办事**：普通聊天模型只能跟你对话、生成文字；Agent 除了对话，还能主动搜索资料、写代码、读文件、算数据、定时提醒等。\\n\\n2. **单轮回复 vs 多步规划**：普通模型一次只答一个问题；Agent 会把大目标拆成若干小步骤，一步步执行，遇到问题还会自己调整。\\n\\n3. **没记忆 vs 有记忆**：普通模型记不住你之前的偏好；Agent 可以把重要信息存下来，下次继续用。\\n\\n4. **到文字就停 vs 要拿到结果**：普通模型输出文字就结束了；Agent 要确保任务真正完成——比如报告真的写成了文件、定时任务真的建好了。\\n\\n简单说：**普通模型是\"陪你聊天的\"，Agent 是\"帮你办事的\"**。\"\n}",
+  "reply_kind": "answer",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0,
+    "db_unique_executions": 0
+  },
+  "_exec": {},
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2531.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2500.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2047.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

@@ -1,0 +1,283 @@
+{
+  "definitions": {
+    "scope": "design.css only; SVG gradients are listed separately as one shared brand geometry.",
+    "duplicates": "same normalized selector in the same normalized at-rule context",
+    "shadows": "box-shadow property declarations, including none/focus and inset selection marker; raw recipes exclude var()/none",
+    "accent": "unique literal core accent values; hover/strong counted separately",
+    "durations": "unique duration literals and component animation/transition literals; cadence tokens include spinner/cursor/skeleton"
+  },
+  "before": {
+    "gradient_declarations": 3,
+    "box_shadow_declarations": 21,
+    "literal_shadow_recipes": 4,
+    "core_accent_hues": [
+      "#2f6da8",
+      "#6ea8d8"
+    ],
+    "accent_with_hover_and_strong_hues": [
+      "#1f5b8e",
+      "#24588c",
+      "#2f6da8",
+      "#4f8ad1",
+      "#6ea8d8",
+      "#86bce8"
+    ],
+    "duration_literals": [
+      ".12s",
+      ".15s",
+      ".16s",
+      ".18s",
+      ".22s",
+      ".2s",
+      "1.1s",
+      "1.2s",
+      "1s"
+    ],
+    "component_duration_literals": [
+      ".12s",
+      ".15s",
+      ".16s",
+      ".18s",
+      ".22s",
+      ".2s",
+      "1.1s",
+      "1.2s",
+      "1s"
+    ],
+    "motion_duration_tokens": {},
+    "shadow_tokens": {
+      "--shadow-popover": "0 8px 30px rgba(30,50,80,.14)",
+      "--shadow-modal": "0 16px 48px rgba(30,50,80,.20)",
+      "--shadow-float": "var(--shadow-popover)"
+    },
+    "duplicate_selector_definitions": 31,
+    "duplicate_selectors": [
+      {
+        "context": [],
+        "selector": ".brand",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".brand-head",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".sidebar",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".nav-label",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".nav-btn",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".nav-ico",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".rail-link",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".rail-tasks",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".rail-item",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".rail-item.active",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".rail-title",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".rail-meta",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".sidebar-foot",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".topbar-left .brand-name",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".crumb .sep",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".crumb span",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".example-chip svg",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".approval-title",
+        "count": 3
+      },
+      {
+        "context": [],
+        "selector": ".approval-desc",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".approval-actions",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".composer",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".composer .btn-new",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".composer textarea",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".composer-foot",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".send",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".send:disabled",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".composer-model",
+        "count": 2
+      },
+      {
+        "context": [],
+        "selector": ".composer-file-btn",
+        "count": 2
+      },
+      {
+        "context": [
+          "@media(max-width:760px)"
+        ],
+        "selector": ".topbar",
+        "count": 2
+      },
+      {
+        "context": [
+          "@media(max-width:760px)"
+        ],
+        "selector": ".mobile-bar button",
+        "count": 2
+      }
+    ],
+    "component_color_literals": [
+      "#2a333e",
+      "#3c6db0",
+      "#4f8ad1",
+      "#8dbdf0",
+      "#c7d3df",
+      "#fff",
+      "rgba(0,0,0,.08)",
+      "rgba(0,0,0,.55)",
+      "rgba(140,170,200,.12)",
+      "rgba(255,255,255,.14)",
+      "rgba(255,255,255,.25)",
+      "rgba(255,255,255,.7)",
+      "rgba(4,8,12,.55)",
+      "rgba(79,138,209,.28)"
+    ],
+    "reduced_motion": true,
+    "css_bytes": 71102
+  },
+  "after": {
+    "gradient_declarations": 0,
+    "box_shadow_declarations": 19,
+    "literal_shadow_recipes": 0,
+    "core_accent_hues": [
+      "#3b82f6"
+    ],
+    "accent_with_hover_and_strong_hues": [
+      "#3b82f6",
+      "#60a5fa"
+    ],
+    "duration_literals": [
+      "1000ms",
+      "120ms",
+      "1800ms",
+      "180ms",
+      "240ms",
+      "900ms"
+    ],
+    "component_duration_literals": [],
+    "motion_duration_tokens": {
+      "--motion-fast": "120ms",
+      "--motion-normal": "180ms",
+      "--motion-slow": "240ms",
+      "--motion-spin": "900ms",
+      "--motion-cursor": "1000ms",
+      "--motion-skeleton": "1800ms"
+    },
+    "shadow_tokens": {
+      "--shadow-popover": "0 8px 24px var(--color-shadow)",
+      "--shadow-modal": "0 16px 40px var(--color-shadow)",
+      "--shadow-focus": "0 0 0 3px var(--color-accent-soft)",
+      "--shadow-float": "var(--shadow-popover)",
+      "--shadow-selection": "inset 2px 0 var(--color-accent)"
+    },
+    "duplicate_selector_definitions": 0,
+    "duplicate_selectors": [],
+    "component_color_literals": [],
+    "reduced_motion": true,
+    "css_bytes": 74562
+  },
+  "logo_variants": {
+    "before": "CSS square mark + manually repeated text; no shared composition API",
+    "after": [
+      "SVG N mark",
+      "DOM horizontal lockup",
+      "DOM wordmark"
+    ],
+    "svg_geometry_count": 1,
+    "svg_asset_files": [
+      "brand-mark.svg",
+      "brand-favicon.svg"
+    ]
+  }
+}

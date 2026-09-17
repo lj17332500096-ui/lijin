@@ -1,0 +1,56 @@
+{
+  "id": "T002",
+  "prompt": "Agent 和普通聊天模型有什么区别？",
+  "container_id": "tk_33341dfe",
+  "run_id": "task_f603a9a5",
+  "observed_state_at_deadline": "completed",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T06:16:35+00:00",
+  "terminal_state": "completed",
+  "terminal_at": "2026-09-11T06:16:35+00:00",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 6.17,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "{\n  \"content\": \"普通聊天模型是「被动应答」——你问它答，它不主动行动，也不连接外部工具。\\n\\nAgent 则是「能自主决策与执行」的系统，通常包含以下能力：\\n\\n1. **工具调用**：可以搜索网页、读写文件、执行代码、查询数据库等，不是只靠内部知识回答。\\n2. **任务拆解**：能把复杂目标拆成多步，自己规划并逐步执行，而不是单次问答。\\n3. **状态保持**：会记住上下文、偏好、待办事项，跨轮次连续工作。\\n4. **闭环执行**：目标驱动——你给它一个目标，它能自己决定用什么工具、按什么顺序做，直到完成任务，而不只是给一段文字。\\n\\n简单比喻：普通聊天模型像一位知识渊博的顾问，你说什么他答什么；Agent 则像一位能帮你办事的助理，不仅回答，还能自己去查资料、写文件、安排日程，把事办完。\"\n}",
+  "reply_kind": "answer",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0,
+    "db_unique_executions": 0
+  },
+  "_exec": {},
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2812.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2968.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

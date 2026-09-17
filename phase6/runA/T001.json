@@ -1,0 +1,56 @@
+{
+  "id": "T001",
+  "prompt": "介绍一下你能帮我做什么。",
+  "container_id": "tk_4fdddba6",
+  "run_id": "task_cbe17233",
+  "observed_state_at_deadline": "completed",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T05:05:24+00:00",
+  "terminal_state": "completed",
+  "terminal_at": "2026-09-11T05:05:24+00:00",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 8.19,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "{\"content\": \"我可以帮你做这些事情：\\n\\n**🔍 信息检索**\\n- 联网搜索最新资讯、新闻、天气、价格等\\n- 深度调研某个主题（多轮综合搜索）\\n\\n**📄 文档处理**\\n- 读取 Word、Excel、PPT、PDF 文件并提取内容\\n- 生成 Word/Excel/PPT 文档\\n- 整理笔记和资料，建立知识库\\n\\n**💻 代码与计算**\\n- 写代码并在沙箱中运行验证\\n- 精确数学计算和数据核对\\n- 抓取 GitHub 仓库阅读源码\\n\\n**📅 日程与提醒**\\n- 创建定时任务（每天早上查天气、每周一做复盘等）\\n- 制定每日计划\\n- 周复盘总结\\n\\n**✍️ 内容创作**\\n- 写邮件、公告、文案、博客\\n- 翻译（中英文互译，支持快速/标准/精细三档）\\n- 针对职位定制简历\\n- 总结会议记录\\n\\n**🎨 视觉与设计**\\n- 分析图片内容（截图、图表、照片）\\n- 前端 UI 设计建议\\n- 应用品牌主题风格\\n\\n**🗂️ 文件管理**\\n- 浏览工作区文件目录\\n- 读取和搜索本地文档\\n- 保存笔记到文件\\n\\n有什么具体任务想让我帮忙吗？\"}",
+  "reply_kind": "answer",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0,
+    "db_unique_executions": 0
+  },
+  "_exec": {},
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 4078.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 3704.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

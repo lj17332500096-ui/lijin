@@ -1,0 +1,18 @@
+{
+  "M1": {
+    "n": 0,
+    "error": "FULL_REPLAY_FIDELITY_FAIL",
+    "fidelity_errors": [
+      "workspace_hash mismatch: snap=09e1ebc72dfddd2f actual=c275009a50d7e0ca",
+      "spark_config_hash missing in snapshot"
+    ]
+  },
+  "M4": {
+    "n": 0,
+    "error": "FULL_REPLAY_FIDELITY_FAIL",
+    "fidelity_errors": [
+      "workspace_hash mismatch: snap=09e1ebc72dfddd2f actual=c275009a50d7e0ca",
+      "spark_config_hash missing in snapshot"
+    ]
+  }
+}

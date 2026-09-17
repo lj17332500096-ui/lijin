@@ -1,0 +1,24 @@
+{
+  "id": "T002",
+  "prompt": "Agent 和普通聊天模型有什么区别？",
+  "container_id": "tk_6748c282",
+  "run_id": "task_c6aee314",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 10.19,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "{\"content\":\"普通聊天模型本质上是「被提问 → 生成回复」的单轮对话器，能力边界就是它的训练数据和上下文窗口。\\n\\nAgent 则是在此基础上叠加了三种能力：\\n\\n1. 工具调用（Tool Use）\\nAgent 可以把自身能力当作「工具」——能查搜索引擎、读本地文件、写代码并运行、访问 API、甚至控制浏览器。聊天模型通常只能回答文字。\\n\\n2. 记忆（Memory）\\nAgent 可以跨会话记住你的偏好、历史决策和项目背景；普通模型每次对话基本从零开始（除非显式传入上下文）。\\n\\n3. 规划与执行（Planning & Execution）\\nAgent 收到复杂任务后会拆步骤、按顺序执行、根据中间结果做调整，甚至在遇到问题时自己回查资料。聊天模型是一次性输出，没有执行闭环。\\n\\n简单来说：聊天模型是「会说话的字典」，Agent 是「能干活儿的助手」。前者回答问题，后者把问题真正办完。\"}",
+  "reply_kind": "answer",
+  "_exec": {},
+  "_blocked": {},
+  "tool_calls_total": 0,
+  "blocked_events": 0
+}

@@ -1,0 +1,9 @@
+{
+  "M1": {
+    "n": 0,
+    "error": "FULL_REPLAY_FIDELITY_FAIL",
+    "fidelity_errors": [
+      "workspace_hash mismatch: snap=e5145cd5673c38df actual=2fa397bbdd59ae13"
+    ]
+  }
+}

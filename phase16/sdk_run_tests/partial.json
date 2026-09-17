@@ -1,0 +1,64 @@
+{
+  "tool": "run_tests",
+  "rows": [
+    {
+      "strict": false,
+      "n": 3,
+      "selection_rate": 1.0,
+      "valid_arg_rate": 1.0,
+      "runs": [
+        {
+          "tool": "run_tests",
+          "strict": false,
+          "selected": true,
+          "calls": [
+            {
+              "name": "run_tests",
+              "args": "{\"project\":\"micro_fixture\"}"
+            },
+            {
+              "name": null,
+              "args": "None"
+            }
+          ],
+          "error": null,
+          "final": "项目 `micro_fixture` 的测试已全部通过。\n\n**测试摘要：**\n- 退出码：0（全部通过）\n- 通过用例数：2\n- 失败用例数：0\n- 耗时：0.01s"
+        },
+        {
+          "tool": "run_tests",
+          "strict": false,
+          "selected": true,
+          "calls": [
+            {
+              "name": "run_tests",
+              "args": "{\"project\":\"micro_fixture\"}"
+            },
+            {
+              "name": null,
+              "args": "None"
+            }
+          ],
+          "error": null,
+          "final": "项目 `micro_fixture` 测试已全部通过。\n\n**测试结果摘要**\n- 退出码: 0（成功）\n- 测试用例数: 2 个\n- 通过数: 2（全部通过）\n- 用时: 0.4 秒"
+        },
+        {
+          "tool": "run_tests",
+          "strict": false,
+          "selected": true,
+          "calls": [
+            {
+              "name": "run_tests",
+              "args": "{\"project\":\"micro_fixture\"}"
+            },
+            {
+              "name": null,
+              "args": "None"
+            }
+          ],
+          "error": null,
+          "final": "项目 `micro_fixture` 测试已全部通过。\n\n- **测试结果**：2 passed（2 个测试用例全部通过）\n- **退出码**：0（无错误）\n- **用时**：0.5 秒\n\n没有失败的测试。"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "M1": {
+    "n": 10,
+    "first_semantic": 1,
+    "semantic_within_k": 1,
+    "evidence_within_k": 0,
+    "category_counts": {
+      "W1": 1,
+      "W5": 9
+    },
+    "latency_avg_s": 24.52
+  }
+}

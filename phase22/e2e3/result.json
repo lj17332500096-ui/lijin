@@ -1,0 +1,156 @@
+{
+  "M1": {
+    "E2": {
+      "n": 10,
+      "preferred_run_tests": 5,
+      "semantic_verification": 9,
+      "discovery_or_read": 0,
+      "mutation": 1,
+      "no_action": 0,
+      "preferred_rate": 0.5,
+      "semantic_rate": 0.9,
+      "discovery_drift_rate": 0.0,
+      "status_counts": {
+        "DECISION_CAPTURED": 10
+      },
+      "latency_avg_s": 34.59,
+      "latency_p50_s": 23.58,
+      "latency_p95_s": 96.06,
+      "first_tools": {
+        "run_python": 4,
+        "run_tests": 5,
+        "write_code_file": 1
+      },
+      "semantic_classes": {
+        "SEMANTIC_VERIFICATION": 9,
+        "REVISE": 1
+      },
+      "tool_count": 11,
+      "schema_cost": {
+        "tool_count": 11,
+        "schema_bytes": 8606,
+        "schema_chars": 6228,
+        "approx_tokens_bytes_div4": 2151,
+        "approx_tokens_chars_div3": 2076
+      },
+      "prep_rate": 0.0,
+      "invalid_tool_call": 0
+    },
+    "E3": {
+      "n": 5,
+      "preferred_run_tests": 5,
+      "semantic_verification": 5,
+      "discovery_or_read": 0,
+      "mutation": 0,
+      "no_action": 0,
+      "preferred_rate": 1.0,
+      "semantic_rate": 1.0,
+      "discovery_drift_rate": 0.0,
+      "status_counts": {
+        "DECISION_CAPTURED": 5
+      },
+      "latency_avg_s": 16.62,
+      "latency_p50_s": 8.67,
+      "latency_p95_s": 48.75,
+      "first_tools": {
+        "run_tests": 5
+      },
+      "semantic_classes": {
+        "SEMANTIC_VERIFICATION": 5
+      },
+      "tool_count": 4,
+      "schema_cost": {
+        "tool_count": 4,
+        "schema_bytes": 3105,
+        "schema_chars": 2381,
+        "approx_tokens_bytes_div4": 776,
+        "approx_tokens_chars_div3": 793
+      },
+      "prep_rate": 0.0,
+      "invalid_tool_call": 0
+    }
+  },
+  "M4": {
+    "E2": {
+      "n": 10,
+      "preferred_run_tests": 0,
+      "semantic_verification": 3,
+      "discovery_or_read": 4,
+      "mutation": 3,
+      "no_action": 0,
+      "preferred_rate": 0.0,
+      "semantic_rate": 0.3,
+      "discovery_drift_rate": 0.4,
+      "status_counts": {
+        "DECISION_CAPTURED": 10
+      },
+      "latency_avg_s": 16.43,
+      "latency_p50_s": 16.95,
+      "latency_p95_s": 26.11,
+      "first_tools": {
+        "list_code_files": 4,
+        "write_code_file": 3,
+        "run_python": 3
+      },
+      "semantic_classes": {
+        "DISCOVERY": 4,
+        "REVISE": 3,
+        "SEMANTIC_VERIFICATION": 3
+      },
+      "tool_count": 11,
+      "schema_cost": {
+        "tool_count": 11,
+        "schema_bytes": 8606,
+        "schema_chars": 6228,
+        "approx_tokens_bytes_div4": 2151,
+        "approx_tokens_chars_div3": 2076
+      },
+      "prep_rate": 0.0,
+      "invalid_tool_call": 0
+    },
+    "E3": {
+      "n": 5,
+      "preferred_run_tests": 2,
+      "semantic_verification": 4,
+      "discovery_or_read": 1,
+      "mutation": 0,
+      "no_action": 0,
+      "preferred_rate": 0.4,
+      "semantic_rate": 0.8,
+      "discovery_drift_rate": 0.2,
+      "status_counts": {
+        "DECISION_CAPTURED": 5
+      },
+      "latency_avg_s": 31.44,
+      "latency_p50_s": 23.53,
+      "latency_p95_s": 73.26,
+      "first_tools": {
+        "run_tests": 2,
+        "run_python": 2,
+        "list_code_files": 1
+      },
+      "semantic_classes": {
+        "SEMANTIC_VERIFICATION": 4,
+        "DISCOVERY": 1
+      },
+      "tool_count": 4,
+      "schema_cost": {
+        "tool_count": 4,
+        "schema_bytes": 3105,
+        "schema_chars": 2381,
+        "approx_tokens_bytes_div4": 776,
+        "approx_tokens_chars_div3": 793
+      },
+      "prep_rate": 0.0,
+      "invalid_tool_call": 0
+    }
+  },
+  "semantic_lift": {
+    "M1": {
+      "E3_minus_E2": 0.1
+    },
+    "M4": {
+      "E3_minus_E2": 0.5
+    }
+  }
+}

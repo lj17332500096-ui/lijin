@@ -1,0 +1,16 @@
+{
+  "name": "slack-gif-creator",
+  "slug": "slack-gif-creator",
+  "version": "1.0",
+  "description": "Knowledge and utilities for creating animated GIFs optimized for Slack. Provides constraints, validation tools, and animation concepts. Use when users request animated GIFs for Slack like \"make me a GIF of X doing Y for Slack.",
+  "triggers": [],
+  "files": {
+    "portable": "SKILL.md",
+    "agent_zh": "skill.md",
+    "assets": [
+      "core"
+    ]
+  },
+  "requires_tools": false,
+  "agent_hint": "复制本目录到目标工程的 skills/<slug>/，并在 .env 的 SKILLS= 追加 slug；通用 agent 可直接读取 SKILL.md。"
+}

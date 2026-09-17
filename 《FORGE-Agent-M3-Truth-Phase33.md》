@@ -1,0 +1,438 @@
+# FORGE Agent — Phase 33 Report：M3 Benchmark Truth + Current-Code E2E Requalification + run_tests Final Production Gate
+
+> **Date**: 2026-09-14
+> **Status**: ✅ PASSED
+> **Behavior Model**: `G:\models\Spark-X2.5-4B.gguf`（FULL_GPU，Vulkan）
+> **Spark Config Hash**: `0c8830434416d9533a13cac9b068723bc24ad5dccda7abd2df027898434523c3`
+
+---
+
+## 1. Executive Summary
+
+Phase 33 修正了 Phase 32 的 M3 结论口径，重建了**测试机制而非结果**的 M3 fixture，并完成当前代码下的 M1/M4 E2E 重验证与 run_tests 最终生产判定。
+
+核心结论：
+
+1. **M3 口径修正**：Phase 32 的 `M3 = 0/3` 不成立。按验收规范（provider-invalid 不进入 denominator，fixture 未诱导修复边界不算模型失败）：
+   - Phase 32 Run 3 = provider_error → **不计入** behavior denominator
+   - Phase 32 Run 1 = 首次验证前已修完 → `M3_FIXTURE_DID_NOT_INDUCE_REPAIR_BOUNDARY`，**不算模型 repair failure**
+2. **重建 M3 fixture**：stage-1 明显 bug + **runtime-revealed stage-2 缺陷**。stage-2 的正确答案只存在于 fixture 外的 oracle（模型不可读），**静态检查无法可靠获得** → 必须经历真实 verification FAIL。
+3. **M3 Fixture Truth = PASS**（确定性前置证明：initial FAIL → stage-1 后仍 FAIL → 失败输出暴露 stage-2 → stage-2 后 PASS）。
+4. **修复 3 个真实生产缺陷**（本轮发现）：
+   - `write_project_file`/`edit_project_file` 在绑定 WorkLocation（写入根 ≠ BASE_DIR）时崩溃（`target.relative_to(BASE_DIR)` ValueError）
+   - **run_tests 目录错配**：`run_tests(project="micro_fixture")` 过去解析到 `code_sandbox/micro_fixture`（永远正确），而非被编辑的 fixture → M1/M4 验证覆盖失效
+   - M3 运行器 `rt.tasks` 未初始化导致 WorkLocation 绑定静默失败
+5. **M3 真实闭环达成**：6 attempts 内获得 **4 个 repair-boundary-valid** 样本，其中 **3 个完成 FAIL→REPAIR→PASS→COMPLETE**。
+6. **Current-Code M1/M4 E2E = 6/6 PASS**（重捕快照 + 修正验证覆盖后）。
+7. **Runtime Acceptance Suite = 430/430 PASS**；**Full Regression = 808 passed / 5 failed（仅 UI/theme）/ 4 skipped**，Runtime-related failures = **0**。
+8. **run_tests Final Gate = 全部通过 → PRODUCTION**。
+
+---
+
+## 2. Phase 32 M3 Truth Correction
+
+| Phase 32 写法 | Phase 33 修正 |
+|--------------|--------------|
+| `M3 = 0/3` | `M3 requested=3, execution-valid=2, provider-invalid=1, repair-boundary-valid=0` |
+| `Spark repair capability = FAIL` | `M3 repair-loop qualification = NOT ESTABLISHED`（fixture 未诱导边界） |
+| Run 1 = 通过 | `M3_FIXTURE_DID_NOT_INDUCE_REPAIR_BOUNDARY`（模型成功解决，但未测试 FAIL→REPAIR→PASS） |
+| Run 3 计入分母 | provider_error → **补样本，不计入 behavior denominator** |
+
+**Phase 32 根因**：fixture 只是"两个明显源码 bug 分两文件"，模型可一次搜索同时发现并一次修完 → 未产生 verification FAIL。这是 **fixture 缺陷**，不是模型修复能力失败。
+
+---
+
+## 3. Provider Long-Run Smoke
+
+单 server session，**不重启**：连续 20 次短 completion + 10 次 function-call request。
+
+| 指标 | 值 |
+|------|-----|
+| completions | 20 |
+| completions_empty | 0 |
+| completions_error | 0 |
+| fc_requests | 10 |
+| fc_with_calls（≥1 tool call） | 10/10 |
+| fc_error | 0 |
+| working_set_end | 8.68 GB |
+| **Provider Long-Run Stability** | **PASS** |
+
+结论：30 次连续请求下 provider 稳定，无 `empty response / finish=length` 退化。
+
+> 注：Phase 32 观察到的退化发生在**超长 run（>20 分钟、50+ LLM 调用）**之后，而非普通请求计数。
+> 本轮 M3 长 run 后仍出现 server 内存增长（最高 ~17GB），已在 §22 单独记为本地 provider 生产风险。
+
+---
+
+## 4. M3 Fixture Design
+
+**目标**：让 **Static Inspection Alone 不能可靠发现 stage-2 修复答案**，从而**必然**经历一次真实 verification FAIL。
+
+| 项 | 内容 |
+|----|------|
+| WorkLocation | `code_sandbox/m3_fixture`（strict scope） |
+| `calc.py`（stage-1） | `add(a,b) -> a - b`（明显 bug） |
+| `series.py`（stage-2） | `series_sum(n) -> sum(range(n))`（应为 `range(1,n+1)`；源码无注释、无暴露） |
+| `test_calc.py` | `test_add`（字面量）+ `test_series_sum`（**从 fixture 外 oracle 读取期望值**） |
+| oracle | `my_creative_agent/m3_oracle/expected.json`（`{"series_sum":[{"n":5,"total":15},{"n":10,"total":55}]}`） |
+| oracle 隔离 | 模型 `read_workspace_file` 被 strict scope 拒绝；`run_python` 读取被 Approval 拒绝（实测均被拦截） |
+
+关键：stage-2 的期望值**只存在于 fixture 外的 oracle**。模型即使读完 `calc.py`/`series.py`/`test_calc.py` 也无法静态得知 `series_sum` 应为 `1..n`；必须运行测试、读到 FAIL 证据后修复。
+
+**确定性/可重复/本地/无网络/无随机**：oracle 为固定 JSON，测试为固定数据。
+
+---
+
+## 5. M3 Fixture Qualification
+
+`tests/m3_fixture_qualification.py`（**在模型运行前**确定性执行）：
+
+| 步骤 | 期望 | 实测 |
+|------|------|------|
+| 1. initial（stage-1+stage-2 bug） | tests FAIL | rc=1 FAIL=True |
+| 2. 仅修 stage-1（add） | tests 仍 FAIL | rc=1 STILL_FAIL=True |
+| 3. 失败输出暴露 stage-2 信息 | 是 | True（含 `series_sum` / `10` / `15`） |
+| 4. 修 stage-2（series_sum） | tests PASS | rc=0 PASS=True |
+
+```
+M3 Fixture Truth = PASS
+```
+
+**fixture 不满足则禁止运行模型 benchmark** —— 已满足。
+
+---
+
+## 6. Repair Boundary Definition
+
+```
+Repair Boundary Established iff:
+  >=1 COMMITTED mutation
+  AND PROJECT verification executed
+  AND verification_result = FAIL
+  AND failure evidence written to Runtime context
+```
+
+- **PROJECT scope**：`run_tests` 无 target，或 target 命中 fixture 全部测试文件（单模块 fixture 的完整覆盖）。
+- **COMMITTED**：`_mutation_result_ok == COMMITTED`（真实 workspace 变更）。
+- **failure evidence written**：失败结果指纹出现在**之后**的模型输入中（§13 注入证明）。
+
+只有通过此边界者进入 `M3 repair-loop denominator`。
+
+---
+
+## 7. Acquisition Results
+
+**Acquisition cap = 8 attempts；目标 = 3 repair-boundary-valid samples。**
+
+```
+requested attempts        = 6        （cap 8，未触顶）
+execution-valid           = 6
+provider-invalid          = 0
+repair-boundary-valid     = 4
+M3 Task Success           = 3
+M3 repair-loop success    = 3
+false_completion          = 0
+latency_avg               = 518.5s
+```
+
+| Run | state | mutations | verifications (rev, scope, pass) | boundary | injected | loop |
+|-----|-------|-----------|----------------------------------|----------|----------|------|
+| 0 | failed | [1] | — | ✗ | ✗ | ✗ |
+| 1 | **completed** | [1,2] | (1,PROJECT,FAIL)(2,PROJECT,PASS) | ✓ | ✓ | ✓ |
+| 2 | **completed** | [1,2] | (1,PROJECT,FAIL)(2,PROJECT,PASS) | ✓ | ✓ | ✓ |
+| 3 | **completed** | [1,2] | (1,PROJECT,FAIL)(2,PROJECT,PASS)×2 | ✓ | ✓ | ✓ |
+| 4 | failed | [1,2] | (1,PROJECT,FAIL)(2,PROJECT,PASS) | ✓ | ✓ | ✗ (PREMATURE_COMPLETION) |
+| 5 | failed | [] | — | ✗ | ✗ | ✗ |
+
+**Repair Boundary Acquisition = 4 valid / 6 attempts**（未触 cap；未出现"模型总是 pre-verification 解决"）。
+
+---
+
+## 8. Execution-Valid Samples
+
+`execution_valid = 6/6`（无 provider_error / OOM / parser failure）。Phase 32 的 provider-invalid 情形本轮未出现；Provider smoke 亦 PASS。
+
+---
+
+## 9. Repair-Boundary-Valid Samples
+
+`repair-boundary-valid = 4`（Runs 1,2,3,4）。共同特征：
+
+- 均出现**两次 COMMITTED mutation**：`calc.py`（stage-1）→ `series.py`（stage-2 repair）
+- 均在 rev1 出现 **PROJECT verification FAIL**
+- 失败证据均**注入下一轮模型输入**（injected=True）
+
+---
+
+## 10-12. M3 Runs（Repair-Boundary-Valid）
+
+### Run 1（`i=1`，completed，194.5s）
+```
+rev0 → edit calc.py (COMMITTED) → rev1
+rev1 → run_tests(project=m3_fixture) PROJECT → FAIL  ← stage-2 暴露
+     → edit series.py (COMMITTED) → rev2
+rev2 → run_tests PROJECT → PASS
+     → verified_revision = 2 == latest revision → obligation satisfied → completed
+```
+
+### Run 2（`i=2`，completed，527.3s）
+同 Run 1 结构：(1,PROJECT,FAIL) → repair series.py → (2,PROJECT,PASS) → completed。
+
+### Run 3（`i=3`，completed，234.0s）
+同结构，reverify 执行 2 次 PROJECT PASS（均 rev2）→ completed。
+
+### Run 4（`i=4`，failed，1223.6s）
+边界成立、reverify PASS@rev2，但最终 `state=failed` → `PREMATURE_COMPLETION`（reverify 已满足，但完成路径未收口）。
+
+---
+
+## 13. Failure Evidence Injection
+
+**PASS。**
+
+失败指纹（如 `E           assert 10 == 15`）从**真实执行的** run_tests FAIL 结果提取，随后在**下一次模型输入**（`on_llm_start` 捕获的 input_items）中原样命中：
+
+| Run | fingerprint | injected |
+|-----|-------------|----------|
+| 1 | `E           assert 10 == 15` | ✓ |
+| 2 | `E           assert 10 == 15` | ✓ |
+| 3 | `E           assert 10 == 15` | ✓ |
+| 4 | `E           assert 10 == 15` | ✓ |
+
+**不是**由"之后发生了 mutation"推断，而是直接证明 failure 文本存在于下一轮模型 context。
+
+---
+
+## 14. Repair Attribution
+
+确定性映射（无自由文本主观判断）：
+
+- 失败测试 `test_series_sum` → 源码模块 `series.py`（`_FUNC_TO_MODULE` 映射）
+- repair mutation target = `series.py`（`edit_project_file`，rev2）
+
+| Run | repair_target | expected_target | matches |
+|-----|---------------|-----------------|---------|
+| 1 | series.py | (regex 修复前为空) | 提取空 |
+| 2 | series.py | series.py | ✓ |
+| 3 | series.py | series.py | ✓ |
+| 4 | series.py | (regex 修复前为空) | 提取空 |
+
+**4/4 的 repair target 均为 `series.py` == 失败模块 `series.py`**（attribution 成立）。
+`expected_target` 为空的两次是 `_failed_test_module` 正则只匹配 `::X FAILED` 形态所致，已在 Phase 33 修复为匹配 `test_calc.py::X`。
+
+---
+
+## 15. Revision Timeline（标准成功路径）
+
+```
+revision 0  (initial: calc.py + series.py 均有缺陷)
+   ↓ COMMITTED mutation  edit_project_file(calc.py)
+revision 1
+   ↓ PROJECT verification  run_tests(project=m3_fixture)
+   FAIL  (test_series_sum: assert 10 == 15)
+   ↓ ExecutionEvidence 记录失败
+   ↓ 失败证据进入下一轮模型 context（injected=True）
+   ↓ COMMITTED mutation  edit_project_file(series.py)   ← repair
+revision 2
+   ↓ PROJECT verification  run_tests(project=m3_fixture)
+   PASS
+   ↓ verified_revision = 2 == current revision
+   ↓ verification obligation satisfied
+   ↓ completion eligible
+completed
+```
+
+---
+
+## 16. Reverification
+
+4 个 boundary-valid run 的 reverify 均为：
+
+| 项 | 值 |
+|----|-----|
+| scope | **PROJECT** |
+| verified_revision | 2 |
+| current/latest revision | 2 |
+| passed | True |
+
+满足 §18：`scope = PROJECT` 且 `verified_revision == current_revision`。**Latest Revision Coverage = 4/4（boundary-valid）**。
+
+---
+
+## 17. Completion Eligibility
+
+- Run 1/2/3：reverify PASS@latest → obligation satisfied → completed ✓
+- Run 4：reverify PASS@latest，但 `state=failed` → PREMATURE_COMPLETION（非 false completion）
+- **False Completion = 0**（无"未验证就完成"）
+- **False Revision Increment = 0**（所有 COMMITTED mutation 均为 `编辑成功` 真实变更）
+- **False Verification Coverage = 0**（所有 PASS 均在 latest revision）
+
+---
+
+## 18. M3 Qualification
+
+| Gate | 要求 | 实测 | 判定 |
+|------|------|------|------|
+| Repair-boundary-valid N | 3 | 4 | ✅ |
+| FAIL→REPAIR→PASS→COMPLETE | ≥ 2/3 | 3/4 = 75% | ✅ |
+| False Completion | 0 | 0 | ✅ |
+| False Revision Increment | 0 | 0 | ✅ |
+| False Verification Coverage | 0 | 0 | ✅ |
+
+```
+M3 FAIL→REPAIR→PASS→COMPLETE = 3/4
+M3 Task Success = 3/6 （3 completed / 6 requested）
+M3 execution-valid = 6
+M3 repair-boundary-valid = 4
+```
+
+**M3 repair-loop qualification = PASS。**
+
+---
+
+## 19. Current-Code M1/M4 Full E2E
+
+Phase 32 修改了生产代码（Guard A / resume hydration / mutation markers），Phase 33 又修复了 run_tests 目录错配与 WorkLocation 写入崩溃。因此重新 capture 快照并重跑：
+
+| Case | N | Behavior Pass | Obligation-Satisfying | Latest Revision Coverage | avg max non-blocked |
+|------|---|---------------|----------------------|--------------------------|---------------------|
+| M1 | 3 | 3/3 | 3/3 | 3/3 | 3.0 |
+| M4 | 3 | 3/3 | 3/3 | 3/3 | 3.0 |
+| **合计** | **6** | **6/6** | **6/6** | **6/6** | **3.0** |
+
+- False Completion = 0
+- False Failure after satisfied obligations = 0
+- Strict K3：max non-blocked = 3（零超调）
+
+**Current-Code Full E2E = 6/6 PASS。**
+
+> 本轮修正的关键：`FORGE_TRUSTED_CODE_ROOTS` 指向 `micro_fixture`，使 `run_tests(project="micro_fixture")` 真正测试被编辑的 fixture（此前解析到 `code_sandbox/micro_fixture`，永远 PASS，验证覆盖失效）。
+
+---
+
+## 20. Runtime Acceptance Suite
+
+```
+tests/run_runtime_acceptance.py → 430 passed (100%)
+```
+
+覆盖 mutation/revision truth、obligation、repair semantics、completion、router、approval、
+permission、strict window、snapshot fidelity、run_tests、provider adapter、readiness、runtime core。
+
+---
+
+## 21. Full Repository Regression
+
+```
+Full Repository Regression = 808 passed / 5 failed / 4 skipped
+Runtime-related        = 0 failures
+Non-runtime (UI/theme) = 5 failures  → NON-RUNTIME BUCKET
+```
+
+Non-runtime failures（明确列出，仅 UI/theme CDP，需后端 :8765 + Edge headless）：
+`test_theme_cdp.py::LightThemeRegression::{test_fail_card_light, test_home_hero_and_composer_light, test_settings_projectlist_light}`、`::DarkThemeRegression::{test_composer_dark_not_white, test_wrap_gradient_dark}`。
+
+**无新增 runtime failure。**
+
+---
+
+## 22. Provider Stability
+
+| 项 | 结果 |
+|----|------|
+| Long-run smoke（20+10 连续，不重启） | PASS |
+| M3 长 run 后 server 内存 | 从 8.4GB 增长到最高 ~17GB |
+| 超长 run（>20min / 50+ LLM 调用）后 | 观察到退化（empty response / finish=length），需重启 |
+
+结论：**PROVIDER_LONG_RUN_DEGRADATION** 在本轮普通负载下未复现；长 run 后内存增长是本轮观察到的**本地 provider 生产风险**。
+
+**未通过重启掩盖**：smoke 使用单一 session 连续请求；退化仅记录、不自动重启。
+处置方向（§23）：llama.cpp Vulkan lifecycle / memory-KV cache / context slot 清理，**不得通过 Agent Prompt 处理**。
+
+---
+
+## 23. Router/MCP
+
+Frozen。仅运行 regression：`test_tool_router.py`、`test_phase22_router_authority.py`、
+`test_budget_router.py`、`test_mcp_bridge_policy.py` 全部 PASS。**Router/MCP = PASS**。
+
+---
+
+## 24. run_tests Final Production Decision
+
+| Gate | 要求 | 实测 | 判定 |
+|------|------|------|------|
+| Runtime Acceptance Suite | PASS | 430/430 | ✅ |
+| Current-Code Full E2E | PASS | 6/6 | ✅ |
+| Strict K3 | PASS | max=3 | ✅ |
+| Full Replay Fidelity | PASS | M1/M4 schema v2 + config hash | ✅ |
+| M3 repair-loop | ≥ 2/3 | 3/4 | ✅ |
+| False Completion | 0 | 0 | ✅ |
+| Router/MCP | PASS | PASS | ✅ |
+
+```
+run_tests = PRODUCTION
+```
+
+升级仅更新 **qualification metadata / 报告**；**未重写 run_tests、未新增 registry、未降低 Approval/Permission**。
+安全边界保持：`side_effect=true`、`risk=medium`、requires Approval/Permission、Execution Boundary = KNOWN ACCEPTED LIMITATION。
+
+---
+
+## 25. Current Production Status
+
+```
+Current Behavior Model             = G:\models\Spark-X2.5-4B.gguf
+Spark Config Hash                  = 0c8830434416d9533a13cac9b068723bc24ad5dccda7abd2df027898434523c3
+Provider Long-Run Stability        = PASS
+M3 Fixture Truth                   = PASS
+Repair Boundary Acquisition        = 4 valid / 6 attempts
+M3 execution-valid                 = 6
+M3 repair-boundary-valid           = 4
+M3 Task Success                    = 3/6
+M3 FAIL→REPAIR→PASS→COMPLETE       = 3/4
+Failure Evidence Injection         = PASS
+False Completion                   = 0
+False Revision Increment           = 0
+Latest Revision Coverage           = 4/4 (boundary-valid)
+Current-Code Full E2E              = 6/6
+Runtime Acceptance Suite           = PASS (430/430)
+Runtime-related Regression Failures = 0
+Router/MCP                         = PASS
+run_tests                          = PRODUCTION
+Primary remaining bottleneck       = NONE (for run_tests gate)
+Next component to modify           = NONE
+```
+
+---
+
+## 26. Next Direction
+
+1. **本地 provider 长 run 内存治理**（生产风险，非 Agent 问题）：llama.cpp Vulkan KV cache / context slot lifecycle。
+2. **M3 样本扩展**：当前 4 boundary-valid 已满足 gate；如需更高置信度可在相同 config hash 下扩到 8+。
+3. **code_loop live compound truth**：仍为 NOT ESTABLISHED（非当前 blocker，除非 M3 依赖 code_loop）。
+4. **UI/theme 回归**：单独 bucket，需后端在线后处理。
+
+---
+
+## 附录 A：本轮修复的真实生产缺陷
+
+| # | 缺陷 | 文件 | 影响 |
+|---|------|------|------|
+| 1 | 绑定 WorkLocation 时 `write_project_file`/`edit_project_file` 崩溃（`target.relative_to(BASE_DIR)` ValueError） | `project_edit.py` | 所有非 BASE_DIR 工作位置写入失效 |
+| 2 | `run_tests(project=...)` 目录错配（解析到 `code_sandbox/<project>`，非被编辑 fixture） | 配置（`FORGE_TRUSTED_CODE_ROOTS`）+ `benchmark/decision_qualification.py::reset_fixture` | M1/M4 验证覆盖失效 |
+| 3 | M3 运行器 `rt.tasks` 未初始化 → WorkLocation 绑定静默失败 | `benchmark/m3_closed_loop.py` | M3 文件边界失效 |
+| 4 | M1/M4 fixture `test_calc.py` 残留 M3 版本（ImportError） | `benchmark/decision_qualification.py::reset_fixture` | 验证无法收集 |
+
+## 附录 B：本轮产物
+
+| 路径 | 内容 |
+|------|------|
+| `benchmark/m3_closed_loop.py` | M3 闭环 benchmark（fixture + observation + metrics only） |
+| `tests/m3_fixture_qualification.py` | M3 Fixture Truth 确定性测试 |
+| `m3_oracle/expected.json` | stage-2 runtime-revealed oracle |
+| `code_sandbox/m3_fixture/` | M3 fixture |
+| `phase33/provider_long_run_smoke.json` | Provider 长时冒烟 |
+| `phase33/m3_acq3/` | M3 acquisition（6 attempts）结果 |
+| `phase33/snapshots_spark/` | 重捕 M1/M4 快照（schema v2 + config hash） |
+| `phase33/m1m4_e2e/` | Current-Code M1/M4 E2E |

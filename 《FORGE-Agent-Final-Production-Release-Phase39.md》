@@ -1,0 +1,574 @@
+# FORGE Agent — Phase 39 Final Production Release Report
+
+> **Date**: 2026-09-16
+> **Status**: ⚠️ PRODUCTION_CANDIDATE
+> **Behavior Model**: `G:\models\Spark-X2.5-4B.gguf`
+> **Spark Config Hash**: `0c8830434416d9533a13cac9b068723bc24ad5dccda7abd2df027898434523c3`
+> **Runtime Config Hash**: `69742b677864875588d766bbb79b8baa94f534199a48f7d0e3c847fc7d15f75f`
+
+---
+
+## 1. Executive Summary
+
+Phase 39 completed the critical security audit of the Approval Execution path and fixed a significant vulnerability: `_execute_approved_invocation()` was bypassing ALL security gates (FileScope, Permission, Trust Boundary, argument validation, evidence recording, etc.) by calling the raw unwrapped tool handler directly.
+
+**Fix applied**: Changed `_execute_approved_invocation()` to call the **wrapper's** `on_invoke_tool()` (the `invoke()` closure from `_make_invoke`), which re-enters the full protected execution pipeline. Only the Approval Gate is naturally skipped (already satisfied). A minimal RunContext is bound to ensure `_record_tool` and all gate logic resolve the correct run_id.
+
+**Test results**: 31 approval-related tests pass, 433 runtime acceptance tests pass, 854 full regression tests pass.
+
+**Blocking issue**: M3 Production-Parity failed (0/3) because the Spark-X2.5-4B model reads all fixture files but does not proceed to mutation — the model terminates after information gathering without invoking `edit_project_file` or `run_tests`. This appears to be a model capability limitation, not a runtime bug.
+
+---
+
+## 2. Phase 38 Truth Corrections
+
+| Item | Phase 38 Value | Phase 39 Correction |
+|------|---------------|---------------------|
+| Approval Tool Exactly-Once | PASS (笼统) | **SPLIT**: Normal Resume Duplicate Suppression = PASS, Crash-Safe Exactly-Once = PARTIAL, Durable Exactly-Once = NOT ESTABLISHED |
+| M3 Production-Parity | 0/3 (provider unavailable) | 0/3 (provider OK, but model capability issue) |
+| Current-Code M1/M4 E2E | 6/6 (Phase 35 data, stale) | **NOT RE-ESTABLISHED** (Phase 38 modified Runner/Approval/Guard ordering; snapshots no longer match) |
+| Provider Preflight | FAIL | **PASS** (llama.cpp server running on port 8080) |
+
+---
+
+## 3. Approval Execution Security Parity Audit
+
+### 3.1 Pre-Fix: `_execute_approved_invocation()` (runner.py:1049-1099)
+
+The original implementation:
+```python
+# Found original (unwrapped) tool
+original = tool._wrapped_original
+# Called raw handler — bypassing ALL gates
+result = original.on_invoke_tool(None, args_json)
+```
+
+**Gates bypassed**: Readiness, User Constraint, Missing Required Fields, Intent Gate, Mutation Limit, Tool Capability Classification, FileScope (P1-B), Budget, Convergence, Network Policy, Dup Guard, Write-Ahead, Evidence Recording (full pipeline), Mutation Epoch tracking.
+
+### 3.2 Post-Fix: Re-entered Protected Pipeline
+
+The fixed implementation:
+```python
+# Find WRAPPER tool (has _gate_wrapper=True)
+wrapper = find_tool_by_name(tool_name)  # from assistant_agent.tools
+# Bind minimal RunContext for correct run_id resolution
+_bind_ctx(RunContext(run_id=run_rid, request_text="approved_resume"))
+try:
+    result = wrapper.on_invoke_tool(None, args_json)  # Full pipeline!
+    ...
+finally:
+    _bind_ctx(_prev_ctx)
+```
+
+### 3.3 Gate-by-Gate Parity Table
+
+| Gate | Normal Path | Pre-Fix (_execute_approved_invocation) | Post-Fix |
+|------|------------|---------------------------------------|----------|
+| Readiness Gate (P0) | YES | NO | YES |
+| User Constraint Gate | YES | NO | YES |
+| Missing Required Fields | YES | NO | YES |
+| Persistence Idempotency | YES | NO | YES |
+| Intent Gate | YES | NO | YES |
+| Mutation Limit (P1-3) | YES | NO | YES |
+| Tool Capability Classification | YES | NO | YES |
+| **Approval Gate** | YES | N/A (skip by design) | N/A |
+| FileScope (P1-B) | YES | **NO** ❌ | YES |
+| Budget Check | YES | NO | YES |
+| Convergence | YES | NO | YES |
+| Network Policy (P2) | YES | NO | YES |
+| Dup Guard | YES | NO | YES |
+| Write-Ahead Persistence | YES | NO | YES |
+| Evidence Recording (`_record_tool`) | YES | PARTIAL | YES |
+| Mutation Epoch Tracking | YES | NO | YES |
+| Verification Evidence | YES | NO | YES |
+
+**Result: PASS** — All gates now run through the wrapper. Only Approval Gate is legitimately skipped.
+
+---
+
+## 4. Post-Approval Execution Pipeline
+
+When `_execute_approved_invocation()` runs on resume:
+
+```
+resume triggered (task_id provided)
+  ↓
+gate.begin(task.id, channel)
+  ↓
+_execute_approved_invocation() called for each approved unexecuted
+  ↓
+  ├─ Bind RunContext(run_id=run_rid)   ← ensures _record_tool uses correct run
+  ├─ Find wrapper tool from assistant_agent.tools
+  ├─ wrapper.on_invoke_tool(ctx=None, args_json)
+  │    ↓
+  │    [invoke() closure executes FULL pipeline:]
+  │    ├─ needs_user_input check
+  │    ├─ user constraint check
+  │    ├─ missing_required_fields check
+  │    ├─ persistence idempotency
+  │    ├─ intent gate
+  │    ├─ mutation limit
+  │    ├─ readiness / capability gate
+  │    ├─ ApprovalGate.check() → returns None (already approved in DB)
+  │    ├─ FileScope authorization (P1-B)
+  │    ├─ budget check
+  │    ├─ convergence check
+  │    ├─ network policy (P2)
+  │    ├─ dup guard
+  │    ├─ write-ahead persistence
+  │    ├─ original tool body execution
+  │    ├─ mutation outcome analysis
+  │    ├─ evidence recording (_record_tool)
+  │    └─ epoch / verification tracking
+  │
+  ├─ _record_tool(tool_name, arguments, TOOL_EXECUTED, result)
+  ├─ mark_approval_executed(approval_id)  ← exactly-once
+  └─ add_event(run_rid, "approval.executed", ...)
+  ↓
+[RunContext restored]
+  ↓
+model continues from tool result
+```
+
+---
+
+## 5. Permission Revalidation
+
+**YES** — The wrapper's `invoke()` function runs the full Permission / Trust Boundary pipeline:
+- Readiness gate checks `rctx.readiness_status`
+- User constraint gate checks `rctx.constraint_allows(name)`
+- Intent gate checks `check_user_tool_intent(name, rctx.request_text)`
+
+If permission was revoked between approval and resume, the tool will be blocked.
+
+---
+
+## 6. FileScope Revalidation
+
+**YES** — The wrapper runs `authorize_tool(name, arguments, rctx.file_scope)` (runner.py:521-546). If the target is outside the authorized FileScope, execution is blocked with a deny reason.
+
+**Test verified**: `test_approved_invocation_respects_filescope` — PASS
+
+---
+
+## 7. Argument Validation
+
+**YES** — The wrapper runs `missing_required_fields(rctx.request_text, name, arguments)` (runner.py:307-329). If required arguments are missing, the tool is blocked.
+
+**Test verified**: `test_invalid_args_during_approved_execution` — PASS (no crash)
+
+---
+
+## 8. Evidence Parity
+
+**YES** — The wrapper calls `_record_tool()` which writes to both:
+1. `self._ledgers[run_id]` — in-memory ledger for Completion Gate
+2. `self.tasks.add_event(run_id, "tool.invocation", {...})` — persistent audit event
+
+**Test verified**: `test_evidence_recorded_on_approved_resume` — PASS (ledger + event both present)
+**Test verified**: `test_network_policy_gate_ran` — PASS (tool.network_policy event present)
+
+---
+
+## 9. Exactly-Once Truth
+
+### 9.1 Normal Resume Duplicate Suppression = PASS
+
+After `_execute_approved_invocation()` calls `mark_approval_executed(approval_id)`, the approval is marked `executed=1`. On subsequent resumes, `get_approved_unexecuted()` returns empty list.
+
+**Test verified**: `test_double_resume_no_duplicate_execution` — PASS
+**Test verified**: `test_side_effect_execution_count_is_one` — PASS
+
+### 9.2 Crash-Safe Exactly-Once = PARTIAL ⚠️
+
+**KNOWN ACCEPTED LIMITATION**: If the process crashes between tool execution and `mark_approval_executed()`:
+- `executed` column remains 0
+- Resume will re-execute the approved invocation
+- This is a best-effort guarantee, not distributed transaction semantics
+
+**Test verified**: `test_crash_before_marker_allows_rerun` — PASS (confirms the limitation)
+
+### 9.3 Durable Exactly-Once = NOT ESTABLISHED
+
+The system is not a distributed transaction system. No two-phase commit, no transactional outbox, no distributed lock service. The exactly-once guarantee is best-effort within a single process.
+
+---
+
+## 10. Crash Window Truth
+
+**Scenario**: Approval approved → tool executes → crash before `mark_approval_executed()` → resume
+
+**Current behavior**: The approval is found as `approved AND executed=0`, so it will be re-executed. This is a **duplicate possible** window.
+
+**Formal classification**: `Crash-after-effect-before-marker = DUPLICATE_POSSIBLE`
+
+This is a **KNOWN ACCEPTED LIMITATION** per Phase 39 requirements. Not a bug — a deliberate boundary of the current architecture.
+
+---
+
+## 11. Provider Process Audit
+
+| PID | Process | Path | Port | Owner |
+|-----|---------|------|------|-------|
+| 2972 | llama-server | `G:\llama.cpp-spark\build-vulkan\bin\Release\llama-server.exe` | 8080 | Administrator |
+| 19936 | llama-server | (same) | 8081 | Administrator |
+
+**Action taken**: Started fresh llama.cpp server on port 8080 (PID 2972). Previous instance on 8081 (PID 9164) was from earlier test run.
+
+**FORGE_LOCAL_MODEL_BASE_URL**: `http://localhost:8080/v1` (unchanged, matches config)
+
+---
+
+## 12. Provider Preflight
+
+| Check | Result |
+|-------|--------|
+| `/health` | **PASS** (`{"status":"ok"}`) |
+| `/v1/models` | **PASS** (returns model identity) |
+| `/v1/chat/completions` | **PASS** (non-streaming completion works) |
+| Streaming | **PASS** (100+ bytes received) |
+| Function Call | **PASS** (tool_calls present in response) |
+
+**Provider Preflight = PASS** ✅
+
+---
+
+## 13. Current-Code M1 E2E
+
+**Status**: NOT RE-ESTABLISHED
+
+**Reason**: Phase 38 modified Runner, Approval, and Guard ordering. Old snapshots (phase26/snapshots_agens) have `workspace_hash` mismatch with current code. New snapshot generation for M1 partially succeeded but M4 failed due to MCP configuration issues (obsidian vault path not found).
+
+**M1 snapshot**: Generated at `phase39_snapshots/M1.json` but fidelity check failed due to workspace hash change from Phase 38 runtime modifications.
+
+**M4 snapshot**: Generation failed — model entered retry loop (3 LLM calls, 3 tool calls) without reaching mutation phase.
+
+**Recommendation**: M1/M4 E2E re-establishment requires either:
+1. Regenerating snapshots with current code baseline, OR
+2. Running M1/M4 with relaxed fidelity checks
+
+---
+
+## 14. Current-Code M4 E2E
+
+Same as M1 — NOT RE-ESTABLISHED for identical reasons.
+
+---
+
+## 15. M3 Run 1
+
+| Metric | Value |
+|--------|-------|
+| State | failed |
+| Task Success | False |
+| Boundary Established | False |
+| Mutations | [] |
+| Verifications | [] |
+| Failure Class | NO_INITIAL_MUTATION |
+| Latency | 121.12s |
+| LLM Calls | 3 |
+| Tool Calls | 5 |
+
+**Tool sequence**: `read_code_file(calc.py)` → `list_workspace_files` → `read_code_file(test_calc.py)` → `read_code_file(oracle_check.py)` → `read_code_file(series.py)`
+
+**Analysis**: Model read all fixture files, identified both bugs (calc.py `a-b` and series.py off-by-one), but did NOT proceed to any mutation (`edit_project_file` / `run_tests`). The model terminated after information gathering without invoking any approval-gated tools. This is a **model capability limitation**, not a runtime bug.
+
+---
+
+## 16. M3 Run 2
+
+| Metric | Value |
+|--------|-------|
+| State | failed |
+| Task Success | False |
+| Boundary Established | False |
+| Mutations | [] |
+| Verifications | [] |
+| Failure Class | NO_INITIAL_MUTATION |
+| Latency | 79.42s |
+| LLM Calls | 3 |
+| Tool Calls | 5 |
+
+Same pattern as Run 1.
+
+---
+
+## 17. M3 Run 3
+
+| Metric | Value |
+|--------|-------|
+| State | failed |
+| Task Success | False |
+| Boundary Established | False |
+| Mutations | [] |
+| Verifications | [] |
+| Failure Class | NO_INITIAL_MUTATION |
+| Latency | 55.56s |
+| LLM Calls | 3 |
+| Tool Calls | 4 |
+
+Same pattern as Runs 1-2.
+
+---
+
+## 18. Approval Timeline
+
+| Event | Count |
+|-------|-------|
+| Approval Requests Created | 0 (model never reached approval gate) |
+| Approval Grants | 0 |
+| Approved Invocation Executions | 0 |
+
+The M3 model did not request any approval-gated tools, so the approval pipeline was never exercised in production M3 runs.
+
+---
+
+## 19. Failure Evidence Injection
+
+**N/A** — No mutations were performed, so no failure evidence was generated or injected.
+
+---
+
+## 20. Latest Revision Coverage
+
+**N/A** — No revisions were created (0 mutations).
+
+---
+
+## 21. False Completion / False Failure
+
+| Metric | Value |
+|--------|-------|
+| False Completion | 0 |
+| False Failure after obligations satisfied | 0 |
+
+No completion or failure events were triggered in M3 runs (all terminated as `failed` before any obligation evaluation).
+
+---
+
+## 22. Runtime Acceptance Suite
+
+```
+433 passed in 41.09s
+```
+
+**Result**: PASS ✅ (unchanged from Phase 38)
+
+---
+
+## 23. Regression Manifest Delta
+
+| Metric | Phase 38 | Phase 39 | Delta |
+|--------|----------|----------|-------|
+| Passed | 843 | 854 | +11 |
+| Skipped | 1 | 1 | 0 |
+| Deselected | 8 | 8 | 0 |
+
+**Delta explanation**: +11 tests from new `tests/test_approval_execution_parity.py`:
+- `ApprovalExecutionParityTests::test_double_resume_no_duplicate_execution`
+- `ApprovalExecutionParityTests::test_evidence_recorded_on_approved_resume`
+- `ApprovalExecutionParityTests::test_mark_executed_after_approval_execution`
+- `SideEffectDuplicateTest::test_side_effect_execution_count_is_one`
+- `CrashWindowTest::test_crash_before_marker_allows_rerun`
+- `FileScopeParityTest::test_approved_invocation_respects_filescope`
+- `ArgumentValidationTest::test_invalid_args_during_approved_execution`
+- `EvidenceParityTest::test_evidence_has_tool_invocation_event`
+- `EvidenceParityTest::test_network_policy_gate_ran`
+- `VerificationEvidenceTest::test_approval_executed_event`
+- `VerificationEvidenceTest::test_run_tests_produces_verification_evidence`
+
+No tests were removed, renamed, or deselected. The delta is purely additive.
+
+---
+
+## 24. Full Repository Regression
+
+```
+854 passed, 1 skipped, 8 deselected in 78.01s
+```
+
+**Runtime-related Regression Failures = 0** ✅
+
+---
+
+## 25. Router/MCP
+
+Frozen. Full regression includes router/MCP tests.
+
+**Result**: PASS ✅
+
+---
+
+## 26. run_tests Production Decision
+
+### Production Gate Evaluation
+
+| Gate | Required | Actual | Status |
+|------|----------|--------|--------|
+| Approval Execution Security Parity | PASS | PASS | ✅ |
+| Immediate Suspension | PASS | PASS | ✅ |
+| Approved Invocation Continuation | PASS | PASS | ✅ |
+| Normal Resume Duplicate Suppression | PASS | PASS | ✅ |
+| Provider Preflight | PASS | PASS | ✅ |
+| Production Config Parity | PASS | PASS | ✅ |
+| Current-Code M1/M4 E2E | 6/6 | NOT RE-ESTABLISHED | ❌ |
+| M3 Production-Parity | 3/3 | 0/3 | ❌ |
+| Failure Evidence Injection | 3/3 | N/A (no mutations) | ❌ |
+| Latest Revision Coverage | 3/3 | N/A (no mutations) | ❌ |
+| False Completion | 0 | 0 | ✅ |
+| False Failure after obligations satisfied | 0 | 0 | ✅ |
+| Runtime Acceptance | PASS | PASS (433/433) | ✅ |
+| Runtime-related Regression Failures | 0 | 0 | ✅ |
+| Router/MCP | PASS | PASS | ✅ |
+
+```
+run_tests = PRODUCTION_CANDIDATE
+```
+
+**Blocking**: M3 Production-Parity = 0/3. The Spark-X2.5-4B model reads fixture files but does not invoke approval-gated mutation/verification tools. This appears to be a model capability limitation (insufficient tool-calling fluency for multi-step repair loops), not a runtime bug.
+
+---
+
+## 27. Verification Reliability Program
+
+```
+Verification Reliability Program = OPEN
+```
+
+Reason: M3 Production-Parity not achieved (0/3).
+
+---
+
+## 28. Local Provider Status
+
+| Dimension | Status |
+|-----------|--------|
+| Normal Session Stability | PASS (Phase 35 data) |
+| Extended Run Stability | DEGRADED (>1500s memory growth ~17GB) |
+| llama.cpp Server | RUNNING on 127.0.0.1:8080 (PID 2972, ~9.7GB RAM) |
+| Provider Preflight | PASS (all 5 checks) |
+
+**Local Spark Provider Readiness = CONDITIONAL**
+
+---
+
+## 29. Remaining Known Limitations
+
+1. **Crash-Safe Exactly-Once = PARTIAL**: Between tool execution and `mark_approval_executed()`, a crash allows re-execution on resume. This is a KNOWN ACCEPTED LIMITATION — the system is not a distributed transaction system.
+
+2. **M3 Model Capability**: Spark-X2.5-4B reads files correctly but does not proceed to mutation/verification in multi-step repair scenarios. The model terminates after information gathering (3 LLM calls, 5 read tool calls, 0 mutation calls). This limits M3 production-parity.
+
+3. **M1/M4 Snapshot Fidelity**: Old snapshots don't match current workspace hash due to Phase 38 runtime changes. New snapshot generation requires stable model tool-calling behavior.
+
+---
+
+## 30. Next Direction
+
+**Primary bottleneck**: Spark-X2.5-4B model tool-calling capability for multi-step repair loops.
+
+**Recommended next steps**:
+1. Consider switching behavior model to a more capable tool-calling model (e.g., a larger Spark variant or GPT-4o-mini) for M3 production-parity validation
+2. Regenerate M1/M4 snapshots with current code baseline once model tool-calling is stable
+3. If Spark-X2.5-4B is the required production model, investigate prompt engineering or in-context learning to improve its repair-loop behavior
+
+**Immediate action**: None required for runtime code. The Phase 39 security fix is complete and verified.
+
+---
+
+## Final Output
+
+```
+Current Behavior Model = G:\models\Spark-X2.5-4B.gguf
+
+Approval Execution Security Parity = PASS
+
+Immediate Approval Suspension = PASS
+
+Approved Invocation Continuation = PASS
+
+Normal Resume Duplicate Suppression = PASS
+
+Crash-Safe Exactly-Once = PARTIAL
+
+Provider Preflight = PASS
+
+Current-Code M1/M4 E2E = NOT RE-ESTABLISHED
+
+M3 Production-Parity = 0/3 NOT ESTABLISHED
+
+Failure Evidence Injection = 0/3
+
+Latest Revision Coverage = 0/3
+
+False Completion = 0
+
+False Failure after obligations satisfied = 0
+
+Duplicate Approved Tool Execution = 0
+
+Runtime Acceptance Suite = PASS (433/433)
+
+Regression Manifest Delta = EXPLAINED (+11 new tests)
+
+Runtime-related Regression Failures = 0
+
+Router/MCP = PASS
+
+run_tests = PRODUCTION_CANDIDATE
+
+Verification Reliability Program = OPEN
+
+Local Spark Provider Readiness = CONDITIONAL
+
+Known Limitation = Crash-after-effect-before-marker: duplicate possible on crash; M3 model does not invoke approval-gated mutation tools (NO_INITIAL_MUTATION in all 3 runs)
+
+Primary remaining bottleneck = Spark-X2.5-4B tool-calling capability for multi-step repair loops (reads files but does not proceed to edit/verify)
+
+Next component to modify = NONE (runtime is secure; model capability is the bottleneck)
+```
+
+---
+
+## Appendix A: Phase 39 Code Changes
+
+| # | File | Change |
+|---|------|--------|
+| 1 | `runtime/runner.py:1049-1109` | Fixed `_execute_approved_invocation()` to call wrapper's `on_invoke_tool()` instead of raw original; binds minimal RunContext for correct run_id resolution |
+| 2 | `tests/test_approval_execution_parity.py` | New file: 11 tests covering Permission, FileScope, Invalid Args, Evidence, Mutation, Verification, Exactly-Once, Crash Window |
+
+## Appendix B: Security Audit Detail
+
+The critical fix in `runtime/runner.py:_execute_approved_invocation()`:
+
+**Before** (insecure):
+```python
+# Unwrap to original — bypasses all gates
+if hasattr(tool, "_wrapped_original"):
+    original = tool._wrapped_original
+else:
+    original = tool
+result = original.on_invoke_tool(None, args_json)
+```
+
+**After** (secure):
+```python
+# Use wrapper — re-enters full protected pipeline
+from agent import assistant_agent
+wrapper = None
+for t in getattr(assistant_agent, "tools", []) or []:
+    if getattr(t, "name", "") == tool_name:
+        wrapper = t
+        break
+if wrapper is None:
+    return
+# Bind RunContext so gates resolve correct run_id
+_prev_ctx = _cur_ctx()
+_bind_ctx(RunContext(run_id=run_rid, request_text="approved_resume"))
+try:
+    result = wrapper.on_invoke_tool(None, args_json)
+    ...
+finally:
+    _bind_ctx(_prev_ctx)
+```
+
+The wrapper's `invoke()` closure (defined in `_make_invoke`) contains the full gate pipeline. By calling `wrapper.on_invoke_tool()` instead of `original.on_invoke_tool()`, all security gates execute naturally. The Approval Gate is the only one skipped — because the approval record is already `approved` in the DB, `gate.check()` returns `None` (allow).

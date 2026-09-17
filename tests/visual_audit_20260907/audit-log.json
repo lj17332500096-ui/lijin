@@ -1,0 +1,26 @@
+{
+  "errors": [],
+  "blocked": [],
+  "shots": [
+    "02-list-light",
+    "03-conversation-completed",
+    "04-composer-draft",
+    "05-failed",
+    "06-drawer-error",
+    "07-materials",
+    "08-settings",
+    "09-appearance",
+    "10-list-dark",
+    "11-conversation-dark",
+    "12-laptop-list",
+    "13-laptop-conversation",
+    "14-mobile-conversation",
+    "15-mobile-list",
+    "16-mobile-settings",
+    "17-tablet-settings"
+  ],
+  "dialog": {
+    "type": "prompt",
+    "message": "新任务：你想让此刻做什么？（可先写个名字，例如“整理合同资料”）"
+  }
+}

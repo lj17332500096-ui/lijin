@@ -1,0 +1,36 @@
+{
+  "M1": {
+    "n": 3,
+    "first_semantic": 0,
+    "semantic_within_k": 0,
+    "latest_rev_verification": 0,
+    "obligation_satisfying": 0,
+    "premature_final": 0,
+    "category_counts": {
+      "W1E_PROVIDER_EMPTY_RESPONSE": 3
+    },
+    "w1_class_counts": {
+      "W1E_PROVIDER_EMPTY_RESPONSE": 3
+    },
+    "w3_class_counts": {},
+    "latency_avg_s": 3.25,
+    "avg_model_turns": 1.0,
+    "avg_non_blocked_executions": 0.0
+  },
+  "M4": {
+    "n": 3,
+    "first_semantic": 0,
+    "semantic_within_k": 0,
+    "latest_rev_verification": 0,
+    "obligation_satisfying": 0,
+    "premature_final": 0,
+    "category_counts": {
+      "W5_PROVIDER_ERROR": 3
+    },
+    "w1_class_counts": {},
+    "w3_class_counts": {},
+    "latency_avg_s": 27.9,
+    "avg_model_turns": 0.0,
+    "avg_non_blocked_executions": 0.0
+  }
+}

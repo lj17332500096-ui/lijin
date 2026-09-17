@@ -1,0 +1,34 @@
+{
+  "M1": {
+    "n": 5,
+    "first_semantic": 5,
+    "semantic_within_k": 5,
+    "latest_rev_verification": 5,
+    "obligation_satisfying": 5,
+    "premature_final": 0,
+    "category_counts": {
+      "PASS": 5
+    },
+    "w1_class_counts": {},
+    "w3_class_counts": {},
+    "latency_avg_s": 50.07,
+    "avg_model_turns": 3.8,
+    "avg_non_blocked_executions": 3.0
+  },
+  "M4": {
+    "n": 5,
+    "first_semantic": 4,
+    "semantic_within_k": 5,
+    "latest_rev_verification": 5,
+    "obligation_satisfying": 5,
+    "premature_final": 0,
+    "category_counts": {
+      "PASS": 5
+    },
+    "w1_class_counts": {},
+    "w3_class_counts": {},
+    "latency_avg_s": 36.13,
+    "avg_model_turns": 3.8,
+    "avg_non_blocked_executions": 3.0
+  }
+}

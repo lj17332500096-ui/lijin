@@ -1,0 +1,378 @@
+[
+  {
+    "tag": "BUTTON",
+    "id": "btnNewTask",
+    "cls": "btn-new",
+    "text": "＋\n新任务",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-star",
+    "text": "☆",
+    "title": "收藏置顶",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-del",
+    "text": "×",
+    "title": "归档到回收站",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-star",
+    "text": "☆",
+    "title": "收藏置顶",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-del",
+    "text": "×",
+    "title": "归档到回收站",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-star",
+    "text": "☆",
+    "title": "收藏置顶",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-del",
+    "text": "×",
+    "title": "归档到回收站",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-star",
+    "text": "☆",
+    "title": "收藏置顶",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-del",
+    "text": "×",
+    "title": "归档到回收站",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-star",
+    "text": "☆",
+    "title": "收藏置顶",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-del",
+    "text": "×",
+    "title": "归档到回收站",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-star",
+    "text": "☆",
+    "title": "收藏置顶",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-del",
+    "text": "×",
+    "title": "归档到回收站",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-star",
+    "text": "☆",
+    "title": "收藏置顶",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-del",
+    "text": "×",
+    "title": "归档到回收站",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-star",
+    "text": "☆",
+    "title": "收藏置顶",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-del",
+    "text": "×",
+    "title": "归档到回收站",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-star",
+    "text": "☆",
+    "title": "收藏置顶",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-del",
+    "text": "×",
+    "title": "归档到回收站",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-star",
+    "text": "☆",
+    "title": "收藏置顶",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-del",
+    "text": "×",
+    "title": "归档到回收站",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-star",
+    "text": "☆",
+    "title": "收藏置顶",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-del",
+    "text": "×",
+    "title": "归档到回收站",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-star",
+    "text": "☆",
+    "title": "收藏置顶",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "rail-del",
+    "text": "×",
+    "title": "归档到回收站",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "navMaterials",
+    "cls": "nav-btn",
+    "text": "▤\n资料",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "navSettings",
+    "cls": "nav-btn",
+    "text": "⚙\n设置",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "accountBtn",
+    "cls": "account-btn",
+    "text": "AG\n本地账户\n未登录 · 本机使用\n▾",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "am-item",
+    "text": "设置",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "am-item",
+    "text": "回收站",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "btnProjectSources",
+    "cls": "ghost-btn",
+    "text": "来源",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "btnProjectSettings",
+    "cls": "ghost-btn",
+    "text": "项目设置",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "btnDetail",
+    "cls": "ghost-btn",
+    "text": "详情",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "btnArchive",
+    "cls": "ghost-btn",
+    "text": "归档",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "pauseBtn",
+    "cls": "ghost-btn",
+    "text": "Ⅱ 暂停",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "cancelBtn",
+    "cls": "danger-btn",
+    "text": "停止",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "ghost-btn",
+    "text": "真实后端",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "ghost-btn",
+    "text": "Mock 后端",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "drawerClose",
+    "cls": "icon-btn",
+    "text": "✕",
+    "title": "关闭",
+    "aria": null
+  },
+  {
+    "tag": "TEXTAREA",
+    "id": "composerInput",
+    "cls": "",
+    "text": "",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "btnComposerFile",
+    "cls": "composer-file-btn",
+    "text": "＋ 添加文件",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "cfm-item",
+    "text": "上传文件（仅本次使用）",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "cfm-item",
+    "text": "从项目来源选择",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "sendBtn",
+    "cls": "send",
+    "text": "发送",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "m-active active",
+    "text": "任务",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "",
+    "text": "资料",
+    "title": "",
+    "aria": null
+  },
+  {
+    "tag": "BUTTON",
+    "id": "",
+    "cls": "",
+    "text": "设置",
+    "title": "",
+    "aria": null
+  }
+]

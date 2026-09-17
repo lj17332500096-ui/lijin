@@ -1,0 +1,89 @@
+{
+  "suite": "FORGE Runtime Acceptance Suite",
+  "phase": 32,
+  "description": "Production qualification gate for the FORGE Agent runtime. UI/theme/frontend tests are excluded and tracked separately in Full Repository Regression.",
+  "categories": {
+    "mutation_truth": [
+      "tests/test_phase23_mutation_truth.py"
+    ],
+    "revision_truth": [
+      "tests/test_phase24_evidence_truth.py"
+    ],
+    "verification_obligation": [
+      "tests/test_phase12_obligations.py",
+      "tests/test_verification.py"
+    ],
+    "repair_semantics": [
+      "tests/test_phase18_repair_semantics.py"
+    ],
+    "completion": [
+      "tests/test_phase11_completion.py",
+      "tests/test_phase10_guards.py",
+      "tests/test_completion_gate.py"
+    ],
+    "decision_policy": [
+      "tests/test_phase9_decision_policy.py",
+      "tests/test_convergence_hardening.py",
+      "tests/test_phase4_convergence.py",
+      "tests/test_phase4_terminalization.py"
+    ],
+    "code_loop": [
+      "tests/test_phase26_codeloop_dual.py"
+    ],
+    "router": [
+      "tests/test_tool_router.py",
+      "tests/test_phase22_router_authority.py",
+      "tests/test_budget_router.py"
+    ],
+    "approval": [
+      "tests/test_approval.py"
+    ],
+    "permission": [
+      "tests/test_trust.py",
+      "tests/test_mcp_bridge_policy.py"
+    ],
+    "strict_window": [
+      "tests/test_phase30_strict_window.py"
+    ],
+    "snapshot_fidelity": [
+      "tests/test_phase30_strict_window.py"
+    ],
+    "run_tests": [
+      "tests/test_tools.py",
+      "tests/test_code_exec.py"
+    ],
+    "provider_adapter": [
+      "tests/test_provider_errors.py",
+      "tests/test_aux_provider_retry.py",
+      "tests/test_model_select.py"
+    ],
+    "readiness": [
+      "tests/test_readiness_closure.py",
+      "tests/test_task_readiness.py"
+    ],
+    "runtime_core": [
+      "tests/test_phase5_runtime_proof.py",
+      "tests/test_runtime.py",
+      "tests/test_task_runtime.py",
+      "tests/test_runtime_cleanup.py",
+      "tests/test_guardrails.py",
+      "tests/test_concurrency_stress.py",
+      "tests/test_production_closure.py"
+    ]
+  },
+  "excluded_non_runtime": {
+    "ui_theme": [
+      "tests/test_theme_cdp.py",
+      "tests/test_frontend_smoke.py",
+      "tests/test_ui_schema.py",
+      "tests/test_markdown_js.py"
+    ],
+    "media_docs": [
+      "tests/test_voice.py",
+      "tests/test_office_docs.py",
+      "tests/test_multimodal.py",
+      "tests/test_skill_gorden_ppt.py"
+    ],
+    "note": "Excluded from Runtime Acceptance Suite; tracked in Full Repository Regression only."
+  }
+}

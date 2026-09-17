@@ -1,0 +1,24 @@
+{
+  "id": "T034",
+  "prompt": "XXX 公司今天股价是多少？",
+  "container_id": "tk_c2d3f8dd",
+  "run_id": "task_5f465e65",
+  "final_status": "waiting_user",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 6.17,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "needs_user_input",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "{\"content\": \"请问您想查询哪家公司的股价？\\n\\n请提供公司全称或股票代码，例如：\\n- 腾讯控股 / 00700.HK\\n- 苹果 / AAPL\\n- 宁德时代 / 300750.SZ\\n\\n提供后我会帮您查询最新股价。\"}",
+  "reply_kind": "questions",
+  "_exec": {},
+  "_blocked": {},
+  "tool_calls_total": 0,
+  "blocked_events": 0
+}

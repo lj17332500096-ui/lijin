@@ -1,0 +1,622 @@
+{
+  "productionURL": "http://127.0.0.1:8765/",
+  "fixtureDescription": "Actual production HTML/CSS/JS and HTTP client; deterministic API responses plus native EventSource local fixture, no real provider/tool mutation.",
+  "checks": [
+    "production URL and version 224",
+    "N mark loaded from SVG",
+    "brand dark background",
+    "light theme retains identical brand blue",
+    "focus has token-based restrained shadow",
+    "desktop collapsed after finite transition",
+    "collapsed toolbar keeps N mark",
+    "responsive no overflow 1440",
+    "composer visible 1440",
+    "responsive no overflow 1366",
+    "composer visible 1366",
+    "responsive no overflow 1024",
+    "composer visible 1024",
+    "responsive no overflow 390",
+    "composer visible 390",
+    "mobile drawer opens",
+    "mobile drawer closes",
+    "sending phase while POST pending",
+    "native EventSource connected to local fixture",
+    "user message displayed once",
+    "running offers real stop action",
+    "streaming Markdown renders table",
+    "continuous deltas update before stream closes",
+    "streaming frame budget under 40ms p95",
+    "streaming does not move composer",
+    "completion produces collapsed summary",
+    "final answer keeps Markdown table",
+    "cursor removed at completion",
+    "fold has height/opacity transition",
+    "fold accessible expanded state",
+    "fold content inert when collapsed",
+    "approval posts approved then resumes",
+    "approval visibly becomes confirmed",
+    "error keeps retry and details actions",
+    "drawer opens with accessible state",
+    "drawer hides from keyboard navigation",
+    "stop button sends actual cancel endpoint",
+    "stopped state visible",
+    "attachment still uploads through production client",
+    "source reference attaches",
+    "task switch restores home",
+    "simulated keyboard resizes shell",
+    "simulated keyboard leaves composer above keyboard",
+    "reduced motion disables nonessential transitions",
+    "reduced motion disables hover movement",
+    "browser has no uncaught errors",
+    "browser ran new-message animation",
+    "browser completed message animation",
+    "browser ran actual execution fold transition"
+  ],
+  "errors": [],
+  "requests": [
+    {
+      "path": "/api/tasks/brand-task",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/tasks",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/tasks/brand-task/runs",
+      "method": "POST",
+      "body": "{\"message\":\"请分析这份行业报告，提炼关键趋势，并用 Markdown 列出三条建议。\",\"attachments\":[],\"client_message_id\":\"707203fb-2394-402f-ad1d-3587b4151a8d\"}"
+    },
+    {
+      "path": "/api/runs/brand-run/stream",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/tasks/brand-task",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/tasks",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/runs/brand-run",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/tasks/brand-task/runs",
+      "method": "POST",
+      "body": "{\"message\":\"请保存摘要，修改前让我确认。\",\"attachments\":[],\"client_message_id\":\"395a3fde-b03a-47e5-ab71-ce3b9ebf57e5\"}"
+    },
+    {
+      "path": "/api/runs/brand-run/stream",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/approval",
+      "method": "POST",
+      "body": "{\"id\":\"approval-fixture\",\"decision\":\"approved\"}"
+    },
+    {
+      "path": "/api/runs/brand-run/resume",
+      "method": "POST",
+      "body": "{}"
+    },
+    {
+      "path": "/api/runs/brand-run/stream",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/tasks/brand-task",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/tasks",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/runs/brand-run",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/runs/brand-run",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/tasks/brand-task/runs",
+      "method": "POST",
+      "body": "{\"message\":\"测试停止当前执行。\",\"attachments\":[],\"client_message_id\":\"49fe7f09-10bd-44b2-9c9a-512c3f7a6bc7\"}"
+    },
+    {
+      "path": "/api/runs/brand-run/stream",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/runs/brand-run/cancel",
+      "method": "POST",
+      "body": "{}"
+    },
+    {
+      "path": "/api/tasks/brand-task",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/tasks",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/runs/brand-run",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/projects/brand-task/attachments/upload",
+      "method": "POST",
+      "body": "fixture"
+    },
+    {
+      "path": "/api/projects/brand-task",
+      "method": "GET",
+      "body": null
+    },
+    {
+      "path": "/api/projects/brand-task/attachments/refs",
+      "method": "POST",
+      "body": "{\"source_ids\":[\"source-fixture\"]}"
+    },
+    {
+      "path": "/api/tasks",
+      "method": "GET",
+      "body": null
+    }
+  ],
+  "network": [
+    {
+      "url": "http://127.0.0.1:8765/",
+      "status": 200,
+      "sha256": "8a8c14b33ec9e1fad6a41c1a582abd1f71855b135fe201fdd3b5a8fb67af1f43"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/design.css?v=224",
+      "status": 200,
+      "sha256": "43fdf5059ed3bd1dce5e8ac3e658527c7a41b494ee70d111d4a4984052cab5b9"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/types.js?v=224",
+      "status": 200,
+      "sha256": "c75d6a9eabbe9a522ac292444612bcc5341c6fa18a5e138f4d97ae193fc30fbf"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/eventClient.js?v=224",
+      "status": 200,
+      "sha256": "c7334f9dc980b320138aafe28fe7444157a499722ea542ad836c1895c744cde0"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/eventReducer.js?v=224",
+      "status": 200,
+      "sha256": "dde2163a49fd035d562c63977680d769755ef770076e29c5372c69ef132a33dc"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/taskStore.js?v=224",
+      "status": 200,
+      "sha256": "83009b9267056bcf21064711b44918a23d93c3f9b16c24c34ece280cec43e48d"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/components.js?v=224",
+      "status": 200,
+      "sha256": "d58fb7d74570488f0332b069184230a1ef0f146587f656a5f2606610d88f8793"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/activity.js?v=224",
+      "status": 200,
+      "sha256": "36fd303fe8e34367521386c86d736558f2b2a7518d738375550caaa5135b98bd"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/markdown.js?v=224",
+      "status": 200,
+      "sha256": "457e6fa5e7b1d59afa3373c12b72ecda1bdfc23ee115ce2e16204b32033fcc5c"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/brand-motion.js?v=224",
+      "status": 200,
+      "sha256": "16d0f1ef855aa448ff34e54bc26ddcd3767bafed3d5ad51953d6a1ef311b630e"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/api/client.js?v=224",
+      "status": 200,
+      "sha256": "4a8d56f64a194a07343c66b01447f530dc9c031baec79d687131068666efc29d"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/brand-mark.svg?v=224",
+      "status": 200,
+      "sha256": "71bc144074f15f8e8bba1ecd84e6699d1d6af7a7a8d676bc3086c056c5a474f5"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/pages.js?v=224",
+      "status": 200,
+      "sha256": "fd402fbf03c65fad25a0482e9d759e6506b7a6d8238764d3195a4a8f3187a865"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/api/http.js?v=224",
+      "status": 200,
+      "sha256": "c46b31f368142bbf52a8f55009c3d430e45e30fb9b83a78cb37f74fa56e7d40d"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/workspace.js?v=224",
+      "status": 200,
+      "sha256": "4142a367e8f6618678b589164542ed5dfa944bdd921ed707784b94b4d33d2074"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/api/index.js?v=224",
+      "status": 200,
+      "sha256": "30f05006589f99b7d5680fbcead22b4853db182978388d010902447e21aebf9a"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/api/mock.js?v=224",
+      "status": 200,
+      "sha256": "53bc80cb420e4a22b1abff40f6d13193086bec5856bf1f37c5c03b31a925f286"
+    },
+    {
+      "url": "http://127.0.0.1:8765/rt/brand-favicon.svg?v=224",
+      "status": 200,
+      "sha256": "7bbfed29bec82cf7e223c678d74d876978d85caa8c11425f877b4ae307fb5512"
+    }
+  ],
+  "responsive": [
+    {
+      "width": 1440,
+      "height": 900,
+      "overflow": false,
+      "composer": {
+        "x": 428,
+        "y": 264.09375,
+        "width": 832,
+        "height": 143
+      }
+    },
+    {
+      "width": 1366,
+      "height": 768,
+      "overflow": false,
+      "composer": {
+        "x": 391,
+        "y": 264.09375,
+        "width": 832,
+        "height": 143
+      }
+    },
+    {
+      "width": 1024,
+      "height": 768,
+      "overflow": false,
+      "composer": {
+        "x": 242,
+        "y": 264.09375,
+        "width": 760,
+        "height": 143
+      }
+    },
+    {
+      "width": 390,
+      "height": 844,
+      "overflow": false,
+      "composer": {
+        "x": 16,
+        "y": 151.984375,
+        "width": 358,
+        "height": 137
+      }
+    }
+  ],
+  "performance": {
+    "frames": 156,
+    "meanMs": 16.58653846155756,
+    "p95Ms": 16.799999999999272,
+    "over50ms": 0
+  },
+  "motionEvidence": [
+    {
+      "event": "animationstart",
+      "name": "skel",
+      "target": "skel skel-row",
+      "time": 145.89999999850988
+    },
+    {
+      "event": "animationstart",
+      "name": "skel",
+      "target": "skel skel-row",
+      "time": 146
+    },
+    {
+      "event": "animationstart",
+      "name": "skel",
+      "target": "skel skel-row",
+      "time": 146
+    },
+    {
+      "event": "animationstart",
+      "name": "skel",
+      "target": "skel skel-row",
+      "time": 146
+    },
+    {
+      "event": "animationstart",
+      "name": "fade-enter",
+      "target": "home-dashboard motion-page",
+      "time": 234.69999999552965
+    },
+    {
+      "event": "animationend",
+      "name": "fade-enter",
+      "target": "home-dashboard motion-page",
+      "time": 395.8999999985099
+    },
+    {
+      "event": "transitionrun",
+      "name": "grid-template-columns",
+      "target": "app home-mode sidebar-collapsed",
+      "time": 2179.89999999851
+    },
+    {
+      "event": "transitionend",
+      "name": "grid-template-columns",
+      "target": "app home-mode sidebar-collapsed",
+      "time": 2414.6999999955297
+    },
+    {
+      "event": "transitionrun",
+      "name": "grid-template-columns",
+      "target": "app home-mode",
+      "time": 2896.2999999970198
+    },
+    {
+      "event": "transitionend",
+      "name": "grid-template-columns",
+      "target": "app home-mode",
+      "time": 3130.39999999851
+    },
+    {
+      "event": "transitionrun",
+      "name": "grid-template-columns",
+      "target": "app home-mode",
+      "time": 4613
+    },
+    {
+      "event": "transitionend",
+      "name": "grid-template-columns",
+      "target": "app home-mode",
+      "time": 4845.19999999553
+    },
+    {
+      "event": "transitionrun",
+      "name": "grid-template-columns",
+      "target": "app home-mode",
+      "time": 5313.19999999553
+    },
+    {
+      "event": "transitionend",
+      "name": "grid-template-columns",
+      "target": "app home-mode",
+      "time": 5546.5
+    },
+    {
+      "event": "transitionrun",
+      "name": "grid-template-columns",
+      "target": "app home-mode",
+      "time": 7062.29999999702
+    },
+    {
+      "event": "transitionend",
+      "name": "grid-template-columns",
+      "target": "app home-mode",
+      "time": 7296.39999999851
+    },
+    {
+      "event": "animationstart",
+      "name": "spin",
+      "target": "motion-spinner",
+      "time": 7461.60000000149
+    },
+    {
+      "event": "animationstart",
+      "name": "spin",
+      "target": "motion-spinner",
+      "time": 7461.60000000149
+    },
+    {
+      "event": "animationstart",
+      "name": "message-enter",
+      "target": "msg-row user motion-enter-user",
+      "time": 7828.10000000149
+    },
+    {
+      "event": "animationend",
+      "name": "message-enter",
+      "target": "msg-row user motion-enter-user",
+      "time": 7995
+    },
+    {
+      "event": "animationstart",
+      "name": "fade-enter",
+      "target": "msg-row assistant motion-enter-assistant",
+      "time": 8661.19999999553
+    },
+    {
+      "event": "animationstart",
+      "name": "blink",
+      "target": "agent-markdown live-markdown",
+      "time": 8661.19999999553
+    },
+    {
+      "event": "animationend",
+      "name": "fade-enter",
+      "target": "msg-row assistant motion-enter-assistant",
+      "time": 8827.89999999851
+    },
+    {
+      "event": "animationstart",
+      "name": "status-enter",
+      "target": "rp-ico motion-success",
+      "time": 11561
+    },
+    {
+      "event": "animationend",
+      "name": "status-enter",
+      "target": "rp-ico motion-success",
+      "time": 11727.69999999553
+    },
+    {
+      "event": "transitionrun",
+      "name": "grid-template-rows",
+      "target": "rp-body",
+      "time": 12411.29999999702
+    },
+    {
+      "event": "transitionend",
+      "name": "grid-template-rows",
+      "target": "rp-body",
+      "time": 12644.39999999851
+    },
+    {
+      "event": "transitionrun",
+      "name": "grid-template-rows",
+      "target": "rp-body",
+      "time": 12844.5
+    },
+    {
+      "event": "transitionend",
+      "name": "grid-template-rows",
+      "target": "rp-body",
+      "time": 13078.10000000149
+    },
+    {
+      "event": "animationstart",
+      "name": "spin",
+      "target": "motion-spinner",
+      "time": 13210.60000000149
+    },
+    {
+      "event": "animationstart",
+      "name": "spin",
+      "target": "motion-spinner",
+      "time": 13210.60000000149
+    },
+    {
+      "event": "animationstart",
+      "name": "message-enter",
+      "target": "msg-row user motion-enter-user",
+      "time": 13577.60000000149
+    },
+    {
+      "event": "animationend",
+      "name": "message-enter",
+      "target": "msg-row user motion-enter-user",
+      "time": 13743.79999999702
+    },
+    {
+      "event": "animationstart",
+      "name": "message-enter",
+      "target": "approval-inline motion-approval",
+      "time": 13743.89999999851
+    },
+    {
+      "event": "animationend",
+      "name": "message-enter",
+      "target": "approval-inline motion-approval",
+      "time": 13911.19999999553
+    },
+    {
+      "event": "animationstart",
+      "name": "status-enter",
+      "target": "approval-title motion-success",
+      "time": 14327.29999999702
+    },
+    {
+      "event": "animationstart",
+      "name": "spin",
+      "target": "motion-spinner",
+      "time": 14327.29999999702
+    },
+    {
+      "event": "animationend",
+      "name": "status-enter",
+      "target": "approval-title motion-success",
+      "time": 14494.60000000149
+    },
+    {
+      "event": "animationstart",
+      "name": "fade-enter",
+      "target": "fail-card motion-error",
+      "time": 15127.10000000149
+    },
+    {
+      "event": "animationend",
+      "name": "fade-enter",
+      "target": "fail-card motion-error",
+      "time": 15294.19999999553
+    },
+    {
+      "event": "animationstart",
+      "name": "spin",
+      "target": "motion-spinner",
+      "time": 16560.10000000149
+    },
+    {
+      "event": "animationstart",
+      "name": "spin",
+      "target": "motion-spinner",
+      "time": 16560.10000000149
+    },
+    {
+      "event": "animationstart",
+      "name": "message-enter",
+      "target": "msg-row user motion-enter-user",
+      "time": 16910.79999999702
+    },
+    {
+      "event": "animationend",
+      "name": "message-enter",
+      "target": "msg-row user motion-enter-user",
+      "time": 17077.5
+    },
+    {
+      "event": "animationstart",
+      "name": "fade-enter",
+      "target": "home-dashboard motion-page",
+      "time": 18093.39999999851
+    },
+    {
+      "event": "transitionrun",
+      "name": "grid-template-columns",
+      "target": "app home-mode",
+      "time": 18127.5
+    },
+    {
+      "event": "animationend",
+      "name": "fade-enter",
+      "target": "home-dashboard motion-page",
+      "time": 18261.10000000149
+    },
+    {
+      "event": "transitionend",
+      "name": "grid-template-columns",
+      "target": "app home-mode",
+      "time": 18360.60000000149
+    }
+  ]
+}

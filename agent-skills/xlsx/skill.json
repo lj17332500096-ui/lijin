@@ -1,0 +1,18 @@
+{
+  "name": "xlsx",
+  "slug": "xlsx",
+  "version": "1.0",
+  "description": "Use this skill any time a spreadsheet file is the primary input or output. This means any task where the user wants to: open, read, edit, or fix an existing .xlsx, .xlsm, .xltx, .csv, or .tsv file (e.g., adding columns, computing formulas, formatting, charting, cleaning messy data); create a new spr",
+  "triggers": [
+    "the xlsx in my downloads\\"
+  ],
+  "files": {
+    "portable": "SKILL.md",
+    "agent_zh": "skill.md",
+    "assets": [
+      "scripts"
+    ]
+  },
+  "requires_tools": false,
+  "agent_hint": "复制本目录到目标工程的 skills/<slug>/，并在 .env 的 SKILLS= 追加 slug；通用 agent 可直接读取 SKILL.md。"
+}

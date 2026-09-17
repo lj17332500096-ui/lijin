@@ -1,0 +1,16 @@
+{
+  "name": "docx",
+  "slug": "docx",
+  "version": "1.0",
+  "description": "Use this skill whenever the user wants to create, read, edit, or manipulate Word documents (.docx files) or Word templates (.dotx files). Triggers include: any mention of 'Word doc', 'word document', '.docx', '.dotx', or requests to produce professional documents with formatting like tables of conte",
+  "triggers": [],
+  "files": {
+    "portable": "SKILL.md",
+    "agent_zh": "skill.md",
+    "assets": [
+      "scripts"
+    ]
+  },
+  "requires_tools": false,
+  "agent_hint": "复制本目录到目标工程的 skills/<slug>/，并在 .env 的 SKILLS= 追加 slug；通用 agent 可直接读取 SKILL.md。"
+}

@@ -1,0 +1,55 @@
+# 敏感
+.env
+*.key
+*.pem
+*.p12
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# 运行时产物
+logs/
+traces/
+data/
+*.db
+*.sqlite
+*.sqlite3
+runtime/
+
+# Agent 内部状态
+memory.json
+state.json
+sandbox/
+
+# 工作草稿（保留 drafts 子目录，忽略其内容）
+drafts/*
+!drafts/README.md
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+.DS_Store
+
+# WorkBuddy 会话数据（保留 memory 目录的 .md，忽略其余）
+.workbuddy/*
+!.workbuddy/memory/
+.workbuddy/memory/*
+!.workbuddy/memory/MEMORY.md
+!.workbuddy/memory/20*.md
+
+# 浏览器自动化日志
+.playwright-mcp/
+
+# 大型二进制/备份
+*.zip
+*.tar.gz
+*.bak
+backups/

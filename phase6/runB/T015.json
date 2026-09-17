@@ -1,0 +1,139 @@
+{
+  "id": "T015",
+  "prompt": "帮我记一下：正式环境数据库不能直接执行 destructive migration。",
+  "container_id": "tk_c731bc60",
+  "run_id": "task_af46bb44",
+  "observed_state_at_deadline": "completed",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T05:44:55+00:00",
+  "terminal_state": "completed",
+  "terminal_at": "2026-09-11T05:44:55+00:00",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 14.27,
+  "model_turns": 7,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [
+    {
+      "name": "remember",
+      "normalized_args": "{}",
+      "status": "succeeded",
+      "invocation_id": "call_c6d1aefe7ab2472990c9f5a2",
+      "result_excerpt": "已记住到本项目记忆（id=pmem_0b337d3a）。当前为“仅此项目”模式，不会写入全局记忆。"
+    },
+    {
+      "name": "remember",
+      "normalized_args": "{}",
+      "status": "succeeded",
+      "invocation_id": "call_867fcec15eec4f7da98a7ce3",
+      "result_excerpt": "ALREADY_SAVED_THIS_RUN——本任务里已经保存过了，不再重复保存。请基于已保存内容继续。"
+    },
+    {
+      "name": "remember",
+      "normalized_args": "{}",
+      "status": "succeeded",
+      "invocation_id": "call_1f1cb1755d3942ed9b589d8f",
+      "result_excerpt": "ALREADY_SAVED_THIS_RUN——本任务里已经保存过了，不再重复保存。请基于已保存内容继续。"
+    },
+    {
+      "name": "remember",
+      "normalized_args": "{}",
+      "status": "succeeded",
+      "invocation_id": "call_3bf5f13196384cadb2664fd5",
+      "result_excerpt": "ALREADY_SAVED_THIS_RUN——本任务里已经保存过了，不再重复保存。请基于已保存内容继续。"
+    },
+    {
+      "name": "remember",
+      "normalized_args": "{}",
+      "status": "succeeded",
+      "invocation_id": "call_3f5a5b11378a43949fca3c97",
+      "result_excerpt": "ALREADY_SAVED_THIS_RUN——本任务里已经保存过了，不再重复保存。请基于已保存内容继续。"
+    }
+  ],
+  "answer": "已记住该规范。",
+  "reply_kind": "done",
+  "tool_truth": {
+    "attempts": 5,
+    "blocked": 4,
+    "executions": 1,
+    "successes": 1,
+    "failures": 0,
+    "budget_consumed": 1,
+    "db_unique_executions": 5
+  },
+  "_exec": {
+    "remember": 5
+  },
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 3250.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1500.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 907.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 938.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 938.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 3766.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 937.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

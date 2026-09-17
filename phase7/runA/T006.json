@@ -1,0 +1,65 @@
+{
+  "id": "T006",
+  "prompt": "帮我查明天去上海的航班。",
+  "container_id": "tk_f25e5924",
+  "run_id": "task_bb9aa953",
+  "observed_state_at_deadline": "waiting_user",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T11:04:22+00:00",
+  "terminal_state": "waiting_user",
+  "terminal_at": "2026-09-11T11:04:22+00:00",
+  "final_status": "waiting_user",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 6.17,
+  "model_turns": 0,
+  "provider_errors": 0,
+  "terminal_kind": "needs_user_input",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "需要你补充信息后继续：请告诉我从哪里出发？",
+  "reply_kind": "questions",
+  "tool_truth": {
+    "attempts": 3,
+    "blocked": 3,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0,
+    "db_unique_executions": 0
+  },
+  "_exec": {},
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1406.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1484.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1234.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

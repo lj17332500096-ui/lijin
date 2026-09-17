@@ -1,0 +1,24 @@
+{
+  "id": "T047",
+  "prompt": "调研一个技术问题,综合不同来源告诉我原因。",
+  "container_id": "tk_6fc0c4da",
+  "run_id": "task_1fbdaa2d",
+  "final_status": "waiting_user",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 10.26,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "needs_user_input",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "需要补充具体问题才能开始调研。请提供以下信息：\n1. 具体是什么技术问题？请描述现象或贴出错误信息\n2. 涉及哪些技术栈或框架？\n3. 有没有相关代码/日志/复现步骤？",
+  "reply_kind": "questions",
+  "_exec": {},
+  "_blocked": {},
+  "tool_calls_total": 0,
+  "blocked_events": 0
+}

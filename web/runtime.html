@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1"/>
+<title>此刻 · NOW</title>
+<link rel="icon" type="image/svg+xml" href="/rt/brand-favicon.svg?v=228"/>
+<link rel="stylesheet" href="/rt/design.css?v=228"/>
+</head>
+<body>
+<div class="app">
+  <aside class="brand" id="taskSidebar" aria-label="任务导航">
+    <div class="brand-head"><button class="sidebar-home" id="sidebarHome" aria-label="回到首页"><span class="logo"></span><span>此刻 <small>NOW</small></span></button><button class="icon-btn" id="sidebarCollapse" aria-label="收起任务导航" title="收起任务导航">«</button></div>
+    <nav class="sidebar" id="sidebar">
+      <button class="primary-btn sidebar-new" id="newDraftBtn">＋ 新建任务</button>
+      <button class="sidebar-search" id="btnSearch"><span>⌕ 搜索任务…</span><kbd>Ctrl K</kbd></button>
+      <button class="nav-btn" id="navTasks" data-filter="all"><span class="nav-symbol">▤</span>全部任务<span class="nav-count" id="allTaskCount">0</span></button>
+      <button class="nav-btn" id="navRunning" data-filter="running"><span class="nav-symbol">◷</span>进行中<span class="nav-count" id="runningTaskCount">0</span></button>
+      <button class="nav-btn" id="navWaiting" data-filter="waiting"><span class="nav-symbol">♧</span>等待确认<span class="nav-count" id="waitingTaskCount">0</span></button>
+      <div class="nav-label">最近任务</div>
+      <div class="rail-tasks" id="railTasks"></div>
+      <button class="rail-link" id="railMoreTasks">查看全部任务 →</button>
+      <div class="sidebar-foot"><button class="nav-btn" id="navMaterials"><span class="nav-symbol">▱</span>资料</button><button class="nav-btn" id="navSettings"><span class="nav-symbol">⚙</span>设置</button></div>
+    </nav>
+  </aside>
+  <button class="sidebar-backdrop" id="sidebarBackdrop" aria-label="关闭任务导航" tabindex="-1"></button>
+  <header class="topbar">
+    <div class="topbar-left">
+      <button class="icon-btn" id="sidebarToggle" aria-label="展开任务导航" aria-controls="taskSidebar" aria-expanded="true" title="任务导航">☰</button>
+      <div class="logo" id="brandLogo"></div>
+      <div class="brand-name">此刻<small>NOW</small></div>
+      <div class="crumb">
+        <span class="sep">/</span>
+        <span id="crumbPage">任务</span>
+      </div>
+    </div>
+    <div class="top-actions">
+      <div class="dropdown">
+        <button class="icon-btn" id="moreBtn" title="更多"><svg class="bi" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="5" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="12" cy="19" r="1"/></svg></button>
+        <div class="dd-menu" id="moreMenu">
+          <button class="dd-item" data-act="materials"><svg class="bi" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg> 资料</button>
+          <button class="dd-item" data-act="settings"><svg class="bi" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="21" y1="4" x2="14" y2="4"/><line x1="10" y1="4" x2="3" y2="4"/><line x1="21" y1="12" x2="12" y2="12"/><line x1="8" y1="12" x2="3" y2="12"/><line x1="21" y1="20" x2="16" y2="20"/><line x1="12" y1="20" x2="3" y2="20"/><line x1="14" y1="2" x2="14" y2="6"/><line x1="8" y1="10" x2="8" y2="14"/></svg> 设置</button>
+          <button class="dd-item" data-act="trash"><svg class="bi" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg> 回收站</button>
+          <button class="dd-item" data-act="about"><svg class="bi" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg> 关于此刻</button>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <main class="main" id="mainRegion">
+    <section id="page-workspace">
+      <div class="task-head">
+        <div class="task-row">
+          <div class="task-main">
+            <div class="task-title" id="taskTitle">—</div>
+            <div class="task-meta" id="taskMeta"></div>
+          </div>
+          <div class="task-actions">
+            <button class="ghost-btn" id="btnDetail" disabled style="display:none">详情</button>
+            <button class="ghost-btn" id="btnArchive" disabled style="display:none">归档</button>
+            <button class="ghost-btn" id="pauseBtn" disabled style="display:none">暂停</button>
+            <button class="danger-btn" id="cancelBtn" disabled style="display:none"><svg class="bi" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="5" width="14" height="14" rx="2"/></svg> 停止</button>
+          </div>
+        </div>
+      </div>
+      <div class="stream" id="stream">
+        <div class="page-placeholder">
+          <b>此刻</b>
+          <span>告诉此刻你想完成什么。任务里可以持续对话、添加资料并查看结果。</span>
+        </div>
+      </div>
+      <button class="scroll-latest" id="scrollLatest" title="回到最新" aria-label="回到最新"><svg class="bi" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="m19 12-7 7-7-7"/></svg></button>
+    </section>
+    <div class="composer-wrap">
+      <div class="composer">
+        <div class="composer-top">
+          <button class="btn-new" id="btnNewTask"><svg class="bi" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg> 选择文件夹</button>
+        </div>
+        <textarea id="composerInput" rows="2" aria-label="任务内容" placeholder="告诉此刻你想做什么……"></textarea>
+        <div class="attach-bar" id="composerChips"></div>
+        <div class="composer-foot">
+          <button class="composer-file-btn" id="btnComposerFile"><svg class="bi" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14"/><path d="M12 5v14"/></svg> 添加文件</button>
+          <div class="composer-file-menu" id="composerFileMenu">
+            <button class="cfm-item" data-kind="upload">上传文件（仅本次使用）</button>
+            <button class="cfm-item" data-kind="source">从项目来源选择</button>
+          </div>
+          <button class="send" id="sendBtn" aria-label="发送消息" disabled><span class="send-label">发送</span> ↑</button>
+        </div>
+      </div>
+      <div class="composer-hint">Enter 发送 · Shift + Enter 换行</div>
+    </div>
+  </main>
+
+  <aside class="drawer" id="detailDrawer" aria-hidden="true">
+    <div class="drawer-head">
+      <b>任务详情</b>
+      <button class="icon-btn" id="drawerClose" title="关闭"><svg class="bi" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+    </div>
+    <div class="drawer-body" id="detailDrawerBody"></div>
+  </aside>
+
+  <nav class="mobile-bar" id="mobileBar">
+    <button class="m-active" data-page="workspace">任务</button>
+    <button data-page="materials">资料</button>
+    <button data-page="settings">设置</button>
+  </nav>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script src="/rt/types.js?v=228"></script>
+<script src="/rt/api/http.js?v=228"></script>
+<script src="/rt/api/client.js?v=228"></script>
+<script src="/rt/api/mock.js?v=228"></script>
+<script src="/rt/api/index.js?v=228"></script>
+<script src="/rt/eventClient.js?v=228"></script>
+<script src="/rt/eventReducer.js?v=228"></script>
+<script src="/rt/taskStore.js?v=228"></script>
+<script src="/rt/components.js?v=228"></script>
+<script src="/rt/activity.js?v=228"></script>
+<script src="/rt/markdown.js?v=228"></script>
+<script src="/rt/brand-motion.js?v=228"></script>
+<script src="/rt/workspace.js?v=228"></script>
+<script src="/rt/pages.js?v=228"></script>
+<script>
+/* ================= Phase 3：Layout 状态（纯 UI） ================= */
+const toast = document.getElementById("toast");
+function showToast(msg){toast.textContent = msg; toast.classList.add("show"); setTimeout(()=>toast.classList.remove("show"), 1800);}
+
+const PAGE_TITLES = {workspace:"工作台",tasks:"任务",artifacts:"产物",schedules:"计划任务",
+  trace:"Trace",tools:"工具与 MCP",memory:"记忆",approvals:"权限与审批",settings:"设置"};
+function switchPage(page){
+  document.querySelectorAll("#mobileBar button").forEach(b =>
+    b.classList.toggle("active", b.dataset.page === page));
+  document.querySelectorAll("#mainRegion > section").forEach(s => s.style.display = "none");
+  const target = document.getElementById("page-" + page);
+  if (target) target.style.display = "";
+  document.getElementById("crumbPage").textContent = PAGE_TITLES[page] || page;
+  if (window.RT && RT.pages && page !== "workspace" && page !== "settings") {
+    try { RT.pages.onShow(page); } catch (e) { /* ignore */ }
+  }
+}
+document.querySelectorAll("#mobileBar button").forEach(b => b.addEventListener("click", ()=>{
+  if (b.dataset.page === "tasks") { if (window.RT && RT.workspace) RT.workspace.showProjects(); return; }
+  if (b.dataset.page === "workspace") { if (window.RT && RT.workspace) RT.workspace.goHome(); return; }
+  if (b.dataset.page === "materials") { if (window.RT && RT.workspace) RT.workspace.showMaterials(); return; }
+  if (b.dataset.page === "settings") { if (window.RT && RT.workspace) RT.workspace.showSettings(); return; }
+  switchPage(b.dataset.page);
+}));
+
+/* ================= Phase 6：工作台控制器（Task 生命周期 + Runtime 卡片） ================= */
+RT.initWorkspace();
+RT.pages = RT.initPages(RT.api);
+switchPage("workspace");
+
+async function initRuntimeMeta(){
+  try {
+    const status = await RT.api.runtimeStatus();
+    const dbState = document.getElementById("dbState");
+    if (dbState) dbState.textContent = status.db && status.db.wal ? "OK" : "—";
+    const mcp = document.getElementById("mcpState");
+    if (mcp) mcp.textContent =
+      (status.mcp_servers && status.mcp_servers.length) ? status.mcp_servers.length + " 个" : "0";
+    const tools = document.getElementById("toolsState");
+    if (tools) tools.textContent = status.tools_count || "—";
+  } catch (e) { /* 后端不可用时保持占位 */ }
+  try {
+    const ap = await RT.api.listApprovals({ state: "pending" });
+    const badgeAppr = document.getElementById("approvalBadge");
+    if (badgeAppr) badgeAppr.textContent = String(ap.total);
+  } catch (e) { /* ignore */ }
+}
+initRuntimeMeta();
+switchPage("workspace");
+</script>
+</body>
+</html>
+

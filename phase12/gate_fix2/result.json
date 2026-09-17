@@ -1,0 +1,68 @@
+{
+  "mode": "gate",
+  "n": 1,
+  "cases": [
+    {
+      "case": "M1",
+      "runs": [
+        {
+          "case": "M1",
+          "kind": "single_file_fix_test",
+          "state": "failed",
+          "terminal_kind": "no_progress",
+          "behavior_pass": false,
+          "mutation": true,
+          "verification_pass": false,
+          "verification_attempted": false,
+          "latest_revision_covered": false,
+          "available_verification_tools": [
+            "run_python",
+            "code_loop"
+          ],
+          "verification_available": true,
+          "capability_counts": {
+            "DISCOVERY": 1,
+            "READ": 2,
+            "MUTATION": 3,
+            "VERIFICATION": 0
+          },
+          "executions": 6,
+          "invocations": 9,
+          "obligation_blocked": 1,
+          "completion_ready_forced": 0
+        }
+      ]
+    },
+    {
+      "case": "M4",
+      "runs": [
+        {
+          "case": "M4",
+          "kind": "fix_then_pass",
+          "state": "failed",
+          "terminal_kind": "bounded_failure",
+          "behavior_pass": false,
+          "mutation": true,
+          "verification_pass": false,
+          "verification_attempted": false,
+          "latest_revision_covered": false,
+          "available_verification_tools": [
+            "run_python",
+            "code_loop"
+          ],
+          "verification_available": true,
+          "capability_counts": {
+            "DISCOVERY": 3,
+            "READ": 4,
+            "MUTATION": 2,
+            "VERIFICATION": 0
+          },
+          "executions": 9,
+          "invocations": 10,
+          "obligation_blocked": 2,
+          "completion_ready_forced": 0
+        }
+      ]
+    }
+  ]
+}

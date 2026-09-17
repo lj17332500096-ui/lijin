@@ -1,0 +1,18 @@
+{
+  "run_id": "P7C",
+  "timestamp": "2026-09-11T11:45:56+00:00",
+  "benchmark_spec_version": "FORGE-AB-50-v1.1",
+  "evaluator_version": "phase6-evaluator-v2",
+  "cases_hash": "d5013d4258713217",
+  "expected_behavior_hash": "ceb697dcfc8bc803",
+  "evaluator_hash": "cb2d258f13cf2f45",
+  "runtime_version": "unknown",
+  "git_commit": "no-git",
+  "runtime_config_hash": "dc9b023c6c4604ab",
+  "provider": "openai",
+  "model": "",
+  "observation_deadline": 150,
+  "runtime_wall_timeout": "1800",
+  "provider_qualification_id": "",
+  "case_count": 38
+}

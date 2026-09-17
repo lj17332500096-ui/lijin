@@ -1,0 +1,56 @@
+{
+  "id": "T040",
+  "prompt": "请请求确认一个操作并等待我确认。",
+  "container_id": "tk_8f8ec362",
+  "run_id": "task_74d8f8d4",
+  "observed_state_at_deadline": "waiting_user",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T06:43:03+00:00",
+  "terminal_state": "waiting_user",
+  "terminal_at": "2026-09-11T06:43:03+00:00",
+  "final_status": "waiting_user",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 12.2,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "needs_user_input",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "{\n  \"content\": \"需要确认具体操作内容。\\n\\n具体选项包括：\\n- 删除某个文件/笔记\\n- 修改某个项目代码\\n- 执行某个定时任务\\n- 其他具体操作？\\n\\n请告诉我具体要确认的操作，以便我列出影响范围并等待您确认后再执行。\"\n}",
+  "reply_kind": "questions",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0,
+    "db_unique_executions": 0
+  },
+  "_exec": {},
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 4672.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 5422.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

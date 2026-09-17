@@ -1,0 +1,170 @@
+{
+  "synthetic": {
+    "M1": {
+      "n": 5,
+      "preferred_run_tests": 2,
+      "semantic_verification": 2,
+      "discovery_or_read": 3,
+      "mutation": 0,
+      "no_action": 0,
+      "preferred_rate": 0.4,
+      "semantic_rate": 0.4,
+      "discovery_drift_rate": 0.6,
+      "status_counts": {
+        "DECISION_CAPTURED": 5
+      },
+      "latency_avg_s": 11.03,
+      "latency_p50_s": 12.38,
+      "latency_p95_s": 13.73,
+      "first_tools": {
+        "run_tests": 2,
+        "list_code_files": 3
+      },
+      "semantic_classes": {
+        "SEMANTIC_VERIFICATION": 2,
+        "DISCOVERY": 3
+      }
+    },
+    "M4": {
+      "n": 5,
+      "preferred_run_tests": 2,
+      "semantic_verification": 2,
+      "discovery_or_read": 3,
+      "mutation": 0,
+      "no_action": 0,
+      "preferred_rate": 0.4,
+      "semantic_rate": 0.4,
+      "discovery_drift_rate": 0.6,
+      "status_counts": {
+        "DECISION_CAPTURED": 5
+      },
+      "latency_avg_s": 13.51,
+      "latency_p50_s": 14.11,
+      "latency_p95_s": 16.53,
+      "first_tools": {
+        "run_tests": 2,
+        "list_code_files": 1,
+        "read_code_file": 2
+      },
+      "semantic_classes": {
+        "SEMANTIC_VERIFICATION": 2,
+        "DISCOVERY": 3
+      }
+    }
+  },
+  "live": {
+    "M1": {
+      "n": 5,
+      "preferred_run_tests": 0,
+      "semantic_verification": 0,
+      "discovery_or_read": 3,
+      "mutation": 2,
+      "no_action": 0,
+      "preferred_rate": 0.0,
+      "semantic_rate": 0.0,
+      "discovery_drift_rate": 0.6,
+      "status_counts": {
+        "DECISION_CAPTURED": 5
+      },
+      "latency_avg_s": 31.84,
+      "latency_p50_s": 12.34,
+      "latency_p95_s": 105.12,
+      "first_tools": {
+        "list_workspace_files": 2,
+        "write_project_file": 1,
+        "read_workspace_file": 1,
+        "edit_project_file": 1
+      },
+      "semantic_classes": {
+        "DISCOVERY": 3,
+        "REVISE": 2
+      }
+    },
+    "M4": {
+      "n": 5,
+      "preferred_run_tests": 2,
+      "semantic_verification": 3,
+      "discovery_or_read": 2,
+      "mutation": 0,
+      "no_action": 0,
+      "preferred_rate": 0.4,
+      "semantic_rate": 0.6,
+      "discovery_drift_rate": 0.4,
+      "status_counts": {
+        "DECISION_CAPTURED": 5
+      },
+      "latency_avg_s": 15.01,
+      "latency_p50_s": 12.39,
+      "latency_p95_s": 22.0,
+      "first_tools": {
+        "list_workspace_files": 2,
+        "run_tests": 2,
+        "run_python": 1
+      },
+      "semantic_classes": {
+        "DISCOVERY": 2,
+        "SEMANTIC_VERIFICATION": 3
+      }
+    }
+  },
+  "fidelity": {
+    "M1": {
+      "synthetic": {
+        "goal_hash": true,
+        "system_prompt_hash": true,
+        "message_history_hash": true,
+        "tool_definitions_hash": true,
+        "revision_present": true,
+        "verification_obligation": true,
+        "tool_exposure": true,
+        "model_config_local": true,
+        "workspace_hash": true
+      },
+      "live": {
+        "goal_hash": true,
+        "system_prompt_hash": true,
+        "message_history_hash": true,
+        "tool_definitions_hash": true,
+        "revision_present": true,
+        "verification_obligation": true,
+        "tool_exposure": true,
+        "model_config_local": true,
+        "workspace_hash": true
+      }
+    },
+    "M4": {
+      "synthetic": {
+        "goal_hash": true,
+        "system_prompt_hash": true,
+        "message_history_hash": true,
+        "tool_definitions_hash": true,
+        "revision_present": true,
+        "verification_obligation": true,
+        "tool_exposure": true,
+        "model_config_local": true,
+        "workspace_hash": true
+      },
+      "live": {
+        "goal_hash": true,
+        "system_prompt_hash": true,
+        "message_history_hash": true,
+        "tool_definitions_hash": true,
+        "revision_present": true,
+        "verification_obligation": true,
+        "tool_exposure": true,
+        "model_config_local": true,
+        "workspace_hash": true
+      }
+    }
+  },
+  "exposure": {
+    "M1": {
+      "synthetic_tools": 14,
+      "live_tools": 120
+    },
+    "M4": {
+      "synthetic_tools": 14,
+      "live_tools": 120
+    }
+  }
+}

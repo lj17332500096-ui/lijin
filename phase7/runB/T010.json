@@ -1,0 +1,56 @@
+{
+  "id": "T010",
+  "prompt": "提醒我去交资料。",
+  "container_id": "tk_37f79ee5",
+  "run_id": "task_33bac682",
+  "observed_state_at_deadline": "completed",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T11:27:09+00:00",
+  "terminal_state": "completed",
+  "terminal_at": "2026-09-11T11:27:09+00:00",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 6.19,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "{\"content\": \"好的，我来帮你设置交资料的提醒。需要确认几个信息：\\n\\n1. **什么时候提醒？** —— 今天/明天/某个具体日期的几点？\\n2. **交什么资料？** —— 具体是什么材料（比如简历、申请表、合同等），方便到时提醒你具体内容\\n3. **交到哪里？** —— 线上提交还是线下递交？有没有截止 deadline？\"}",
+  "reply_kind": "answer",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0,
+    "db_unique_executions": 0
+  },
+  "_exec": {},
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1875.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2125.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

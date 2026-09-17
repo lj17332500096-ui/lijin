@@ -1,0 +1,129 @@
+{
+  "title": "FORGE Router 监控",
+  "uid": "forge-router",
+  "schemaVersion": 39,
+  "refresh": "30s",
+  "time": { "from": "now-24h", "to": "now" },
+  "panels": [
+    {
+      "type": "stat",
+      "title": "命中率（hit_zero_rate）",
+      "gridPos": {"h": 4, "w": 4, "x": 0, "y": 0},
+      "datasource": {"type": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {"color": "green", "value": null},
+              {"color": "orange", "value": 0.05},
+              {"color": "red", "value": 0.15}
+            ]
+          }
+        }
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": { "calcs": ["lastNotNull"] }
+      },
+      "targets": [
+        {
+          "expr": "forge_router_hit_zero_rate",
+          "legendFormat": "hit_zero_rate",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "窗口内总调用次数",
+      "gridPos": {"h": 4, "w": 4, "x": 4, "y": 0},
+      "datasource": {"type": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "none"}},
+      "options": {"colorMode": "value", "graphMode": "area"},
+      "targets": [
+        {"expr": "forge_router_total_calls_total", "refId": "A"}
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "平均选中工具数",
+      "gridPos": {"h": 4, "w": 4, "x": 8, "y": 0},
+      "datasource": {"type": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short", "decimals": 1}},
+      "options": {"colorMode": "value", "graphMode": "area"},
+      "targets": [
+        {"expr": "forge_router_avg_selected_tools", "refId": "A"}
+      ]
+    },
+    {
+      "type": "stat",
+      "title": "P95 查询长度",
+      "gridPos": {"h": 4, "w": 4, "x": 12, "y": 0},
+      "datasource": {"type": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "bytes"}},
+      "options": {"colorMode": "value", "graphMode": "none"},
+      "targets": [
+        {"expr": "forge_router_p95_query_len_bytes", "refId": "A"}
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "命中率趋势（告警线 5%）",
+      "gridPos": {"h": 9, "w": 12, "x": 0, "y": 4},
+      "datasource": {"type": "prometheus"},
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 1,
+          "custom": {
+            "fillOpacity": 10,
+            "lineWidth": 2
+          }
+        }
+      },
+      "options": {
+        "legend": { "displayMode": "list", "placement": "bottom" },
+        "tooltip": { "mode": "multi" }
+      },
+      "targets": [
+        {
+          "expr": "forge_router_hit_zero_rate",
+          "legendFormat": "hit_zero_rate",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "timeseries",
+      "title": "命中 0 目标工具次数",
+      "gridPos": {"h": 9, "w": 12, "x": 12, "y": 4},
+      "datasource": {"type": "prometheus"},
+      "fieldConfig": {"defaults": {"unit": "short"}},
+      "targets": [
+        {
+          "expr": "forge_router_hit_zero_total",
+          "legendFormat": "hit_zero",
+          "refId": "A"
+        }
+      ]
+    }
+  ],
+  "annotations": {
+    "list": [
+      {
+        "name": "告警阈值 5%",
+        "datasource": "grafana",
+        "yaxis": 1,
+        "lines": [
+          {"value": 0.05, "color": "red", "lineWidth": 2, "dashLength": 10, "spaceLength": 5}
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,56 @@
+{
+  "id": "T001",
+  "prompt": "介绍一下你能帮我做什么。",
+  "container_id": "tk_4291870d",
+  "run_id": "task_300ef82d",
+  "observed_state_at_deadline": "completed",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T06:16:29+00:00",
+  "terminal_state": "completed",
+  "terminal_at": "2026-09-11T06:16:29+00:00",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 32.38,
+  "model_turns": 2,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "{\n  \"content\": \"我是全能助手，能帮你处理日常大大小小的事：\\n\\n1. **查资料**——联网搜索最新信息、新闻、天气、价格等\\n2. **读文档**——读取工作区里的 Markdown、文本、代码、PDF、Word/Excel/PPT 文件，并基于内容回答问题\\n3. **做计算**——数学运算、单位换算、数据核对\\n4. **写内容与方案**——备忘录、文章、周报、邮件、计划书、学习笔记、会议纪要、简历优化等，可直接保存为文件\\n5. **深度调研**——对复杂主题做多轮联网搜索并生成综合报告\\n6. **读代码/抓仓库**——分析本地项目或抓取 GitHub 仓库源码\\n7. **安排定时任务**——帮你设置每天/每周自动执行的任务提醒\\n8. **看图片**——识别截图、照片、图表中的文字和信息\\n\\n有什么具体需要，随时告诉我。\"\n}",
+  "reply_kind": "answer",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0,
+    "db_unique_executions": 0
+  },
+  "_exec": {},
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 28187.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2703.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

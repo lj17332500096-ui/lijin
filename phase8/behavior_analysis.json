@@ -1,0 +1,349 @@
+{
+  "coding_stage": {
+    "T018": {
+      "executions": 30,
+      "MUTATION": 2,
+      "READ": 9,
+      "DISCOVERY": 5,
+      "REDUNDANT": 12,
+      "VERIFICATION": 5
+    },
+    "T019": {
+      "executions": 42,
+      "DISCOVERY": 39,
+      "READ": 14,
+      "REDUNDANT": 22,
+      "VERIFICATION": 4,
+      "MUTATION": 1
+    },
+    "T020": {
+      "executions": 34,
+      "MUTATION": 7,
+      "VERIFICATION": 4,
+      "READ": 12,
+      "DISCOVERY": 11,
+      "REDUNDANT": 9
+    },
+    "T021": {
+      "executions": 38,
+      "VERIFICATION": 9,
+      "MUTATION": 9,
+      "DISCOVERY": 12,
+      "READ": 13,
+      "REDUNDANT": 20,
+      "DRIFT": 1
+    },
+    "T022": {
+      "executions": 54,
+      "VERIFICATION": 17,
+      "MUTATION": 6,
+      "DISCOVERY": 21,
+      "READ": 20,
+      "REDUNDANT": 31,
+      "DRIFT": 1
+    },
+    "T023": {
+      "executions": 32,
+      "MUTATION": 4,
+      "READ": 16,
+      "REDUNDANT": 11,
+      "DISCOVERY": 14,
+      "DRIFT": 2
+    },
+    "T024": {
+      "executions": 59,
+      "VERIFICATION": 21,
+      "DISCOVERY": 22,
+      "READ": 36,
+      "MUTATION": 21,
+      "REDUNDANT": 52,
+      "DRIFT": 1
+    },
+    "T025": {
+      "executions": 50,
+      "VERIFICATION": 16,
+      "MUTATION": 21,
+      "READ": 27,
+      "DISCOVERY": 12,
+      "REDUNDANT": 36
+    },
+    "T029": {
+      "executions": 60,
+      "MUTATION": 19,
+      "DISCOVERY": 15,
+      "READ": 47,
+      "REDUNDANT": 42,
+      "VERIFICATION": 3
+    },
+    "T049": {
+      "executions": 59,
+      "VERIFICATION": 13,
+      "MUTATION": 21,
+      "DISCOVERY": 13,
+      "READ": 43,
+      "REDUNDANT": 56,
+      "DRIFT": 1
+    }
+  },
+  "task_relevant": {
+    "T018": {
+      "executions": 8,
+      "relevant": 8,
+      "drift": 0,
+      "ratio": 1.0
+    },
+    "T019": {
+      "executions": 17,
+      "relevant": 17,
+      "drift": 0,
+      "ratio": 1.0
+    },
+    "T020": {
+      "executions": 9,
+      "relevant": 9,
+      "drift": 0,
+      "ratio": 1.0
+    },
+    "T021": {
+      "executions": 21,
+      "relevant": 20,
+      "drift": 1,
+      "ratio": 0.952
+    },
+    "T022": {
+      "executions": 18,
+      "relevant": 17,
+      "drift": 1,
+      "ratio": 0.944
+    },
+    "T023": {
+      "executions": 14,
+      "relevant": 14,
+      "drift": 0,
+      "ratio": 1.0
+    },
+    "T024": {
+      "executions": 29,
+      "relevant": 29,
+      "drift": 0,
+      "ratio": 1.0
+    },
+    "T025": {
+      "executions": 24,
+      "relevant": 24,
+      "drift": 0,
+      "ratio": 1.0
+    },
+    "T029": {
+      "executions": 27,
+      "relevant": 27,
+      "drift": 0,
+      "ratio": 1.0
+    },
+    "T049": {
+      "executions": 21,
+      "relevant": 20,
+      "drift": 1,
+      "ratio": 0.952
+    }
+  },
+  "completion_rejection": [
+    {
+      "case": "T019",
+      "kind": "no_progress",
+      "exec": 7,
+      "cat": "other",
+      "has_mutation": false,
+      "has_verification": false
+    },
+    {
+      "case": "T020",
+      "kind": "completed",
+      "exec": 20,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T021",
+      "kind": "completed",
+      "exec": 20,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T022",
+      "kind": "completed",
+      "exec": 17,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T024",
+      "kind": "no_progress",
+      "exec": 20,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T025",
+      "kind": "completed",
+      "exec": 20,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T029",
+      "kind": "completed",
+      "exec": 20,
+      "cat": "missing_verification",
+      "has_mutation": true,
+      "has_verification": false
+    },
+    {
+      "case": "T049",
+      "kind": "completed",
+      "exec": 20,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T018",
+      "kind": "bounded_failure",
+      "exec": 18,
+      "cat": "tool_overuse_only",
+      "has_mutation": false,
+      "has_verification": true
+    },
+    {
+      "case": "T019",
+      "kind": "completed",
+      "exec": 18,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T020",
+      "kind": "no_progress",
+      "exec": 5,
+      "cat": "missing_verification",
+      "has_mutation": true,
+      "has_verification": false
+    },
+    {
+      "case": "T021",
+      "kind": "no_progress",
+      "exec": 4,
+      "cat": "missing_verification",
+      "has_mutation": true,
+      "has_verification": false
+    },
+    {
+      "case": "T022",
+      "kind": "completed",
+      "exec": 20,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T024",
+      "kind": "completed",
+      "exec": 19,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T029",
+      "kind": "no_progress",
+      "exec": 20,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T049",
+      "kind": "completed",
+      "exec": 20,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T019",
+      "kind": "bounded_failure",
+      "exec": 17,
+      "cat": "tool_overuse_only",
+      "has_mutation": false,
+      "has_verification": false
+    },
+    {
+      "case": "T020",
+      "kind": "no_progress",
+      "exec": 9,
+      "cat": "other",
+      "has_mutation": false,
+      "has_verification": false
+    },
+    {
+      "case": "T022",
+      "kind": "no_progress",
+      "exec": 17,
+      "cat": "tool_overuse_only",
+      "has_mutation": false,
+      "has_verification": true
+    },
+    {
+      "case": "T023",
+      "kind": "no_progress",
+      "exec": 14,
+      "cat": "tool_overuse_only",
+      "has_mutation": false,
+      "has_verification": false
+    },
+    {
+      "case": "T024",
+      "kind": "completed",
+      "exec": 20,
+      "cat": "tool_overuse_only",
+      "has_mutation": false,
+      "has_verification": true
+    },
+    {
+      "case": "T025",
+      "kind": "completed",
+      "exec": 20,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T029",
+      "kind": "completed",
+      "exec": 20,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    },
+    {
+      "case": "T049",
+      "kind": "completed",
+      "exec": 19,
+      "cat": "tool_overuse_only",
+      "has_mutation": true,
+      "has_verification": true
+    }
+  ],
+  "completion_categories": {
+    "other": 2,
+    "tool_overuse_only": 19,
+    "missing_verification": 3
+  }
+}

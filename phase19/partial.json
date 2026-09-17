@@ -1,0 +1,206 @@
+{
+  "M1": [
+    {
+      "case": "M1",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_tests",
+      "capability": "VERIFICATION",
+      "latency_s": 52.5,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M1",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "list_code_files",
+      "capability": "DISCOVERY",
+      "latency_s": 6.8,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M1",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "write_code_file",
+      "capability": "MUTATION",
+      "latency_s": 21.2,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M1",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "list_code_files",
+      "capability": "DISCOVERY",
+      "latency_s": 11.4,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M1",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "list_code_files",
+      "capability": "DISCOVERY",
+      "latency_s": 63.8,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M1",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_tests",
+      "capability": "VERIFICATION",
+      "latency_s": 5.5,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M1",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_python",
+      "capability": "CODE_EXECUTION",
+      "latency_s": 13.5,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M1",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "list_workspace_files",
+      "capability": "DISCOVERY",
+      "latency_s": 14.5,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M1",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_tests",
+      "capability": "VERIFICATION",
+      "latency_s": 13.4,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M1",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "list_code_files",
+      "capability": "DISCOVERY",
+      "latency_s": 8.7,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    }
+  ],
+  "M4": [
+    {
+      "case": "M4",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_tests",
+      "capability": "VERIFICATION",
+      "latency_s": 9.7,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M4",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_python",
+      "capability": "CODE_EXECUTION",
+      "latency_s": 9.5,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M4",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_tests",
+      "capability": "VERIFICATION",
+      "latency_s": 9.8,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M4",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_python",
+      "capability": "CODE_EXECUTION",
+      "latency_s": 19.2,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M4",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "read_workspace_file",
+      "capability": "READ",
+      "latency_s": 9.5,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M4",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_tests",
+      "capability": "VERIFICATION",
+      "latency_s": 9.2,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M4",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_tests",
+      "capability": "VERIFICATION",
+      "latency_s": 8.9,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M4",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_tests",
+      "capability": "VERIFICATION",
+      "latency_s": 11.5,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M4",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_python",
+      "capability": "CODE_EXECUTION",
+      "latency_s": 17.3,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    },
+    {
+      "case": "M4",
+      "verification_due": true,
+      "revision": 1,
+      "first_tool": "run_tests",
+      "capability": "VERIFICATION",
+      "latency_s": 13.3,
+      "error": "MaxTurnsExceeded: Max turns (1) exceeded",
+      "mutation_result_head": "已写入 micro_fixture/calc.py（71 字符）。现在可以 run_python 运行它。"
+    }
+  ]
+}

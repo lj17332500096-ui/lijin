@@ -1,0 +1,14 @@
+{
+  "name": "brand-guidelines",
+  "slug": "brand-guidelines",
+  "version": "1.0",
+  "description": "Applies Anthropic's official brand colors and typography to any sort of artifact that may benefit from having Anthropic's look-and-feel. Use it when brand colors or style guidelines, visual formatting, or company design standards apply.",
+  "triggers": [],
+  "files": {
+    "portable": "SKILL.md",
+    "agent_zh": "skill.md",
+    "assets": []
+  },
+  "requires_tools": false,
+  "agent_hint": "复制本目录到目标工程的 skills/<slug>/，并在 .env 的 SKILLS= 追加 slug；通用 agent 可直接读取 SKILL.md。"
+}

@@ -1,0 +1,75 @@
+{
+  "id": "T043",
+  "prompt": "记住,以后这个项目默认用 Python 3.13。",
+  "container_id": "tk_9d3deff1",
+  "run_id": "task_ff259500",
+  "observed_state_at_deadline": "completed",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T06:44:31+00:00",
+  "terminal_state": "completed",
+  "terminal_at": "2026-09-11T06:44:31+00:00",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 8.2,
+  "model_turns": 3,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [
+    {
+      "name": "remember",
+      "normalized_args": "{}",
+      "status": "succeeded",
+      "invocation_id": "call_705775c338584a5a9f92c180",
+      "result_excerpt": "已记住到本项目记忆（id=pmem_4946cfca）。当前为“仅此项目”模式，不会写入全局记忆。"
+    }
+  ],
+  "answer": "{\"content\": \"项目 P5 T043 默认 Python 版本已记录为 3.13，后续相关任务会以此为基准。\"}",
+  "reply_kind": "done",
+  "tool_truth": {
+    "attempts": 1,
+    "blocked": 0,
+    "executions": 1,
+    "successes": 1,
+    "failures": 0,
+    "budget_consumed": 1,
+    "db_unique_executions": 1
+  },
+  "_exec": {
+    "remember": 1
+  },
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1578.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2860.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1578.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

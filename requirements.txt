@@ -1,0 +1,15 @@
+openai-agents>=0.22.0
+python-dotenv>=1.0.0
+requests>=2.31.0
+
+# Office 文档读取/生成（docx/xlsx/pptx）
+python-docx>=1.1.0
+openpyxl>=3.1.0
+python-pptx>=1.0.0
+
+# ---- 可选：PDF 文档入库（RAG 读取 PDF 文本层），不装则自动跳过 PDF ----
+# pip install pypdf
+
+# ---- 可选：向量 RAG（语义检索），不装则自动降级为纯关键词检索 ----
+# pip install fastembed
+# 同时把 ONNX 向量模型放到项目 models\bge-small-zh-v1.5\（格式见 README）

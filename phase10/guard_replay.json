@@ -1,0 +1,302 @@
+[
+  {
+    "case": "T018",
+    "baseline_executions": 8,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 8,
+    "run": "phase6\\runA"
+  },
+  {
+    "case": "T019",
+    "baseline_executions": 9,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 9,
+    "run": "phase6\\runA"
+  },
+  {
+    "case": "T020",
+    "baseline_executions": 22,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 22,
+    "run": "phase6\\runA"
+  },
+  {
+    "case": "T021",
+    "baseline_executions": 22,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 22,
+    "run": "phase6\\runA"
+  },
+  {
+    "case": "T022",
+    "baseline_executions": 23,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 23,
+    "run": "phase6\\runA"
+  },
+  {
+    "case": "T023",
+    "baseline_executions": 3,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 3,
+    "run": "phase6\\runA"
+  },
+  {
+    "case": "T024",
+    "baseline_executions": 47,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 47,
+    "run": "phase6\\runA"
+  },
+  {
+    "case": "T025",
+    "baseline_executions": 39,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 39,
+    "run": "phase6\\runA"
+  },
+  {
+    "case": "T029",
+    "baseline_executions": 33,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 33,
+    "run": "phase6\\runA"
+  },
+  {
+    "case": "T049",
+    "baseline_executions": 40,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 40,
+    "run": "phase6\\runA"
+  },
+  {
+    "case": "T018",
+    "baseline_executions": 5,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 5,
+    "run": "phase6\\runB"
+  },
+  {
+    "case": "T019",
+    "baseline_executions": 32,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 32,
+    "run": "phase6\\runB"
+  },
+  {
+    "case": "T020",
+    "baseline_executions": 3,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 3,
+    "run": "phase6\\runB"
+  },
+  {
+    "case": "T021",
+    "baseline_executions": 1,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 1,
+    "run": "phase6\\runB"
+  },
+  {
+    "case": "T022",
+    "baseline_executions": 24,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 24,
+    "run": "phase6\\runB"
+  },
+  {
+    "case": "T023",
+    "baseline_executions": 19,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 19,
+    "run": "phase6\\runB"
+  },
+  {
+    "case": "T024",
+    "baseline_executions": 25,
+    "suppressed": 1,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 1,
+    "post_verify_suppressed": 1,
+    "guard_executions": 24,
+    "run": "phase6\\runB"
+  },
+  {
+    "case": "T025",
+    "baseline_executions": 13,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 13,
+    "run": "phase6\\runB"
+  },
+  {
+    "case": "T029",
+    "baseline_executions": 24,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 24,
+    "run": "phase6\\runB"
+  },
+  {
+    "case": "T049",
+    "baseline_executions": 30,
+    "suppressed": 1,
+    "suppressed_duplicate_evidence": 1,
+    "false_suppression": 0,
+    "post_verify_suppressed": 1,
+    "guard_executions": 29,
+    "run": "phase6\\runB"
+  },
+  {
+    "case": "T018",
+    "baseline_executions": 8,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 8,
+    "run": "phase6\\runC"
+  },
+  {
+    "case": "T019",
+    "baseline_executions": 17,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 17,
+    "run": "phase6\\runC"
+  },
+  {
+    "case": "T020",
+    "baseline_executions": 9,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 9,
+    "run": "phase6\\runC"
+  },
+  {
+    "case": "T021",
+    "baseline_executions": 21,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 21,
+    "run": "phase6\\runC"
+  },
+  {
+    "case": "T022",
+    "baseline_executions": 18,
+    "suppressed": 3,
+    "suppressed_duplicate_evidence": 2,
+    "false_suppression": 1,
+    "post_verify_suppressed": 3,
+    "guard_executions": 15,
+    "run": "phase6\\runC"
+  },
+  {
+    "case": "T023",
+    "baseline_executions": 14,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 14,
+    "run": "phase6\\runC"
+  },
+  {
+    "case": "T024",
+    "baseline_executions": 29,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 29,
+    "run": "phase6\\runC"
+  },
+  {
+    "case": "T025",
+    "baseline_executions": 24,
+    "suppressed": 1,
+    "suppressed_duplicate_evidence": 1,
+    "false_suppression": 0,
+    "post_verify_suppressed": 1,
+    "guard_executions": 23,
+    "run": "phase6\\runC"
+  },
+  {
+    "case": "T029",
+    "baseline_executions": 27,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 27,
+    "run": "phase6\\runC"
+  },
+  {
+    "case": "T049",
+    "baseline_executions": 21,
+    "suppressed": 0,
+    "suppressed_duplicate_evidence": 0,
+    "false_suppression": 0,
+    "post_verify_suppressed": 0,
+    "guard_executions": 21,
+    "run": "phase6\\runC"
+  }
+]

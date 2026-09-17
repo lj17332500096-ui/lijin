@@ -1,0 +1,20 @@
+{
+  "name": "pptx",
+  "slug": "pptx",
+  "version": "1.0",
+  "description": "Use this skill any time a .pptx or .potx file is involved in any way — as input, output, or both. This includes: creating slide decks, pitch decks, or presentations; reading, parsing, or extracting text from any .pptx or .potx file (even if the extracted content will be used elsewhere, like in an em",
+  "triggers": [
+    "deck,\\",
+    "slides,\\",
+    "presentation,\\"
+  ],
+  "files": {
+    "portable": "SKILL.md",
+    "agent_zh": "skill.md",
+    "assets": [
+      "scripts"
+    ]
+  },
+  "requires_tools": false,
+  "agent_hint": "复制本目录到目标工程的 skills/<slug>/，并在 .env 的 SKILLS= 追加 slug；通用 agent 可直接读取 SKILL.md。"
+}

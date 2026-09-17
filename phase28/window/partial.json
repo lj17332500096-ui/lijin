@@ -1,0 +1,1377 @@
+{
+  "M1": {
+    "n": 10,
+    "first_semantic": 0,
+    "semantic_within_k": 4,
+    "latest_rev_verification": 7,
+    "obligation_satisfying": 5,
+    "premature_final": 0,
+    "category_counts": {
+      "W7_SCOPE_INSUFFICIENT": 2,
+      "W3C_UNJUSTIFIED_POST_PASS_MUTATION": 2,
+      "PASS": 5,
+      "W1_NO_VERIFICATION": 1
+    },
+    "w1_class_counts": {},
+    "w3_class_counts": {
+      "W3C_UNJUSTIFIED_POST_PASS_MUTATION": 2
+    },
+    "latency_avg_s": 5.02,
+    "avg_model_turns": 2.4,
+    "avg_non_blocked_executions": 3.4,
+    "runs": [
+      {
+        "i": 0,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 6.06,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 3,
+        "tool_calls_proposed": 3,
+        "tool_executions": 3,
+        "mutation_commits": 2,
+        "verification_attempts": 0,
+        "premature_final": false,
+        "first_tool": "edit_project_file",
+        "tool_sequence": [
+          "edit_project_file",
+          "edit_project_file",
+          "run_python"
+        ],
+        "tool_outcomes": [
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "edit_project_file",
+            "arguments": "{\"path\": \"micro_fixture/calc.py\", \"old_string\": \"def add(a, b):\\n    # BUG\\n    return a - b\", \"new_string\": \"def add(a, b):\\n    return a + b\", \"replace_all\": false, \"diff\": true}"
+          },
+          {
+            "name": "edit_project_file",
+            "arguments": "{\"path\": \"my_creative_agent/micro_fixture/calc.py\", \"old_string\": \"def add(a, b):\\n    # BUG\\n    return a - b\\n\\n\\ndef multiply(a, b):\\n    return a * b\", \"new_string\": \"def add(a, b):\\n    return a + b\\n\\n\\ndef multiply(a, b):\\n    return a * b\", \"replace_all\": false, \"diff\": true}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"project\": \"test_calc_fix\", \"filename\": \"verify_fix.py\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7_SCOPE_INSUFFICIENT",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 4,
+        "verified_revision": 4,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 1,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 5.78,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 2,
+        "tool_calls_proposed": 3,
+        "tool_executions": 3,
+        "mutation_commits": 2,
+        "verification_attempts": 0,
+        "premature_final": false,
+        "first_tool": "write_code_file",
+        "tool_sequence": [
+          "write_code_file",
+          "write_project_file",
+          "run_python"
+        ],
+        "tool_outcomes": [
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "write_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "write_code_file",
+            "arguments": "{\"project\": \"test_calc_fix\", \"filename\": \"verify_fix.py\", \"content\": \"import sys\\nsys.path.insert(0, 'F:/Byong-hermes/Byong-hermes/my_creative_agent/micro_fixture')\\nfrom calc import add, multiply\\n\\n# 测试 add 函数\\nassert add(1, 2) == 3, f\\\"add(1, 2) 应该等于 3，但得到 {add(1, 2)}\\\"\\nassert add(-1, 1) == 0\\nassert add(0, 0) == 0\\nassert add(10, 20) == 30\\n\\n# 测试 multiply 函数（确保没被破坏）\\nassert multiply(2, 3) == 6\\nassert multiply(0, 5) == 0\\n\\nprint(\\\"所有测试通过！\\\")\\n\"}"
+          },
+          {
+            "name": "write_project_file",
+            "arguments": "{\"path\": \"my_creative_agent/micro_fixture/calc.py\", \"content\": \"def add(a, b):\\n    return a + b\\n\\n\\ndef multiply(a, b):\\n    return a * b\\n\"}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"project\": \"micro_fixture\", \"code\": \"import sys\\nsys.path.insert(0, '.')\\nfrom calc import add, multiply\\n\\n# 测试 add 函数\\nassert add(1, 2) == 3, f\\\"add(1, 2) 应该等于 3，但得到 {add(1, 2)}\\\"\\nassert add(-1, 1) == 0\\nassert add(0, 0) == 0\\nassert add(10, 20) == 30\\n\\n# 测试 multiply 函数（确保没被破坏）\\nassert multiply(2, 3) == 6\\nassert multiply(0, 5) == 0\\n\\nprint(\\\"所有测试通过！\\\")\\n\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7_SCOPE_INSUFFICIENT",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 4,
+        "verified_revision": 4,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 2,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 4.48,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 2,
+        "tool_calls_proposed": 3,
+        "tool_executions": 3,
+        "mutation_commits": 0,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "read_workspace_file",
+          "write_code_file"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "run_python",
+            "arguments": "{\"project\": \"test_calc_fix\", \"filename\": \"verify_fix.py\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"my_creative_agent/micro_fixture/calc.py\"}"
+          },
+          {
+            "name": "write_code_file",
+            "arguments": "{\"project\": \"test_calc_fix\", \"filename\": \"test_add.py\", \"content\": \"import sys\\nsys.path.insert(0, 'F:/Byong-hermes/Byong-hermes/my_creative_agent/micro_fixture')\\nfrom calc import add, multiply\\n\\n# 测试 add 函数\\nassert add(1, 2) == 3, f\\\"add(1, 2) 应该等于 3，但得到 {add(1, 2)}\\\"\\nassert add(-1, 1) == 0\\nassert add(0, 0) == 0\\nassert add(10, 20) == 30\\n\\n# 测试 multiply 函数（确保没被破坏）\\nassert multiply(2, 3) == 6\\nassert multiply(0, 5) == 0\\n\\nprint(\\\"所有测试通过！\\\")\\n\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W3C_UNJUSTIFIED_POST_PASS_MUTATION",
+        "w1_class": null,
+        "w3_class": "W3C_UNJUSTIFIED_POST_PASS_MUTATION",
+        "current_epoch": 3,
+        "verified_revision": 2,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 3,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 4.77,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 2,
+        "tool_calls_proposed": 3,
+        "tool_executions": 3,
+        "mutation_commits": 1,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "first_tool": "write_project_file",
+        "tool_sequence": [
+          "write_project_file",
+          "run_python",
+          "edit_project_file"
+        ],
+        "tool_outcomes": [
+          [
+            "write_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "write_project_file",
+            "arguments": "{\"path\": \"my_creative_agent/micro_fixture/calc.py\", \"content\": \"def add(a, b):\\n    return a + b\\n\\n\\ndef multiply(a, b):\\n    return a * b\\n\"}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"filename\": \"verify_fix.py\", \"project\": \"test_calc_fix\"}"
+          },
+          {
+            "name": "edit_project_file",
+            "arguments": "{\"path\": \"my_creative_agent/micro_fixture/calc.py\", \"old_string\": \"def add(a, b):\\n    # BUG\\n    return a - b\", \"new_string\": \"def add(a, b):\\n    return a + b\", \"replace_all\": false, \"diff\": true}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W3C_UNJUSTIFIED_POST_PASS_MUTATION",
+        "w1_class": null,
+        "w3_class": "W3C_UNJUSTIFIED_POST_PASS_MUTATION",
+        "current_epoch": 4,
+        "verified_revision": 3,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 4,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 5.89,
+        "error": null,
+        "non_blocked_executions": 4,
+        "blocked_executions": 0,
+        "model_turns": 2,
+        "tool_calls_proposed": 4,
+        "tool_executions": 4,
+        "mutation_commits": 0,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "list_workspace_files",
+          "run_python",
+          "run_tests"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "TARGET(test_calc.py)"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "run_python",
+            "arguments": "{\"project\": \"test_calc_fix\", \"code\": \"# First, let's read and fix the calc.py file\\nimport os\\n\\ncalc_path = 'F:/Byong-hermes/Byong-hermes/my_creative_agent/micro_fixture/calc.py'\\n\\n# Read the current content\\nwith open(calc_path, 'r') as f:\\n    content = f.read()\\n\\nprint(\\\"Current content:\\\")\\nprint(content)\\nprint(\\\"\\\\n\\\" + \\\"=\\\"*50 + \\\"\\\\n\\\")\\n\\n# Fix the bug: change 'return a - b' to 'return a + b'\\nfixed_content = content.replace('return a - b', 'return a + b')\\n\\n# Write the fixed content\\nwith open(calc_path, 'w') as f:\\n    f.write(fixed_content)\\n\\nprint(\\\"Fixed content:\\\")\\nprint(fixed_content)\\nprint(\\\"\\\\nFile has been updated successfully!\\\")\"}"
+          },
+          {
+            "name": "list_workspace_files",
+            "arguments": "{\"directory\": \"my_creative_agent/micro_fixture\"}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"project\": \"test_calc_fix\", \"args\": \"verify_fix.py\"}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"extra_args\": \"-v\", \"project\": \"micro_fixture\", \"target\": \"test_calc.py\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 2,
+        "verified_revision": 2,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 5,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 6.03,
+        "error": null,
+        "non_blocked_executions": 5,
+        "blocked_executions": 0,
+        "model_turns": 2,
+        "tool_calls_proposed": 5,
+        "tool_executions": 5,
+        "mutation_commits": 1,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "first_tool": "edit_project_file",
+        "tool_sequence": [
+          "edit_project_file",
+          "run_tests",
+          "read_workspace_file",
+          "read_workspace_file",
+          "run_python"
+        ],
+        "tool_outcomes": [
+          [
+            "edit_project_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "TARGET(test_calc.py)",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "edit_project_file",
+            "arguments": "{\"path\": \"my_creative_agent/micro_fixture/calc.py\", \"old_string\": \"def add(a, b):\\n    # BUG\\n    return a - b\", \"new_string\": \"def add(a, b):\\n    return a + b\", \"replace_all\": false, \"diff\": true}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"project\": \"micro_fixture\", \"target\": \"test_calc.py\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"max_chars\": 500, \"path\": \"my_creative_agent/micro_fixture/calc.py\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"max_chars\": 500, \"path\": \"my_creative_agent/micro_fixture/test_calc.py\"}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"code\": \"import sys\\nsys.path.insert(0, 'F:/Byong-hermes/Byong-hermes/my_creative_agent/micro_fixture')\\nfrom calc import add, multiply\\n\\n# 测试 add 函数\\nassert add(1, 2) == 3, f\\\"add(1, 2) 应该等于 3，但得到 {add(1, 2)}\\\"\\nassert add(-1, 1) == 0\\nassert add(0, 0) == 0\\nassert add(10, 20) == 30\\n\\n# 测试 multiply 函数\\nassert multiply(2, 3) == 6\\nassert multiply(0, 5) == 0\\n\\nprint(\\\"所有测试通过！\\\")\\nprint(f\\\"add(1, 2) = {add(1, 2)}\\\")\\nprint(f\\\"add(10, 20) = {add(10, 20)}\\\")\", \"project\": \"test_calc_fix\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 3,
+        "verified_revision": 3,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 6,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 5.58,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 3,
+        "tool_calls_proposed": 3,
+        "tool_executions": 3,
+        "mutation_commits": 0,
+        "verification_attempts": 2,
+        "premature_final": false,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "run_tests",
+          "read_workspace_file"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "TARGET(test_calc.py)",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "run_python",
+            "arguments": "{\"project\": \"test_calc_fix\", \"filename\": \"verify_fix.py\"}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"extra_args\": \"-v\", \"project\": \"micro_fixture\", \"target\": \"test_calc.py\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"my_creative_agent/micro_fixture/calc.py\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 2,
+        "verified_revision": 2,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 7,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 5.38,
+        "error": null,
+        "non_blocked_executions": 4,
+        "blocked_executions": 0,
+        "model_turns": 3,
+        "tool_calls_proposed": 4,
+        "tool_executions": 4,
+        "mutation_commits": 1,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "first_tool": "write_code_file",
+        "tool_sequence": [
+          "write_code_file",
+          "run_python",
+          "read_workspace_file",
+          "run_tests"
+        ],
+        "tool_outcomes": [
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "TARGET(micro_fixture/test_calc.py)"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "write_code_file",
+            "arguments": "{\"project\": \"test_calc_fix\", \"filename\": \"verify_fix.py\", \"content\": \"import sys\\nsys.path.insert(0, 'F:/Byong-hermes/Byong-hermes/my_creative_agent/micro_fixture')\\nfrom calc import add, multiply\\n\\n# 测试 add 函数\\nassert add(1, 2) == 3, f\\\"add(1, 2) 应该等于 3，但得到 {add(1, 2)}\\\"\\nassert add(-1, 1) == 0\\nassert add(0, 0) == 0\\nassert add(10, 20) == 30\\n\\n# 测试 multiply 函数（确保没被破坏）\\nassert multiply(2, 3) == 6\\nassert multiply(0, 5) == 0\\n\\nprint(\\\"所有测试通过！\\\")\\n\"}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"project\": \"test_calc_fix\", \"filename\": \"verify_fix.py\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"my_creative_agent/micro_fixture/calc.py\"}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"project\": \"my_creative_agent\", \"target\": \"micro_fixture/test_calc.py\", \"extra_args\": \"-v\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 3,
+        "verified_revision": 3,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 8,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 2.45,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 2,
+        "tool_calls_proposed": 3,
+        "tool_executions": 3,
+        "mutation_commits": 0,
+        "verification_attempts": 0,
+        "premature_final": false,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "read_workspace_file",
+          "write_code_file"
+        ],
+        "tool_outcomes": [
+          [
+            "write_code_file",
+            "CHANGED",
+            ""
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"my_creative_agent/micro_fixture/calc.py\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"my_creative_agent/micro_fixture/calc.py\"}"
+          },
+          {
+            "name": "write_code_file",
+            "arguments": "{\"filename\": \"verify_fix.py\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W1_NO_VERIFICATION",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 3,
+        "verified_revision": null,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      },
+      {
+        "i": 9,
+        "variant": "WM1",
+        "case": "M1",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 3.75,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 3,
+        "tool_calls_proposed": 3,
+        "tool_executions": 3,
+        "mutation_commits": 0,
+        "verification_attempts": 2,
+        "premature_final": false,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "code_loop",
+          "read_workspace_file"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "code_loop",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "TARGET",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "run_python",
+            "arguments": "{\"project\": \"test_calc_fix\", \"filename\": \"verify_fix.py\"}"
+          },
+          {
+            "name": "code_loop",
+            "arguments": "{\"project\": \"test_calc_fix\", \"filename\": \"verify_fix.py\", \"args\": \"\", \"max_attempts\": 3}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"my_creative_agent/micro_fixture/calc.py\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 2,
+        "verified_revision": 2,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 2
+      }
+    ]
+  },
+  "M4": {
+    "n": 10,
+    "first_semantic": 0,
+    "semantic_within_k": 4,
+    "latest_rev_verification": 7,
+    "obligation_satisfying": 5,
+    "premature_final": 0,
+    "category_counts": {
+      "PASS": 5,
+      "W7_SCOPE_INSUFFICIENT": 2,
+      "W1B_FINAL_BLOCKED_BUT_NO_RECOVERY": 2,
+      "W1_NO_VERIFICATION": 1
+    },
+    "w1_class_counts": {
+      "W1B_FINAL_BLOCKED_BUT_NO_RECOVERY": 2
+    },
+    "w3_class_counts": {},
+    "latency_avg_s": 4.73,
+    "avg_model_turns": 2.0,
+    "avg_non_blocked_executions": 2.9,
+    "runs": [
+      {
+        "i": 0,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 5.31,
+        "error": null,
+        "non_blocked_executions": 4,
+        "blocked_executions": 0,
+        "model_turns": 3,
+        "tool_calls_proposed": 4,
+        "tool_executions": 4,
+        "mutation_commits": 0,
+        "verification_attempts": 2,
+        "premature_final": false,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "code_loop",
+          "read_workspace_file",
+          "read_workspace_file"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "code_loop",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "TARGET",
+          "TARGET",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "run_python",
+            "arguments": "{\"project\": \"micro_fixture\", \"code\": \"import pytest\\nimport sys\\nsys.path.insert(0, '.')\\nfrom calc import add, multiply\\n\\n# 简单验证\\nprint(f\\\"add(2, 3) = {add(2, 3)}\\\")\\nprint(f\\\"add(-1, 1) = {add(-1, 1)}\\\")\\nprint(f\\\"multiply(3, 4) = {multiply(3, 4)}\\\")\\n\\n# 运行 pytest\\nsys.exit(pytest.main(['-v', 'test_calc.py']))\"}"
+          },
+          {
+            "name": "code_loop",
+            "arguments": "{\"args\": \"test_calc.py\", \"filename\": \"test_calc.py\", \"max_attempts\": 3, \"project\": \"micro_fixture\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"max_chars\": 5000, \"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\test_calc.py\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"max_chars\": 5000, \"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\calc.py\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 1,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 5.12,
+        "error": null,
+        "non_blocked_executions": 4,
+        "blocked_executions": 0,
+        "model_turns": 2,
+        "tool_calls_proposed": 4,
+        "tool_executions": 4,
+        "mutation_commits": 0,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "read_workspace_file",
+          "run_python",
+          "read_workspace_file"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "run_python",
+            "arguments": "{\"project\": \"micro_fixture\", \"code\": \"from calc import add, multiply\\nprint(\\\"add(2, 3) =\\\", add(2, 3))\\nprint(\\\"add(-1, 1) =\\\", add(-1, 1))\\nprint(\\\"add(0, 0) =\\\", add(0, 0))\\nassert add(2, 3) == 5, \\\"add(2, 3) should be 5\\\"\\nassert add(-1, 1) == 0, \\\"add(-1, 1) should be 0\\\"\\nassert add(0, 0) == 0, \\\"add(0, 0) should be 0\\\"\\nprint(\\\"All assertions passed!\\\")\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\test_calc.py\", \"max_chars\": 1000}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"code\": \"exec(open(r\\\"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\calc.py\\\").read())\\nprint(\\\"add(2, 3) =\\\", add(2, 3))\\nassert add(2, 3) == 5\\nprint(\\\"FIXED!\\\")\", \"project\": \"micro_fixture\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\test_calc.py\", \"max_chars\": 1000}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7_SCOPE_INSUFFICIENT",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 2,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "PROVIDER_ERROR",
+        "latency_s": 0.67,
+        "error": "OutputGuardrailTripwireTriggered: Guardrail OutputGuardrail triggered tripwire",
+        "non_blocked_executions": 0,
+        "blocked_executions": 0,
+        "model_turns": 1,
+        "tool_calls_proposed": 0,
+        "tool_executions": 0,
+        "mutation_commits": 0,
+        "verification_attempts": 0,
+        "premature_final": false,
+        "first_tool": null,
+        "tool_sequence": [],
+        "tool_outcomes": [],
+        "scope_history": [],
+        "all_tool_calls": [],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W1B_FINAL_BLOCKED_BUT_NO_RECOVERY",
+        "w1_class": "W1B_FINAL_BLOCKED_BUT_NO_RECOVERY",
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": null,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 3,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 3.33,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 2,
+        "tool_calls_proposed": 3,
+        "tool_executions": 3,
+        "mutation_commits": 0,
+        "verification_attempts": 0,
+        "premature_final": false,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "read_workspace_file",
+          "run_tests"
+        ],
+        "tool_outcomes": [
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "TARGET(test_calc.py)"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"max_chars\": 5000, \"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\test_calc.py\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"max_chars\": 5000, \"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\README.md\"}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"project\": \"micro_fixture\", \"target\": \"test_calc.py\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 4,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 4.62,
+        "error": null,
+        "non_blocked_executions": 4,
+        "blocked_executions": 0,
+        "model_turns": 2,
+        "tool_calls_proposed": 4,
+        "tool_executions": 4,
+        "mutation_commits": 0,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "first_tool": "run_python",
+        "tool_sequence": [
+          "run_python",
+          "read_workspace_file",
+          "read_workspace_file",
+          "run_tests"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "TARGET(test_calc.py)"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "run_python",
+            "arguments": "{\"code\": \"import pytest\\nimport sys\\nsys.path.insert(0, r'F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture')\\nfrom calc import add, multiply\\nprint(f\\\"add(2, 3) = {add(2, 3)}\\\")\\nprint(f\\\"multiply(2, 3) = {multiply(2, 3)}\\\")\\nassert add(2, 3) == 5, \\\"add 函数测试失败\\\"\\nassert multiply(2, 3) == 6, \\\"multiply 函数测试失败\\\"\\nprint(\\\"所有测试通过!\\\")\", \"project\": \"micro_fixture\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\test_calc.py\", \"max_chars\": 1000}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\test_calc.py\", \"max_chars\": 1000}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"extra_args\": \"-v\", \"project\": \"micro_fixture\", \"target\": \"test_calc.py\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 5,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 3.97,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 2,
+        "tool_calls_proposed": 3,
+        "tool_executions": 3,
+        "mutation_commits": 0,
+        "verification_attempts": 0,
+        "premature_final": false,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "read_workspace_file",
+          "run_tests"
+        ],
+        "tool_outcomes": [
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "TARGET(test_calc.py)"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\calc.py\", \"max_chars\": 2000}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\test_calc.py\", \"max_chars\": 2000}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"project\": \"micro_fixture\", \"target\": \"test_calc.py\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 6,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 11.8,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 2,
+        "tool_calls_proposed": 3,
+        "tool_executions": 3,
+        "mutation_commits": 0,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "run_python",
+          "run_python"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\test_calc.py\", \"max_chars\": 5000}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"args\": \"- m pytest test_calc.py -v\", \"code\": \"import pytest\\nimport sys\\nsys.path.insert(0, 'F:/Byong-hermes/Byong-hermes/my_creative_agent/micro_fixture')\\nfrom calc import add, multiply\\nprint('Testing add(2, 3):', add(2, 3))\\nprint('Testing multiply(2, 3):', multiply(2, 3))\\nassert add(2, 3) == 5, f\\\"add(2,3) failed: got {add(2,3)}\\\"\\nassert add(-1, 1) == 0, f\\\"add(-1,1) failed\\\"\\nassert add(0, 0) == 0\\nassert multiply(2, 3) == 6\\nprint('All manual tests passed!')\", \"filename\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\test_calc.py\", \"project\": \"micro_fixture\"}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"code\": \"import sys\\nsys.path.insert(0, 'F:/Byong-hermes/Byong-hermes/my_creative_agent/micro_fixture')\\nfrom calc import add, multiply\\n\\n# 测试 add 函数\\ntest_cases = [\\n    ((2, 3), 5),\\n    ((-1, 1), 0),\\n    ((0, 0), 0),\\n    ((10, 20), 30),\\n]\\n\\nprint(\\\"Testing add function:\\\")\\nall_passed = True\\nfor (a, b), expected in test_cases:\\n    result = add(a, b)\\n    status = \\\"✓\\\" if result == expected else \\\"✗\\\"\\n    print(f\\\"  add({a}, {b}) = {result} (expected {expected}) {status}\\\")\\n    if result != expected:\\n        all_passed = False\\n\\n# 测试 multiply 函数（确保未受影响）\\nprint(\\\"\\\\nTesting multiply function:\\\")\\nmul_test = multiply(2, 3)\\nmul_status = \\\"✓\\\" if mul_test == 6 else \\\"✗\\\"\\nprint(f\\\"  multiply(2, 3) = {mul_test} (expected 6) {mul_status}\\\")\\nif mul_test != 6:\\n    all_passed = False\\n\\nprint(f\\\"\\\\nAll tests passed: {all_passed}\\\")\", \"project\": \"micro_fixture\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7_SCOPE_INSUFFICIENT",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 7,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "FINAL_TEXT",
+        "latency_s": 2.59,
+        "error": null,
+        "non_blocked_executions": 0,
+        "blocked_executions": 0,
+        "model_turns": 1,
+        "tool_calls_proposed": 0,
+        "tool_executions": 0,
+        "mutation_commits": 0,
+        "verification_attempts": 0,
+        "premature_final": false,
+        "first_tool": null,
+        "tool_sequence": [],
+        "tool_outcomes": [],
+        "scope_history": [],
+        "all_tool_calls": [],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W1B_FINAL_BLOCKED_BUT_NO_RECOVERY",
+        "w1_class": "W1B_FINAL_BLOCKED_BUT_NO_RECOVERY",
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": null,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 8,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 6.31,
+        "error": null,
+        "non_blocked_executions": 4,
+        "blocked_executions": 0,
+        "model_turns": 3,
+        "tool_calls_proposed": 4,
+        "tool_executions": 4,
+        "mutation_commits": 0,
+        "verification_attempts": 0,
+        "premature_final": false,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "read_workspace_file",
+          "list_workspace_files",
+          "run_tests"
+        ],
+        "tool_outcomes": [
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "TARGET(test_calc.py)"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"max_chars\": 2000, \"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\test_calc.py\"}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"max_chars\": 2000, \"path\": \"my_creative_agent/micro_fixture/test_calc.py\"}"
+          },
+          {
+            "name": "list_workspace_files",
+            "arguments": "{\"directory\": \"my_creative_agent/micro_fixture\", \"max_entries\": 30}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"extra_args\": \"-v\", \"project\": \"micro_fixture\", \"target\": \"test_calc.py\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 9,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 3.62,
+        "error": null,
+        "non_blocked_executions": 4,
+        "blocked_executions": 0,
+        "model_turns": 2,
+        "tool_calls_proposed": 4,
+        "tool_executions": 4,
+        "mutation_commits": 0,
+        "verification_attempts": 0,
+        "premature_final": false,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "read_workspace_file",
+          "list_workspace_files",
+          "list_workspace_files"
+        ],
+        "tool_outcomes": [],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\calc.py\", \"max_chars\": 1000}"
+          },
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\\\\test_calc.py\", \"max_chars\": 1000}"
+          },
+          {
+            "name": "list_workspace_files",
+            "arguments": "{\"directory\": \"F:\\\\Byong-hermes\\\\Byong-hermes\\\\my_creative_agent\\\\micro_fixture\", \"max_entries\": 30}"
+          },
+          {
+            "name": "list_workspace_files",
+            "arguments": "{\"directory\": \".\", \"max_entries\": 30}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W1_NO_VERIFICATION",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": null,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      }
+    ]
+  }
+}

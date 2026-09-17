@@ -1,0 +1,24 @@
+{
+  "id": "T006",
+  "prompt": "帮我查明天去上海的航班。",
+  "container_id": "tk_ecf66872",
+  "run_id": "task_cc287f4a",
+  "final_status": "waiting_user",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 16.2,
+  "model_turns": 0,
+  "provider_errors": 0,
+  "terminal_kind": "needs_user_input",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "需要你补充信息后继续：请告诉我从哪里出发？",
+  "reply_kind": "questions",
+  "_exec": {},
+  "_blocked": {},
+  "tool_calls_total": 0,
+  "blocked_events": 3
+}

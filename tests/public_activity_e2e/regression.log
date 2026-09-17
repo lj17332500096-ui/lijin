@@ -1,0 +1,67 @@
+...................................F...........................F........ [ 47%]
+.........................F.............................................. [ 95%]
+.......                                                                  [100%]
+================================== FAILURES ===================================
+_ ReadinessRunnerTests.test_needs_user_questions_completes_and_records_event __
+
+self = <tests.test_task_readiness.ReadinessRunnerTests testMethod=test_needs_user_questions_completes_and_records_event>
+
+    def test_needs_user_questions_completes_and_records_event(self) -> None:
+        async def fake(message):
+            return json.dumps(_reply(
+                readiness={"status": "NEEDS_USER", "missing_count": 1,
+                           "reason": "�����ر������û�ȷ��"},
+                kind="questions", content="",
+                questions=["�����������"]), ensure_ascii=False)
+    
+        with _Harness(self) as h:
+            h.fn = fake
+            result = h.run("����Ԥ������ȥ�Ϻ��Ļ�Ʊ")
+            self.assertTrue(result.ok)
+>           self.assertEqual(result.task.state, TaskState.COMPLETED)
+E           AssertionError: <TaskState.WAITING_USER: 'waiting_user'> != <TaskState.COMPLETED: 'completed'>
+
+tests\test_task_readiness.py:111: AssertionError
+___ ReadinessContextInheritanceTests.test_needs_user_inherited_by_next_run ____
+
+self = <tests.test_readiness_closure.ReadinessContextInheritanceTests testMethod=test_needs_user_inherited_by_next_run>
+
+    def test_needs_user_inherited_by_next_run(self):
+        runtime, manager = self._harness_runtime()
+        q = _reply(kind="questions", content="",
+                   questions=["�����������"],
+                   readiness={"status": "NEEDS_USER", "missing_count": 1,
+                              "missing": [{"name": "departure_location",
+                                           "reason": "ȱ������"}]})
+        r1, s1 = self._run(runtime, manager, "���Ҷ�����ȥ�Ϻ��Ļ�Ʊ", q)
+>       self.assertEqual(r1.task.state, TaskState.COMPLETED)
+E       AssertionError: <TaskState.WAITING_USER: 'waiting_user'> != <TaskState.COMPLETED: 'completed'>
+
+tests\test_readiness_closure.py:456: AssertionError
+_ RunTurnCompletionGateTests.test_fake_modify_claim_repaired_then_questions_completes _
+
+self = <tests.test_completion_gate.RunTurnCompletionGateTests testMethod=test_fake_modify_claim_repaired_then_questions_completes>
+
+    def test_fake_modify_claim_repaired_then_questions_completes(self) -> None:
+        state = {"n": 0}
+    
+        async def fake(mode, message):
+            state["n"] += 1
+            if state["n"] == 1:
+                return json.dumps(_reply(content="�ļ��Ѿ��޸���ɡ�"), ensure_ascii=False)
+            return json.dumps(_reply(kind="questions",
+                                     questions=["������Ҿ���Ҫ�޸��ĸ��ļ���"]), ensure_ascii=False)
+    
+        with _FakeHarness(self) as h:
+            h.install(fake)
+            result = h.run("�����޸� bug ����֤��")
+            self.assertTrue(result.ok)
+>           self.assertEqual(result.task.state, TaskState.COMPLETED)
+E           AssertionError: <TaskState.WAITING_USER: 'waiting_user'> != <TaskState.COMPLETED: 'completed'>
+
+tests\test_completion_gate.py:346: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/test_task_readiness.py::ReadinessRunnerTests::test_needs_user_questions_completes_and_records_event
+FAILED tests/test_readiness_closure.py::ReadinessContextInheritanceTests::test_needs_user_inherited_by_next_run
+FAILED tests/test_completion_gate.py::RunTurnCompletionGateTests::test_fake_modify_claim_repaired_then_questions_completes
+3 failed, 148 passed in 24.16s

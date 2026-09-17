@@ -1,0 +1,12 @@
+{
+  "M4": {
+    "n": 5,
+    "success": 5,
+    "success_rate": 1.0,
+    "first_action_rate": 1.0,
+    "category_counts": {
+      "PASS": 5
+    },
+    "latency_avg_s": 102.27
+  }
+}

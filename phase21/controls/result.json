@@ -1,0 +1,148 @@
+{
+  "routing_control": {
+    "C_WEB": {
+      "prompt": "搜索一下北京今天的天气。",
+      "router_selected": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate",
+        "web_search",
+        "search_documents",
+        "search_sources"
+      ],
+      "count": 7
+    },
+    "C_MEMORY": {
+      "prompt": "记住我的邮箱是 bench@example.com，以后需要时告诉我。",
+      "router_selected": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate",
+        "remember"
+      ],
+      "count": 5
+    },
+    "C_MCP": {
+      "prompt": "列出我的 gitee 仓库。",
+      "router_selected": [
+        "get_current_datetime",
+        "read_workspace_file",
+        "list_workspace_files",
+        "calculate",
+        "fetch_github_repo",
+        "read_spreadsheet"
+      ],
+      "count": 6,
+      "mcp_tools_exposed": [],
+      "plugin_control_pass": false
+    }
+  },
+  "probes": {
+    "M6": {
+      "n": 2,
+      "preferred_run_tests": 0,
+      "semantic_verification": 0,
+      "discovery_or_read": 0,
+      "mutation": 0,
+      "no_action": 2,
+      "preferred_rate": 0.0,
+      "semantic_rate": 0.0,
+      "discovery_drift_rate": 0.0,
+      "status_counts": {
+        "NO_ACTION": 2
+      },
+      "latency_avg_s": 48.02,
+      "latency_p50_s": 20.39,
+      "latency_p95_s": 75.66,
+      "first_tools": {
+        "null": 2
+      },
+      "semantic_classes": {
+        "NO_ACTION": 2
+      },
+      "unnecessary_verification": 0
+    },
+    "M7": {
+      "n": 2,
+      "preferred_run_tests": 1,
+      "semantic_verification": 1,
+      "discovery_or_read": 0,
+      "mutation": 0,
+      "no_action": 0,
+      "preferred_rate": 0.5,
+      "semantic_rate": 0.5,
+      "discovery_drift_rate": 0.0,
+      "status_counts": {
+        "DECISION_CAPTURED": 2
+      },
+      "latency_avg_s": 32.32,
+      "latency_p50_s": 12.42,
+      "latency_p95_s": 52.23,
+      "first_tools": {
+        "run_tests": 1,
+        "run_python": 1
+      },
+      "semantic_classes": {
+        "SEMANTIC_VERIFICATION": 1,
+        "DISCOVERY": 1
+      },
+      "unnecessary_verification": 1
+    },
+    "M8": {
+      "n": 2,
+      "preferred_run_tests": 0,
+      "semantic_verification": 0,
+      "discovery_or_read": 2,
+      "mutation": 0,
+      "no_action": 0,
+      "preferred_rate": 0.0,
+      "semantic_rate": 0.0,
+      "discovery_drift_rate": 1.0,
+      "status_counts": {
+        "DECISION_CAPTURED": 2
+      },
+      "latency_avg_s": 40.31,
+      "latency_p50_s": 20.23,
+      "latency_p95_s": 60.39,
+      "first_tools": {
+        "list_workspace_files": 1,
+        "read_workspace_file": 1
+      },
+      "semantic_classes": {
+        "DISCOVERY": 2
+      },
+      "unnecessary_verification": 0
+    },
+    "C_MCP": {
+      "n": 2,
+      "preferred_run_tests": 0,
+      "semantic_verification": 0,
+      "discovery_or_read": 0,
+      "mutation": 0,
+      "no_action": 1,
+      "preferred_rate": 0.0,
+      "semantic_rate": 0.0,
+      "discovery_drift_rate": 0.0,
+      "status_counts": {
+        "DECISION_CAPTURED": 1,
+        "NO_ACTION": 1
+      },
+      "latency_avg_s": 43.19,
+      "latency_p50_s": 14.81,
+      "latency_p95_s": 71.56,
+      "first_tools": {
+        "get_current_datetime": 1,
+        "null": 1
+      },
+      "semantic_classes": {
+        "OTHER": 1,
+        "NO_ACTION": 1
+      },
+      "mcp_first_rate": 0.0
+    }
+  },
+  "total_tools": 120,
+  "mcp_tool_count": 79
+}

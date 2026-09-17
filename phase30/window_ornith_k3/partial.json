@@ -1,0 +1,369 @@
+{
+  "M4": {
+    "n": 5,
+    "first_semantic": 0,
+    "semantic_within_k": 4,
+    "latest_rev_verification": 4,
+    "obligation_satisfying": 2,
+    "premature_final": 0,
+    "category_counts": {
+      "W3C_UNJUSTIFIED_POST_PASS_MUTATION": 1,
+      "W7_SCOPE_INSUFFICIENT": 2,
+      "PASS": 2
+    },
+    "w1_class_counts": {},
+    "w3_class_counts": {
+      "W3C_UNJUSTIFIED_POST_PASS_MUTATION": 1
+    },
+    "latency_avg_s": 17.93,
+    "avg_model_turns": 4.0,
+    "avg_non_blocked_executions": 3.0,
+    "runs": [
+      {
+        "i": 0,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 16.22,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 4,
+        "tool_calls_proposed": 4,
+        "tool_executions": 3,
+        "mutation_commits": 1,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "run_python",
+          "write_project_file",
+          "run_tests"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "write_project_file",
+            "CHANGED",
+            ""
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\":\"my_creative_agent/micro_fixture/calc.py\",\"max_chars\":12000}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"project\":\"micro_fixture\",\"code\":\"with open('my_creative_agent/micro_fixture/calc.py', 'r') as f:\\n    content = f.read()\\nprint(\\\"RAW CONTENT:\\\")\\nprint(repr(content))\\nprint(\\\"\\\\n---LINE COUNT---\\\")\\nprint(content.count(chr(10)))\\n\"}"
+          },
+          {
+            "name": "write_project_file",
+            "arguments": "{\"path\":\"my_creative_agent/micro_fixture/calc.py\",\"content\":\"def add(a, b):\\n    return a + b\\n\\n\\ndef multiply(a, b):\\n    return a * b\\n\"}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"project\":\"micro_fixture\",\"target\":\"test_calc.py\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": false,
+        "obligation_satisfying": false,
+        "window_category": "W3C_UNJUSTIFIED_POST_PASS_MUTATION",
+        "w1_class": null,
+        "w3_class": "W3C_UNJUSTIFIED_POST_PASS_MUTATION",
+        "current_epoch": 2,
+        "verified_revision": 1,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 1,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 24.25,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 4,
+        "tool_calls_proposed": 4,
+        "tool_executions": 3,
+        "mutation_commits": 0,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "read_code_file",
+          "run_python",
+          "write_project_file"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\":\"my_creative_agent/micro_fixture/calc.py\",\"max_chars\":4000}"
+          },
+          {
+            "name": "read_code_file",
+            "arguments": "{\"project\":\"micro_fixt\",\"filename\":\"calc.py\",\"max_chars\":4000}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"project\":\"micro_fixt\",\"code\":\"with open('calc.py') as f:\\n    print(repr(open('calc.py').read()))\"}"
+          },
+          {
+            "name": "write_project_file",
+            "arguments": "{\"path\":\"my_creative_agent/micro_fixture/calc.py\",\"content\":\"def add(a, b):\\n    return a + b\\n\\n\\ndef multiply(a, b):\\n    return a * b\\n\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": false,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7_SCOPE_INSUFFICIENT",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 2,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 16.91,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 4,
+        "tool_calls_proposed": 4,
+        "tool_executions": 3,
+        "mutation_commits": 0,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "read_code_file",
+          "run_tests",
+          "run_tests"
+        ],
+        "tool_outcomes": [
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "TARGET(test_calc.py)"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\":\"my_creative_agent/micro_fixture/calc.py\",\"max_chars\":12000}"
+          },
+          {
+            "name": "read_code_file",
+            "arguments": "{\"project\":\"micro_fixt\",\"filename\":\"calc.py\",\"max_chars\":12000}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"project\":\"micro_fixt\",\"target\":\"test_calc.py\"}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"project\":\"micro_fixt\",\"target\":\"test_calc.py\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 3,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 16.02,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 4,
+        "tool_calls_proposed": 4,
+        "tool_executions": 3,
+        "mutation_commits": 0,
+        "verification_attempts": 1,
+        "premature_final": false,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "read_code_file",
+          "run_python",
+          "run_tests"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "UNKNOWN"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\":\"my_creative_agent/micro_fixture/calc.py\",\"max_chars\":12000}"
+          },
+          {
+            "name": "read_code_file",
+            "arguments": "{\"project\":\"micro_fixture\",\"filename\":\"calc.py\",\"max_chars\":12000}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"project\":\"micro_fixture\",\"code\":\"with open('calc.py', 'r') as f:\\n    print(repr(open('calc.py').read()))\"}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"project\":\"micro_fixture\",\"extra_args\":\"-v\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": false,
+        "window_category": "W7_SCOPE_INSUFFICIENT",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "required_scope": "PROJECT",
+        "actual_scope": "UNKNOWN",
+        "scope_satisfied": false,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      },
+      {
+        "i": 4,
+        "variant": "WM4",
+        "case": "M4",
+        "status": "WINDOW_CLOSED",
+        "latency_s": 16.25,
+        "error": null,
+        "non_blocked_executions": 3,
+        "blocked_executions": 0,
+        "model_turns": 4,
+        "tool_calls_proposed": 4,
+        "tool_executions": 3,
+        "mutation_commits": 0,
+        "verification_attempts": 2,
+        "premature_final": false,
+        "first_tool": "read_workspace_file",
+        "tool_sequence": [
+          "read_workspace_file",
+          "run_python",
+          "run_tests",
+          "run_tests"
+        ],
+        "tool_outcomes": [
+          [
+            "run_python",
+            "",
+            "PASS"
+          ],
+          [
+            "run_tests",
+            "",
+            "PASS"
+          ]
+        ],
+        "scope_history": [
+          "UNKNOWN",
+          "UNKNOWN",
+          "TARGET(test_calc.py)"
+        ],
+        "all_tool_calls": [
+          {
+            "name": "read_workspace_file",
+            "arguments": "{\"path\":\"my_creative_agent/micro_fixture/calc.py\",\"max_chars\":12000}"
+          },
+          {
+            "name": "run_python",
+            "arguments": "{\"project\":\"micro_fixture\",\"code\":\"print(open('my_creative_agent/micro_fixture/calc.py').read())\"}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"project\":\"micro_fixture\",\"target\":\"test_calc.py\"}"
+          },
+          {
+            "name": "run_tests",
+            "arguments": "{\"project\":\"micro_fixture\",\"target\":\"test_calc.py\",\"extra_args\":\"-v\"}"
+          }
+        ],
+        "first_semantic_verification": false,
+        "semantic_within_k": true,
+        "latest_rev_verification": true,
+        "obligation_satisfying": true,
+        "window_category": "PASS",
+        "w1_class": null,
+        "w3_class": null,
+        "current_epoch": 1,
+        "verified_revision": 1,
+        "required_scope": "PROJECT",
+        "actual_scope": "TARGET",
+        "scope_satisfied": true,
+        "hydration_errors": [],
+        "initial_epoch": 1
+      }
+    ]
+  }
+}

@@ -1,0 +1,78 @@
+{
+  "phase": 22,
+  "generated": "2026-09-12",
+  "invariant": "VALID_POST_MUTATION_CHECKPOINT requires: mutation SUCCESS + explicit success marker + evidence_epoch>0 + mutation_seen + verification_required + verification_satisfied=false + verification_due=true + LIVE_SNAPSHOT",
+  "artifacts": {
+    "phase20/snapshots/M1.json": {
+      "status": "INVALID_CHECKPOINT",
+      "reason": "edit_project_file FAILED ('错误：没有找到要替换的内容') but runtime set mutation_seen/evidence_epoch=1/verification_due=true",
+      "mutation_result_ok": false,
+      "inherits_to": [
+        "Phase20 LIVE M1 baseline (0/10)",
+        "Phase20 L1 M1 (self 0/5, oracle 0/5)",
+        "Phase21 E0 M1 (0/10)",
+        "Phase21 E1 M1 (0/10)",
+        "Phase21 E2 M1 (0/10)",
+        "Phase21 E3 M1 (0/5)",
+        "Phase21 E4 M1 (0/5)"
+      ],
+      "classification": "INVALID_CHECKPOINT / NOT EVALUABLE"
+    },
+    "phase20/snapshots/M4.json": {
+      "status": "VALID (legacy metadata)",
+      "reason": "edit_project_file SUCCEEDED; only lacks the new mutation_success_proof field",
+      "mutation_result_ok": true,
+      "classification": "VALID DATA (Phase20/21 M4 E0-E4 retained)"
+    },
+    "phase21/snapshots/M1.json": {
+      "status": "VALID (legacy metadata; Ornith-driven)",
+      "reason": "successful mutation; used in Phase21 Addendum",
+      "mutation_result_ok": true
+    },
+    "phase21/snapshots/M4.json": {
+      "status": "VALID (legacy metadata; Ornith-driven)",
+      "reason": "successful mutation; used in Phase21 Addendum",
+      "mutation_result_ok": true
+    },
+    "phase22/snapshots/M1.json": {
+      "status": "VALID_POST_MUTATION_CHECKPOINT",
+      "model": "Qwen3.6-35B-A3B",
+      "tools_exposed": 120,
+      "note": "captured BEFORE async exposure-boundary fix (still global agent)"
+    },
+    "phase22/snapshots/M4.json": {
+      "status": "VALID_POST_MUTATION_CHECKPOINT",
+      "model": "Qwen3.6-35B-A3B",
+      "tools_exposed": 120,
+      "revision": 2,
+      "note": "captured BEFORE async exposure-boundary fix"
+    },
+    "phase22/snapshots_asyncfix/M1.json": {
+      "status": "VALID_POST_MUTATION_CHECKPOINT",
+      "model": "Qwen3.6-35B-A3B",
+      "tools_exposed": 14,
+      "note": "captured AFTER async exposure-boundary fix; tools == router selection"
+    },
+    "phase22/snapshots_asyncfix/M4.json": {
+      "status": "VALID_POST_MUTATION_CHECKPOINT",
+      "model": "Qwen3.6-35B-A3B",
+      "tools_exposed": 14,
+      "note": "captured AFTER async exposure-boundary fix; tools == router selection"
+    }
+  },
+  "withdrawn": [
+    "Phase20/21 M1 E0-E4 verification rates (built on invalid checkpoint)",
+    "M1 'always 0%' / 'M1 model choice prior'",
+    "Combined exposure percentages that included the old M1",
+    "Phase21 'Full E2E NOT NEEDED' derived from old M1"
+  ],
+  "still_valid": [
+    "async used global assistant_agent (code fact)",
+    "79 MCP tools globally materialized (code fact)",
+    "Router 14 vs async final 120 (pre-fix code fact)",
+    "M4 valid exposure ablation",
+    "MCP control failure (pre-fix)",
+    "Regression Manifest",
+    "L1 production rejection (based on valid M4 + latency)"
+  ]
+}

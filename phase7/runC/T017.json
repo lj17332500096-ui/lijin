@@ -1,0 +1,128 @@
+{
+  "id": "T017",
+  "prompt": "找出刷新 token 后偶尔退出登录的原因(F:/Byong-hermes/Byong-hermes/my_creative_agent/benchmark_fixture/app/auth.py),但先不要改。",
+  "container_id": "tk_19342f3a",
+  "run_id": "task_11fe2de5",
+  "observed_state_at_deadline": "running",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T11:51:11+00:00",
+  "terminal_state": "cancelled",
+  "terminal_at": "2026-09-11T11:51:13+00:00",
+  "final_status": "cancelled",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 153.78,
+  "model_turns": 0,
+  "provider_errors": 0,
+  "terminal_kind": "cancelled",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [],
+  "answer": "本轮任务已被取消，未继续执行后续操作。",
+  "reply_kind": "raw",
+  "tool_truth": {
+    "attempts": 21,
+    "blocked": 1,
+    "executions": 20,
+    "successes": 19,
+    "failures": 1,
+    "budget_consumed": 20,
+    "db_unique_executions": 0
+  },
+  "_exec": {},
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 2750.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 5484.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 20062.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 23234.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 30406.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 5375.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 35781.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 9907.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "cancelled",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 6813.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": null
+    },
+    {
+      "kind": "cancelled",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 6813.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": null
+    }
+  ]
+}

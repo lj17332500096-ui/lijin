@@ -1,0 +1,669 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>全能助手</title>
+  <style>
+    :root { --bg:#f4f6fb; --panel:#ffffff; --line:#e3e8f0; --text:#1f2937; --muted:#6b7280;
+            --primary:#4f6ef7; --primary-dark:#3c55d8; --ok:#16a34a; --warn:#d97706; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:"Microsoft YaHei UI","PingFang SC",system-ui,sans-serif;
+           background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; }
+    header { background:var(--panel); border-bottom:1px solid var(--line); padding:10px 18px;
+             display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+    header h1 { font-size:17px; margin:0; }
+    header .sub { color:var(--muted); font-size:12px; }
+    .controls { margin-left:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    input, button, select, textarea { font:inherit; }
+    input[type=text], input[type=number] { border:1px solid var(--line); border-radius:8px;
+      padding:7px 10px; background:#fff; }
+    button { border:none; border-radius:8px; padding:7px 14px; cursor:pointer; background:#eef1f8; }
+    button.primary { background:var(--primary); color:#fff; }
+    button.primary:hover { background:var(--primary-dark); }
+    button:disabled { opacity:.55; cursor:not-allowed; }
+    #layout { flex:1; display:grid; grid-template-columns:1fr 270px; min-height:0; }
+    #chat { display:flex; flex-direction:column; min-width:0; }
+    #messages { flex:1; overflow-y:auto; padding:18px 20px; }
+    .msg { margin:0 0 14px; max-width:78%; }
+    .msg .bubble { padding:10px 14px; border-radius:14px; background:var(--panel);
+                   border:1px solid var(--line); line-height:1.65; white-space:pre-wrap;
+                   word-break:break-word; font-size:14px; }
+    .msg.user { margin-left:auto; }
+    .msg.user .bubble { background:#e7edff; border-color:#cfdbff; }
+    .msg.system { max-width:100%; text-align:center; }
+    .msg.system .bubble { background:#fff7e8; border-color:#f3dfb6; color:#7a5b16; font-size:13px;
+                          display:inline-block; }
+    .msg .kind { font-size:12px; color:var(--primary); margin-bottom:4px; }
+    .msg .summary { font-weight:600; margin:0 0 6px; }
+    .msg .q { margin:4px 0 0 14px; }
+    .msg .meta { margin-top:6px; color:var(--muted); font-size:12px; }
+    .msg .meta a { color:var(--primary); }
+    .uicards { display:flex; flex-direction:column; gap:8px; margin-top:10px; }
+    .uicard { border:1px solid var(--line); border-radius:10px; background:#fafbff;
+               padding:8px 10px 10px; }
+    .uicard .uc-title { font-size:13px; font-weight:600; color:var(--text); margin:2px 0 6px; }
+    .uicard .uc-metric-value { font-size:24px; font-weight:700; color:var(--primary); line-height:1.2; }
+    .uicard .uc-delta-up { color:var(--ok); font-size:12px; margin-left:6px; }
+    .uicard .uc-delta-down { color:#dc2626; font-size:12px; margin-left:6px; }
+    .uicard .uc-hint, .uicard .uc-note { font-size:11px; color:var(--muted); margin-top:3px; }
+    .uicard svg { width:100%; height:auto; display:block; }
+    .uic-legend { display:flex; flex-wrap:wrap; gap:10px; margin-top:6px; font-size:11px; color:var(--text); }
+    .uic-legend .sw { display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:4px; }
+    table.uic-table { width:100%; border-collapse:collapse; font-size:12px; margin-top:4px; }
+    table.uic-table th, table.uic-table td { border:1px solid var(--line); padding:4px 7px;
+      text-align:left; word-break:break-all; }
+    table.uic-table th { background:#eef1f8; font-weight:600; }
+    .uic-todo { margin:2px 0; font-size:13px; }
+    .uic-todo input { margin-right:7px; }
+    .uic-todo .done { color:var(--muted); text-decoration:line-through; }
+    .uic-form-grid { display:flex; flex-direction:column; gap:6px; margin:2px 0 8px; }
+    .uic-form-grid label { font-size:12px; color:var(--muted); display:flex; flex-direction:column; gap:2px; }
+    .uic-form-grid input[type=text], .uic-form-grid input[type=number], .uic-form-grid select {
+      border:1px solid var(--line); border-radius:6px; padding:4px 7px; font-size:13px; }
+    .uic-form-grid .bool-row { flex-direction:row; align-items:center; gap:6px; }
+    .uc-btn { border:1px solid var(--line); border-radius:6px; background:#fff; color:var(--primary);
+      font-size:11px; padding:3px 8px; cursor:pointer; margin:2px 4px 2px 0; }
+    .uc-btn:hover { background:#eef1f8; }
+    .uic-file { font-size:12px; padding:3px 0; border-top:1px solid var(--line); }
+    .uic-file:first-of-type { border-top:none; }
+    .uic-file b { font-weight:600; }
+    #composer { border-top:1px solid var(--line); background:var(--panel); padding:10px 14px; }
+    #composer form { display:flex; gap:10px; align-items:flex-end; }
+    #input { flex:1; resize:none; border:1px solid var(--line); border-radius:10px;
+             padding:9px 12px; min-height:46px; max-height:160px; }
+    #side { border-left:1px solid var(--line); background:var(--panel); display:flex;
+            flex-direction:column; min-height:0; }
+    #side h2 { font-size:13px; color:var(--muted); padding:12px 14px 6px; margin:0; }
+    #tools { flex:1; overflow-y:auto; padding:4px 12px 12px; }
+    .toolchip { border:1px solid var(--line); border-radius:10px; padding:7px 9px; margin:6px 0;
+                font-size:12px; background:#fafbff; }
+    .toolchip b { color:var(--primary); }
+    .toolchip div { color:var(--muted); margin-top:3px; word-break:break-all; }
+    #status { padding:8px 14px; border-top:1px solid var(--line); font-size:12px;
+              color:var(--muted); min-height:34px; }
+    #status .dot { display:inline-block; width:8px; height:8px; border-radius:50%;
+                   background:var(--ok); margin-right:6px; animation:pulse 1.2s infinite; }
+    @keyframes pulse { 50% { opacity:.3; } }
+    @media (max-width: 820px) { #layout { grid-template-columns:1fr; } #side { display:none; } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>全能助手</h1>
+    <span class="sub">通用个人单 Agent · 本地网页界面</span>
+    <div class="controls">
+      <label>会话
+        <input id="session" type="text" value="personal" list="session-list">
+        <datalist id="session-list"></datalist>
+      </label>
+      <button id="load-history" type="button">加载历史</button>
+      <label>循环上限
+        <input id="max-turns" type="number" value="20" min="5" max="100" style="width:70px">
+      </label>
+    </div>
+  </header>
+
+  <div id="layout">
+    <section id="chat">
+      <div id="messages">
+        <div class="msg system"><div class="bubble">你好，我是你的全能助手。想问什么、要我做什么都可以——
+          支持联网搜索、本地文档问答（RAG）、读工作区文件、写备忘与产出文件、定时任务（--daemon）等功能。</div></div>
+      </div>
+      <div id="composer">
+        <form id="chat-form">
+          <textarea id="input" placeholder="想问什么、要我做什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+          <button id="send" class="primary" type="submit">发送</button>
+        </form>
+      </div>
+    </section>
+    <aside id="side">
+      <h2>本轮 Agent 动作</h2>
+      <div id="tools"><div style="color:var(--muted);font-size:12px">工具调用会实时显示在这里</div></div>
+      <div id="status">就绪</div>
+    </aside>
+  </div>
+
+  <script>
+    const KIND = { answer:"💬 回答", plan:"📋 方案 / 计划", note:"📝 已保存产出",
+                   questions:"🤔 需要确认", done:"✅ 完成", raw:"📄 原文" };
+    const messagesEl = document.getElementById("messages");
+    const toolsEl = document.getElementById("tools");
+    const statusEl = document.getElementById("status");
+    const inputEl = document.getElementById("input");
+    const sendBtn = document.getElementById("send");
+    const sessionEl = document.getElementById("session");
+    const turnsEl = document.getElementById("max-turns");
+    const formEl = document.getElementById("chat-form");
+    let es = null;
+    let running = false;
+
+    function el(tag, cls, text) {
+      const node = document.createElement(tag);
+      if (cls) node.className = cls;
+      if (text !== undefined && text !== null) node.textContent = String(text);
+      return node;
+    }
+
+    function scrollBottom() { messagesEl.scrollTop = messagesEl.scrollHeight; }
+
+    function setStatus(text, busy) {
+      statusEl.innerHTML = "";
+      if (busy) statusEl.appendChild(el("span", "dot"));
+      statusEl.appendChild(document.createTextNode(text));
+    }
+
+    function addBubble(role, cls, build) {
+      const wrap = el("div", "msg " + cls);
+      const bubble = el("div", "bubble");
+      build(bubble);
+      wrap.appendChild(bubble);
+      messagesEl.appendChild(wrap);
+      scrollBottom();
+      return bubble;
+    }
+
+    function addUserMessage(text) {
+      addBubble("user", "user", b => b.textContent = text);
+    }
+
+    function addSystemNote(text) {
+      addBubble("system", "system", b => b.textContent = text);
+    }
+
+    function addReply(data) {
+      const kind = data.kind || "raw";
+      addBubble("assistant", "assistant", bubble => {
+        if (kind !== "raw") {
+          bubble.appendChild(el("div", "kind", KIND[kind] || kind));
+        }
+        if (data.summary) bubble.appendChild(el("div", "summary", data.summary));
+        if (data.content) {
+          const body = el("div");
+          cleanMd(data.content).split("\n").forEach(line => body.appendChild(el("div", "", line)));
+          bubble.appendChild(body);
+        }
+        renderUi(bubble, data.ui);
+        if (Array.isArray(data.artifacts) && data.artifacts.length) {
+          const meta = el("div", "meta");
+          meta.appendChild(document.createTextNode("🗂 产物："));
+          data.artifacts.forEach((art, idx) => {
+            if (idx > 0) meta.appendChild(document.createTextNode(" ｜ "));
+            const a = document.createElement("a");
+            a.href = "/api/artifacts/" + encodeURIComponent(art.id) + "/download";
+            a.download = art.name || "file";
+            a.textContent = (art.name || art.id) + " ↓";
+            meta.appendChild(a);
+          });
+          bubble.appendChild(meta);
+        }
+        if (Array.isArray(data.questions) && data.questions.length) {
+          data.questions.forEach(q => bubble.appendChild(el("div", "q", "• " + q)));
+        }
+        if (data.saved_file) {
+          bubble.appendChild(el("div", "meta", "💾 已保存：" + data.saved_file));
+        }
+        if (data.next_step) {
+          bubble.appendChild(el("div", "meta", "➡️ 下一步：" + data.next_step));
+        }
+      });
+    }
+
+    function addTool(data) {
+      const chip = el("div", "toolchip");
+      chip.appendChild(el("b", "", "🔧 " + data.name));
+      if (data.args) chip.appendChild(el("div", "", String(data.args)));
+      toolsEl.appendChild(chip);
+      toolsEl.scrollTop = toolsEl.scrollHeight;
+    }
+
+    function sendChat(text) {
+      if (running || !String(text).trim()) return false;
+      addUserMessage(String(text).trim());
+      setRunning(true);
+      startSSE(String(text).trim());
+      return true;
+    }
+
+    function downloadTextFile(filename, content, mime) {
+      const blob = new Blob([content], { type: mime || "text/plain;charset=utf-8" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    }
+
+    function cleanMd(text) {
+      if (!text) return "";
+      return String(text)
+        .replace(/^#{1,6}\s*/gm, "")
+        .replace(/\*\*(.+?)\*\*/gs, "$1")
+        .replace(/\*([^*\n]+)\*/g, "$1")
+        .replace(/`([^`\n]+)`/g, "$1")
+        .replace(/^\s*(---+|===+)\s*$/gm, "")
+        .replace(/\n{3,}/g, "\n\n")
+        .trim();
+    }
+
+    function fmtNum(v) {
+      const n = Number(v);
+      if (!isFinite(n)) return String(v);
+      if (Math.abs(n) >= 10000) return (n / 10000).toFixed(1).replace(/\.0$/, "") + "w";
+      if (Math.abs(n) >= 1000) return (n / 1000).toFixed(1).replace(/\.0$/, "") + "k";
+      return String(Math.round(n * 100) / 100);
+    }
+
+    const UI_COLORS = ["#4f6ef7", "#16a34a", "#d97706", "#dc2626", "#7c3aed", "#0e7490"];
+    const SVG_NS = "http://www.w3.org/2000/svg";
+
+    function svgEl(tag, attrs) {
+      const node = document.createElementNS(SVG_NS, tag);
+      for (const k in attrs) node.setAttribute(k, attrs[k]);
+      return node;
+    }
+
+    function buildChartSvg(block) {
+      const W = 620, H = 300, L = 48, R = 16, T = 18, B = 36;
+      const labels = block.labels || [];
+      const series = block.series || [];
+      const first = series[0];
+      if (!first || !labels.length) return null;
+      if (block.type === "pie") return buildPieSvg(block, labels, first, W, H);
+      const seriesValues = block.type === "line" ? series : series.slice(0, 8);
+      const all = [];
+      seriesValues.forEach(s => (s.values || []).forEach(v => all.push(Number(v))));
+      const maxV = Math.max(1, ...all.filter(v => isFinite(v) && v > 0));
+      const minV = Math.min(0, ...all.filter(v => isFinite(v) && v < 0));
+      const plotW = W - L - R, plotH = H - T - B;
+      const root = svgEl("svg", { viewBox: `0 0 ${W} ${H}` });
+
+      for (let i = 0; i <= 4; i++) {
+        const val = minV + ((maxV - minV) * i) / 4;
+        const y = T + plotH - (plotH * (val - minV)) / (maxV - minV || 1);
+        root.appendChild(svgEl("line", { x1: L, y1: y, x2: W - R, y2: y, stroke: "#e3e8f0", "stroke-width": 1 }));
+        const t = svgEl("text", { x: L - 6, y: y + 4, "text-anchor": "end", "font-size": 10, fill: "#6b7280" });
+        t.textContent = fmtNum(val) + (block.unit ? "" : "");
+        root.appendChild(t);
+      }
+
+      const stepX = plotW / Math.max(1, labels.length);
+      if (block.type === "line") {
+        seriesValues.forEach((s, si) => {
+          const pts = [];
+          s.values.forEach((raw, i) => {
+            const v = Number(raw) || 0;
+            const x = L + stepX * (i + 0.5);
+            const y = T + plotH - (plotH * (v - minV)) / (maxV - minV || 1);
+            pts.push([x, y]);
+          });
+          const path = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+          root.appendChild(svgEl("path", { d: path, fill: "none", stroke: UI_COLORS[si % UI_COLORS.length], "stroke-width": 2.5 }));
+          pts.forEach(p => root.appendChild(svgEl("circle", { cx: p[0], cy: p[1], r: 3.5, fill: "#fff", stroke: UI_COLORS[si % UI_COLORS.length], "stroke-width": 2 })));
+        });
+      } else {
+        const groupW = (stepX * 0.72) / seriesValues.length;
+        const barW = Math.min(groupW * 0.82, 40);
+        seriesValues.forEach((s, si) => {
+          s.values.forEach((raw, i) => {
+            const v = Number(raw) || 0;
+            const x = L + stepX * i + (stepX - stepX * 0.72) / 2 + groupW * si + (groupW - barW) / 2;
+            const h = (Math.abs(v) * plotH) / (maxV - minV || 1);
+            const y = v >= 0 ? T + plotH - h : T + plotH;
+            root.appendChild(svgEl("rect", { x: x, y: y, width: barW, height: Math.max(h, v === 0 ? 0.5 : 1), fill: UI_COLORS[si % UI_COLORS.length], rx: 2 }));
+          });
+        });
+      }
+
+      const tickEvery = Math.ceil(labels.length / 12);
+      labels.forEach((lab, i) => {
+        if (i % tickEvery !== 0 && i !== labels.length - 1) return;
+        const x = L + stepX * (i + 0.5);
+        const t = svgEl("text", { x: x, y: H - 14, "text-anchor": "middle", "font-size": 10, fill: "#6b7280" });
+        t.textContent = String(lab).length > 8 ? String(lab).slice(0, 8) + "…" : String(lab);
+        root.appendChild(t);
+      });
+      return root;
+    }
+
+    function buildPieSvg(block, labels, series, W, H) {
+      const values = (series.values || []).map(v => Math.max(0, Number(v) || 0));
+      const total = values.reduce((a, b) => a + b, 0);
+      if (total <= 0) return null;
+      const root = svgEl("svg", { viewBox: `0 0 ${W} ${H}` });
+      const cx = 120, cy = H / 2, rOut = 90, rIn = 0;
+      let angle = -Math.PI / 2;
+      values.forEach((v, i) => {
+        const sweep = (v / total) * Math.PI * 2;
+        const x1 = cx + rOut * Math.cos(angle), y1 = cy + rOut * Math.sin(angle);
+        const x2 = cx + rOut * Math.cos(angle + sweep), y2 = cy + rOut * Math.sin(angle + sweep);
+        const large = sweep > Math.PI ? 1 : 0;
+        const d = `M ${cx} ${cy} L ${x1} ${y1} A ${rOut} ${rOut} 0 ${large} 1 ${x2} ${y2} Z`;
+        root.appendChild(svgEl("path", { d: d, fill: UI_COLORS[i % UI_COLORS.length], stroke: "#fff", "stroke-width": 1.5 }));
+        angle += sweep;
+      });
+      const legendX = cx + rOut + 26;
+      labels.forEach((lab, i) => {
+        const pct = total ? Math.round((values[i] / total) * 100) : 0;
+        const y = 40 + i * 26;
+        root.appendChild(svgEl("rect", { x: legendX, y: y - 9, width: 9, height: 9, rx: 2, fill: UI_COLORS[i % UI_COLORS.length] }));
+        const t = svgEl("text", { x: legendX + 14, y: y, "font-size": 11, fill: "#1f2937" });
+        t.textContent = String(lab).slice(0, 12) + "  " + fmtNum(values[i]) + (block.unit || "") + "  (" + pct + "%)";
+        root.appendChild(t);
+      });
+      return root;
+    }
+
+    function uiActionBtn(label, msg) {
+      const b = el("button", "uc-btn", label);
+      b.addEventListener("click", () => sendChat(msg));
+      return b;
+    }
+
+    function cardTitle(block) {
+      const h = el("div", "uc-title", block.title || "");
+      return h;
+    }
+
+    function renderMetric(block) {
+      const card = el("div", "uicard");
+      card.appendChild(cardTitle(block));
+      const row = el("div");
+      const val = el("span", "uc-metric-value", block.value == null ? "" : String(block.value));
+      row.appendChild(val);
+      if (block.delta) {
+        const tone = block.tone === "down" ? "uc-delta-down" : "uc-delta-up";
+        const d = el("span", tone, block.delta);
+        row.appendChild(d);
+      }
+      card.appendChild(row);
+      if (block.hint) card.appendChild(el("div", "uc-hint", block.hint));
+      return card;
+    }
+
+    function renderChart(block) {
+      const card = el("div", "uicard");
+      card.appendChild(cardTitle(block));
+      const svg = buildChartSvg(block);
+      if (svg) card.appendChild(svg);
+      const legend = el("div", "uic-legend");
+      (block.series || []).forEach((s, i) => {
+        const item = el("span");
+        const sw = el("span", "sw");
+        sw.style.background = UI_COLORS[i % UI_COLORS.length];
+        item.appendChild(sw);
+        item.appendChild(document.createTextNode(s.name));
+        legend.appendChild(item);
+      });
+      card.appendChild(legend);
+      if (block.note) card.appendChild(el("div", "uc-note", block.note));
+      return card;
+    }
+
+    function renderTable(block) {
+      const card = el("div", "uicard");
+      card.appendChild(cardTitle(block));
+      const t = el("table", "uic-table");
+      const thead = document.createElement("thead");
+      const hr = document.createElement("tr");
+      (block.columns || []).forEach(c => {
+        const th = document.createElement("th");
+        th.textContent = String(c);
+        hr.appendChild(th);
+      });
+      thead.appendChild(hr);
+      t.appendChild(thead);
+      const tbody = document.createElement("tbody");
+      (block.rows || []).forEach(row => {
+        const tr = document.createElement("tr");
+        row.forEach(cell => {
+          const td = document.createElement("td");
+          td.textContent = cell == null ? "" : String(cell);
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+      t.appendChild(tbody);
+      card.appendChild(t);
+      const csvBtn = el("button", "uc-btn", "下载 CSV");
+      csvBtn.addEventListener("click", () => {
+        const lines = [(block.columns || []).join(",")];
+        (block.rows || []).forEach(r => {
+          lines.push(r.map(c => {
+            const s = String(c == null ? "" : c);
+            return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+          }).join(","));
+        });
+        downloadTextFile((block.title || "table") + ".csv", "\ufeff" + lines.join("\n"), "text/csv;charset=utf-8");
+      });
+      card.appendChild(csvBtn);
+      if (block.note) card.appendChild(el("div", "uc-note", block.note));
+      return card;
+    }
+
+    function renderTodo(block) {
+      const card = el("div", "uicard");
+      card.appendChild(cardTitle(block));
+      (block.items || []).forEach((item, i) => {
+        const row = el("label", "uic-todo");
+        const cb = document.createElement("input");
+        cb.type = "checkbox";
+        cb.checked = !!item.done;
+        const txt = el("span", item.done ? "done" : "", item.label);
+        row.appendChild(cb);
+        row.appendChild(txt);
+        cb.addEventListener("change", () => {
+          const state = cb.checked ? "完成" : "取消完成";
+          sendChat("【卡片清单】把「" + item.label + "」标记为" + state + "（来自清单《" + (block.title || "") + "》）");
+        });
+        card.appendChild(row);
+      });
+      if (block.note) card.appendChild(el("div", "uc-note", block.note));
+      return card;
+    }
+
+    function renderForm(block) {
+      const card = el("div", "uicard");
+      card.appendChild(cardTitle(block));
+      const grid = el("div", "uic-form-grid");
+      const getters = [];
+      (block.fields || []).forEach(f => {
+        const lab = el("label");
+        lab.appendChild(document.createTextNode(f.label || f.name + (f.type === "bool" ? "" : "：")));
+        let ctrl = null;
+        if (f.type === "bool") {
+          lab.classList.add("bool-row");
+          ctrl = document.createElement("input");
+          ctrl.type = "checkbox";
+          ctrl.checked = !!f.value;
+        } else if (f.type === "select") {
+          ctrl = document.createElement("select");
+          (f.options || []).forEach(o => {
+            const op = document.createElement("option");
+            op.textContent = String(o);
+            op.value = String(o);
+            ctrl.appendChild(op);
+          });
+          if (f.value != null) ctrl.value = String(f.value);
+        } else if (f.type === "number") {
+          ctrl = document.createElement("input");
+          ctrl.type = "number";
+          ctrl.value = f.value == null ? "" : String(f.value);
+        } else {
+          ctrl = document.createElement("input");
+          ctrl.type = "text";
+          ctrl.value = f.value == null ? "" : String(f.value);
+        }
+        lab.appendChild(ctrl);
+        grid.appendChild(lab);
+        getters.push(() => {
+          const val = f.type === "bool" ? (ctrl.checked ? "true" : "false") : ctrl.value.trim();
+          return f.name + "=" + val;
+        });
+      });
+      card.appendChild(grid);
+      const btn = el("button", "uc-btn", block.action_label || "应用修改");
+      btn.addEventListener("click", () => {
+        const parts = getters.map(g => g());
+        sendChat("【卡片表单】《" + (block.title || "表单") + "》修改为：" + parts.join("；") + "。请核对并按此处理。");
+      });
+      card.appendChild(btn);
+      if (block.hint) card.appendChild(el("div", "uc-note", block.hint));
+      return card;
+    }
+
+    function renderFileList(block) {
+      const card = el("div", "uicard");
+      card.appendChild(cardTitle(block));
+      (block.files || []).forEach(f => {
+        const row = el("div", "uic-file");
+        const name = el("b", "", String(f.name));
+        row.appendChild(name);
+        if (f.size != null) row.appendChild(document.createTextNode("  (" + f.size + ")"));
+        row.appendChild(uiActionBtn("查看内容", "【卡片文件】请读取文件 " + f.name + " 的内容并总结它讲了什么。"));
+        row.appendChild(uiActionBtn("就它问答", "【卡片文件】请读取文件 " + f.name + " 后回答我关于它的后续问题。"));
+        card.appendChild(row);
+      });
+      if (block.note) card.appendChild(el("div", "uc-note", block.note));
+      return card;
+    }
+
+    function renderUi(bubble, ui) {
+      if (!Array.isArray(ui) || !ui.length) return;
+      const wrap = el("div", "uicards");
+      ui.forEach(block => {
+        let node = null;
+        const type = block && block.type;
+        if (type === "metric") node = renderMetric(block);
+        else if (type === "bar" || type === "line" || type === "pie") node = renderChart(block);
+        else if (type === "table") node = renderTable(block);
+        else if (type === "todo") node = renderTodo(block);
+        else if (type === "form") node = renderForm(block);
+        else if (type === "file_list") node = renderFileList(block);
+        else node = null;
+        if (node) wrap.appendChild(node);
+      });
+      if (wrap.childNodes.length) bubble.appendChild(wrap);
+    }
+
+    function setRunning(on) {
+      running = on;
+      sendBtn.disabled = on;
+      inputEl.disabled = on;
+      if (on) setStatus("Agent 工作中…", true);
+    }
+
+    async function loadSessions() {
+      try {
+        const resp = await fetch("/api/sessions");
+        const data = await resp.json();
+        const list = document.getElementById("session-list");
+        list.innerHTML = "";
+        (data.sessions || []).forEach(s => {
+          const opt = document.createElement("option");
+          opt.value = s.id;
+          list.appendChild(opt);
+        });
+      } catch (e) { /* 忽略 */ }
+    }
+
+    async function loadHistory() {
+      const name = sessionEl.value.trim() || "personal";
+      messagesEl.innerHTML = "";
+      addSystemNote("正在加载会话 “" + name + "” 的历史…");
+      try {
+        const resp = await fetch("/api/history?session=" + encodeURIComponent(name));
+        const data = await resp.json();
+        messagesEl.innerHTML = "";
+        (data.messages || []).forEach(m => {
+          if (m.role === "user") addUserMessage(m.content);
+          else if (m.role === "assistant") addReply(m);
+          else addSystemNote("🧠 " + (m.content || ""));
+        });
+      } catch (e) {
+        addSystemNote("加载历史失败：" + e);
+      }
+    }
+
+    function startSSE(message, resumeTask) {
+      const name = sessionEl.value.trim() || "personal";
+      const maxTurns = Math.max(5, Math.min(100, parseInt(turnsEl.value, 10) || 20));
+      let url = "/api/stream?session=" + encodeURIComponent(name) +
+                  "&message=" + encodeURIComponent(message) +
+                  "&max_turns=" + maxTurns;
+      if (resumeTask) url += "&resume_task=" + encodeURIComponent(resumeTask);
+      toolsEl.innerHTML = "";
+      toolsEl.appendChild(el("div", "", "等待模型响应…"));
+      es = new EventSource(url);
+
+      es.addEventListener("tool", ev => {
+        try { addTool(JSON.parse(ev.data)); } catch (e) {}
+      });
+      es.addEventListener("reply", ev => {
+        try { addReply(JSON.parse(ev.data)); } catch (e) { addSystemNote("回复解析失败：" + e); }
+      });
+      es.addEventListener("approval", async ev => {
+        let data = null;
+        try { data = JSON.parse(ev.data); } catch (e) {}
+        if (!data || !data.approvals || !data.approvals.length) return;
+        const notes = [];
+        for (const ap of data.approvals) {
+          const ok = window.confirm(
+            "⚠️ 需要你批准：\n工具：" + ap.tool + "\n参数：" + ap.args_text + "\n\n确定执行吗？"
+          );
+          try {
+            const resp = await fetch("/api/approval", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ id: ap.id, decision: ok ? "approved" : "denied" }),
+            });
+            const body = await resp.json();
+            if (!body.ok) notes.push((body.error || "决定失败") + "：" + ap.tool);
+          } catch (e) {
+            notes.push("决定请求失败：" + ap.tool);
+          }
+        }
+        if (notes.length) addSystemNote("审批处理部分失败：" + notes.join("；"));
+        else addSystemNote("审批已处理，正在继续任务…");
+        if (es) { es.close(); es = null; }
+        startSSE("", data.task_id);
+      });
+      es.addEventListener("error", ev => {
+        if (ev.data) {
+          try { addSystemNote(JSON.parse(ev.data).message || "出错了"); }
+          catch (e) { addSystemNote(String(ev.data)); }
+        }
+      });
+      es.addEventListener("done", () => {
+        if (es) { es.close(); es = null; }
+        setRunning(false);
+        setStatus("就绪");
+      });
+    }
+
+    formEl.addEventListener("submit", ev => {
+      ev.preventDefault();
+      const message = inputEl.value.trim();
+      if (!message || running) return;
+      inputEl.value = "";
+      addUserMessage(message);
+      setRunning(true);
+      startSSE(message);
+    });
+
+    inputEl.addEventListener("keydown", ev => {
+      if (ev.key === "Enter" && !ev.shiftKey) {
+        ev.preventDefault();
+        formEl.requestSubmit();
+      }
+    });
+
+    document.getElementById("load-history").addEventListener("click", loadHistory);
+    sessionEl.addEventListener("change", loadHistory);
+    window.addEventListener("beforeunload", () => { if (es) es.close(); });
+    loadSessions();
+  </script>
+</body>
+</html>

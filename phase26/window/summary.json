@@ -1,0 +1,25 @@
+{
+  "M1": {
+    "n": 10,
+    "first_semantic": 0,
+    "semantic_within_k": 8,
+    "evidence_within_k": 6,
+    "category_counts": {
+      "PASS": 6,
+      "W3": 4
+    },
+    "latency_avg_s": 24.56
+  },
+  "M4": {
+    "n": 10,
+    "first_semantic": 1,
+    "semantic_within_k": 5,
+    "evidence_within_k": 4,
+    "category_counts": {
+      "W1": 3,
+      "PASS": 5,
+      "W3": 2
+    },
+    "latency_avg_s": 13.73
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "id": "T003",
+  "prompt": "2345 × 17 等于多少？",
+  "container_id": "tk_8cb3b273",
+  "run_id": "task_f3bd01e8",
+  "observed_state_at_deadline": "completed",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T11:46:17+00:00",
+  "terminal_state": "completed",
+  "terminal_at": "2026-09-11T11:46:17+00:00",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 4.17,
+  "model_turns": 3,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [
+    {
+      "name": "calculate",
+      "normalized_args": "{}",
+      "status": "succeeded",
+      "invocation_id": "call_873b95193b00478eb3424593",
+      "result_excerpt": "2345 * 17 = 39865"
+    }
+  ],
+  "answer": "{\"content\": \"计算结果：\\n\\n2345 × 17 = 39,865\"}",
+  "reply_kind": "answer",
+  "tool_truth": {
+    "attempts": 1,
+    "blocked": 0,
+    "executions": 1,
+    "successes": 1,
+    "failures": 0,
+    "budget_consumed": 1,
+    "db_unique_executions": 1
+  },
+  "_exec": {
+    "calculate": 1
+  },
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 985.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1000.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1094.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

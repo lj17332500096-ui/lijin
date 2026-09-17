@@ -1,0 +1,75 @@
+{
+  "id": "T043",
+  "prompt": "记住,以后这个项目默认用 Python 3.13。",
+  "container_id": "tk_b419d1ba",
+  "run_id": "task_54fd2c76",
+  "observed_state_at_deadline": "completed",
+  "observation_deadline": 150,
+  "observed_at": "2026-09-11T11:44:00+00:00",
+  "terminal_state": "completed",
+  "terminal_at": "2026-09-11T11:44:00+00:00",
+  "final_status": "completed",
+  "observation_timeout": false,
+  "error": null,
+  "duration_s": 6.19,
+  "model_turns": 3,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": {
+    "transitions": [],
+    "forced": 0
+  },
+  "tools": [
+    {
+      "name": "remember",
+      "normalized_args": "{}",
+      "status": "succeeded",
+      "invocation_id": "call_8df3ed790607469fbabef7e7",
+      "result_excerpt": "已记住到本项目记忆（id=pmem_709c7fcc）。当前为“仅此项目”模式，不会写入全局记忆。"
+    }
+  ],
+  "answer": "{\"content\":\"已记住本项目默认使用 Python 3.13。\\n\\n后续涉及版本选择、环境配置、依赖兼容等决策时，我会以 3.13 作为基准，有需要时也会提醒你兼容性风险（比如某些老库不支持 3.13）。\"}",
+  "reply_kind": "done",
+  "tool_truth": {
+    "attempts": 1,
+    "blocked": 0,
+    "executions": 1,
+    "successes": 1,
+    "failures": 0,
+    "budget_consumed": 1,
+    "db_unique_executions": 1
+  },
+  "_exec": {
+    "remember": 1
+  },
+  "_blocked": {},
+  "provider_calls": [
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1546.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1422.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    },
+    {
+      "kind": "success",
+      "tag": "primary",
+      "attempt": 0,
+      "latency_ms": 1640.0,
+      "tokens_output": true,
+      "interrupted_reason": null,
+      "fallback_used": false
+    }
+  ]
+}

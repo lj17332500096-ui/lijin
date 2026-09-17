@@ -1,0 +1,48 @@
+{
+  "M1": [
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_python",
+      "normalized_args": {
+        "project": "test_calc_fix",
+        "filename": "verify_fix.py"
+      },
+      "capability": "CODE_EXECUTION",
+      "semantic_action_class": "OTHER",
+      "semantic_verification": false,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "run_python"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 21.88,
+      "final_text": null,
+      "error": null,
+      "i": 0,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    }
+  ],
+  "M4": [
+    {
+      "status": "DECISION_CAPTURED",
+      "first_tool": "run_python",
+      "normalized_args": {
+        "project": "micro_fixture",
+        "code": "import sys\nsys.exit(pytest.main(['test_calc.py', '-v']))"
+      },
+      "capability": "CODE_EXECUTION",
+      "semantic_action_class": "SEMANTIC_VERIFICATION",
+      "semantic_verification": true,
+      "preferred_verification": false,
+      "tool_sequence": [
+        "run_python"
+      ],
+      "llm_calls": 1,
+      "decision_latency_s": 43.3,
+      "final_text": null,
+      "error": null,
+      "i": 0,
+      "snapshot_type": "LIVE_SNAPSHOT_CHECKPOINT"
+    }
+  ]
+}

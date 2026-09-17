@@ -1,0 +1,34 @@
+
+[调用工具: list_workspace_files]
+
+[调用工具: list_workspace_files]
+
+[调用工具: read_workspace_file]
+
+[调用工具: read_workspace_file]
+
+[调用工具: read_workspace_file]
+
+[调用工具: list_workspace_files]
+
+[调用工具: code_loop]
+
+[调用工具: edit_project_file]
+
+[调用工具: run_python]
+
+[调用工具: read_code_file]
+
+[调用工具: run_python]
+
+[调用工具: write_code_file]
+
+[调用工具: run_python]
+
+[调用工具: run_python]
+
+[调用工具: save_note]
+
+[调用工具: write_code_file]
+
+[调用工具: run_python]

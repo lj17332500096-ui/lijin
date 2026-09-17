@@ -1,0 +1,57 @@
+{
+  "M1": {
+    "n": 10,
+    "preferred_run_tests": 6,
+    "semantic_verification": 7,
+    "discovery_or_read": 1,
+    "mutation": 1,
+    "no_action": 0,
+    "preferred_rate": 0.6,
+    "semantic_rate": 0.7,
+    "discovery_drift_rate": 0.1,
+    "status_counts": {
+      "DECISION_CAPTURED": 10
+    },
+    "latency_avg_s": 17.78,
+    "latency_p50_s": 9.62,
+    "latency_p95_s": 48.44,
+    "first_tools": {
+      "list_code_files": 1,
+      "run_tests": 6,
+      "write_code_file": 1,
+      "run_python": 2
+    },
+    "semantic_classes": {
+      "DISCOVERY": 1,
+      "SEMANTIC_VERIFICATION": 7,
+      "REVISE": 1,
+      "OTHER": 1
+    }
+  },
+  "M4": {
+    "n": 10,
+    "preferred_run_tests": 6,
+    "semantic_verification": 8,
+    "discovery_or_read": 1,
+    "mutation": 0,
+    "no_action": 0,
+    "preferred_rate": 0.6,
+    "semantic_rate": 0.8,
+    "discovery_drift_rate": 0.1,
+    "status_counts": {
+      "DECISION_CAPTURED": 10
+    },
+    "latency_avg_s": 14.51,
+    "latency_p50_s": 12.02,
+    "latency_p95_s": 38.34,
+    "first_tools": {
+      "list_code_files": 1,
+      "run_tests": 6,
+      "run_python": 3
+    },
+    "semantic_classes": {
+      "DISCOVERY": 2,
+      "SEMANTIC_VERIFICATION": 8
+    }
+  }
+}
