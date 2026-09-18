@@ -82,6 +82,54 @@ def _mutation_result_ok(name: str, result_text: str) -> str:
     return "UNKNOWN"
 
 
+def obligation_gate_enabled() -> bool:
+    """义务门总开关（Phase 12，默认开启）。
+
+    FORGE_OBLIGATION_GATE=off/0/false 可显式关闭（排查用）。
+    语义保持"白名单"：只有显式写 on/1/true 才开启，其余一律视为关闭。
+    """
+    return os.getenv("FORGE_OBLIGATION_GATE", "on").strip().lower() in ("on", "1", "true")
+
+
+def _log_obligation_block(runtime, task, rc, deficits, *, where: str = "",
+                          kind: str = "", extra: dict | None = None,
+                          emit_event: bool = True) -> None:
+    """义务门拦截的可观测出口：结构化日志 + run 事件。
+
+    缺这个出口时，"模型明明把活干完了却被判 bounded_failure" 只能靠猜：义务门读的
+    是 RunContext 的 DiscoveryTracker（mutation_seen / verification_passed /
+    verified_revision），与工具包装器账本不是一回事，二者不一致时必须留下可查证据。
+    """
+    task_id = getattr(task, "id", None)
+    ledger: dict = {}
+    signature = ""
+    request = ""
+    if rc is not None:
+        try:
+            ledger = rc.obligation_ledger()
+        except Exception:  # 账本读取失败不影响拦截本身
+            ledger = {}
+        try:
+            signature = rc.obligation_deficit_signature()
+        except Exception:
+            signature = ""
+        request = str(getattr(rc, "request_text", "") or "")[:200]
+    _logger.warning(
+        "义务门拦截 where=%s task=%s kind=%s missing=%s ledger=%s signature=%s request=%r",
+        where, task_id, kind, list(deficits), ledger, signature, request,
+    )
+    if not emit_event:
+        return
+    payload = {"where": where, "missing": list(deficits), "ledger": ledger,
+               "signature": signature, "request": request}
+    if extra:
+        payload.update(extra)
+    try:
+        runtime.tasks.add_event(task_id, "completion.obligation_blocked", payload)
+    except Exception:
+        _logger.warning("义务门拦截事件写入失败 task=%s", task_id, exc_info=True)
+
+
 from runtime.errors import (
     AgentError,
     ApprovalRequired,
@@ -2021,14 +2069,22 @@ class AgentRuntime:
                 return _succeed_waiting_user(canonical, canonical_json)
             # Phase 12：义务守卫（防止 degraded/final-response-failure 路径绕过 obligation gate）
             # P2-5：义务门默认开启；FORGE_OBLIGATION_GATE=off 可显式关闭（排查用）
-            if os.getenv("FORGE_OBLIGATION_GATE", "on").strip().lower() in ("on", "1", "true"):
+            if obligation_gate_enabled():
+                _rc_ob2 = None
+                _def2: list[str] = []
                 try:
                     from runtime.runctx import current as _cur_ob2
                     _rc_ob2 = _cur_ob2()
-                    _def2 = _rc_ob2.obligation_deficits() if _rc_ob2 is not None else []
+                    if _rc_ob2 is not None:
+                        _def2 = _rc_ob2.obligation_deficits()
                 except Exception:
+                    # 判定异常不得静默放行：打日志后再降级放行，避免"明明做完了却失败"无法归因
+                    _logger.warning("义务门判定异常，按无义务放行 task=%s",
+                                    getattr(task, "id", None), exc_info=True)
                     _def2 = []
                 if _def2:
+                    _log_obligation_block(self, task, _rc_ob2, _def2,
+                                          where="succeed", kind=str(canonical.get("kind") or ""))
                     return _fail(
                         "任务要求 " + "/".join(_def2) + "，但没有相应执行证据。",
                         resp=canonical_json, run_state="failed",
@@ -2398,15 +2454,22 @@ class AgentRuntime:
 
                 # ---- Phase 12: Completion Obligation Gate（Variant B）----
                 if (gate_verdict == GateVerdict.PASS
-                        and os.getenv("FORGE_OBLIGATION_GATE", "on").strip().lower()
-                        in ("on", "1", "true")):
+                        and obligation_gate_enabled()):
+                    _rc_ob = None
+                    _deficits: list[str] = []
                     try:
                         from runtime.runctx import current as _cur_ob
                         _rc_ob = _cur_ob()
-                        _deficits = _rc_ob.obligation_deficits() if _rc_ob is not None else []
+                        if _rc_ob is not None:
+                            _deficits = _rc_ob.obligation_deficits()
                     except Exception:
+                        _logger.warning("义务门判定异常，按无义务放行 task=%s",
+                                        getattr(task, "id", None), exc_info=True)
                         _deficits = []
                     if _deficits:
+                        # 事件由下方 add_event 发出（带 attempt 维度），此处只补结构化日志
+                        _log_obligation_block(self, task, _rc_ob, _deficits,
+                                              where="completion_loop", emit_event=False)
                         _sig = ""
                         try:
                             from runtime.runctx import current as _cur_sig
