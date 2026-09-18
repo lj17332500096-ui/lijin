@@ -22,7 +22,32 @@ ENTRY = HOST + "/runtime"
 
 
 def rgb_brightness(rgb: str) -> float:
-    nums = [int(x) for x in rgb.split("(")[1].split(")")[0].split(",")[:3]]
+    """解析 getComputedStyle 返回的背景色亮度（0–255 均值）。
+
+    同时支持两种格式：
+    - 旧格式 `rgb(11, 14, 18)` / `rgba(11, 14, 18, 0.5)`：分量是 0–255 整数
+    - 现代格式 `color(srgb 0.937 0.267 0.267 / 0.12)`：CSS 用了 color-mix() 时
+      Chrome 会算成这种形式，分量是 0–1 浮点
+
+    不解析后者会让主题回归以 ValueError 崩溃，看起来像"样式坏了"，
+    实际是解析器不支持——必须两种都认，否则定位方向会被带偏。
+    """
+    if "(" not in rgb:
+        raise ValueError(f"无法解析颜色值: {rgb!r}")
+    inner = rgb.split("(", 1)[1].rsplit(")", 1)[0]
+    float_form = rgb.strip().lower().startswith("color(") or "srgb" in inner.lower()
+    nums: list[float] = []
+    for part in inner.replace("/", " ").replace(",", " ").split():
+        try:
+            nums.append(float(part))
+        except ValueError:
+            continue
+        if len(nums) == 3:
+            break
+    if len(nums) < 3:
+        raise ValueError(f"无法解析颜色值: {rgb!r}")
+    if float_form:
+        nums = [v * 255 for v in nums]
     return sum(nums) / 3
 
 
