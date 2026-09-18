@@ -16,6 +16,9 @@ from pathlib import Path
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 PORT = 9360 + random.randint(0, 100)
 HOST = "http://127.0.0.1:8765"
+# 被测主题样式属于旧版 Web UI（web/runtime/*）。`/` 入口已切换为 llama-ui 前端，
+# 旧 UI 保留在 /runtime 路由，因此主题回归必须显式指向旧 UI 入口。
+ENTRY = HOST + "/runtime"
 
 
 def rgb_brightness(rgb: str) -> float:
@@ -43,7 +46,7 @@ class ThemeCdpSession:
         self.proc = subprocess.Popen(
             [EDGE, "--headless", "--disable-gpu", "--no-first-run", "--no-default-browser-check",
              f"--remote-debugging-port={PORT}", "--remote-allow-origins=*",
-             f"--user-data-dir={profile}", "--window-size=1440,900", HOST + "/"],
+             f"--user-data-dir={profile}", "--window-size=1440,900", ENTRY],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         ok = False
         for _ in range(25):
