@@ -33,6 +33,7 @@ from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse, StreamingResponse
 from starlette.routing import Mount, Route
+from starlette.exceptions import HTTPException
 from starlette.staticfiles import StaticFiles
 
 import compact
@@ -175,11 +176,55 @@ async def _history_items(session_name: str) -> list[dict]:
     return history
 
 
-async def index_page(_request: Request) -> HTMLResponse:
-    """根路径 → llama-ui 前端（OpenAI 协议，经 llama_bridge 接 AgentRuntime）。"""
-    path = BASE_DIR / "web" / "llama-ui" / "index.html"
-    html = path.read_text(encoding="utf-8") if path.exists() else "<h1>web/llama-ui/index.html 缺失</h1>"
-    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+# 这些扩展名/前缀是「真实静态资源」，它们 404 就是真缺失，不能回落成 HTML
+# （否则浏览器会把 index.html 当 JS 执行，掩盖真实问题）。
+_RESOURCE_SUFFIXES = (".js", ".css", ".map", ".json", ".png", ".jpg", ".jpeg",
+                      ".svg", ".gif", ".ico", ".webp", ".woff", ".woff2",
+                      ".ttf", ".eot", ".webmanifest")
+
+
+class _SPAStaticFiles(StaticFiles):
+    """SPA fallback 静态目录：仅对前端路由路径回落到 index.html，静态资源保持真 404。
+
+    llama-ui 是单页应用且用 history 路由（bundle 内有 pushState），刷新子路径
+    （如 /llama-ui/chat/xxx）时服务器没有对应文件，必须回落 index.html 交给
+    前端路由，否则直接 404。
+
+    关键设计（避免旧 bug）：
+    - **不用 html=True**：Starlette 的 html 模式会在静态文件缺失时回落 404.html
+      （仍返回 200），会把 `_app/xxx.js` 真 404 也变成 200，掩盖资源缺失。
+    - 带资源扩展名 / `_app/` 前缀 / `apple-splash` 等静态文件 → 404 就是 404。
+    - 无扩展名的「前端路由」（chat/xxx、settings 等）→ 回落 index.html。
+    """
+
+    def _is_static_resource(self, path: str) -> bool:
+        p = path.lower()
+        if p.startswith("_app/") or "apple-splash" in p or "favicon" in p or "manifest" in p:
+            return True
+        return any(p.endswith(s) for s in _RESOURCE_SUFFIXES)
+
+    async def get_response(self, path, scope):
+        # 目录请求（/llama-ui/ 或 /llama-ui）→ 直接返回 index.html
+        if path in ("", "/", "./"):
+            return await super().get_response("index.html", scope)
+        try:
+            return await super().get_response(path, scope)
+        except HTTPException as exc:
+            if exc.status_code == 404 and not self._is_static_resource(path):
+                # 前端路由（无资源扩展名）→ 回落 index.html 交给 SPA 路由
+                return await super().get_response("index.html", scope)
+            raise
+
+
+async def index_page(_request: Request) -> RedirectResponse:
+    """根路径 → llama-ui 前端（OpenAI 协议，经 llama_bridge 接 AgentRuntime）。
+
+    必须重定向到 /llama-ui/ 而不是直接返回 index.html：
+    index.html 用的是**相对路径**（./_app/...  ./manifest.webmanifest），
+    在 / 下会被浏览器解析成 /_app/...，而静态资源只挂在 /llama-ui 挂载点下，
+    直接返回 HTML 会导致 JS/CSS 全部 404（页面白屏）。
+    """
+    return RedirectResponse("/llama-ui/", status_code=302)
 
 
 async def runtime_page(_request: Request) -> HTMLResponse:
@@ -1909,8 +1954,9 @@ app = Starlette(
         Route("/api/tasks/{task_id}/delete", api_container_delete, methods=["POST"]),
         # llama-ui 前端适配层（OpenAI 协议端点 + 静态资源）
         *llama_bridge.build_llama_ui_routes(),
-        Mount("/llama-ui", app=StaticFiles(directory=str(BASE_DIR / "web" / "llama-ui")),
-              name="llama-ui-assets"),
+        Mount("/llama-ui", app=_SPAStaticFiles(
+            directory=str(BASE_DIR / "web" / "llama-ui")),
+            name="llama-ui-assets"),
         Mount("/rt", app=StaticFiles(directory=str(BASE_DIR / "web" / "runtime")), name="runtime-assets"),
     ]
 )

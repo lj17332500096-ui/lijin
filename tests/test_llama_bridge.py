@@ -126,5 +126,66 @@ class ApprovalGateTests(unittest.TestCase):
         self.assertIsNotNone(name, "应能找到至少一个写权限审批门工具")
 
 
+class StaticAssetNot404Tests(unittest.TestCase):
+    """回归：根路径访问不能白屏。
+
+    历史 bug：`index_page` 曾直接把 web/llama-ui/index.html 的原文作为 HTMLResponse
+    返回到 `/`，但该文件用的是相对路径（./_app/...），浏览器在 `/` 下会解析成
+    `/_app/...`，而静态资源只挂在 `/llama-ui` 挂载点，导致 JS/CSS 全 404 → 白屏。
+
+    修复：`index_page` 改为 302 重定向到 `/llama-ui/`，让相对路径自然解析到
+    `/llama-ui/_app/...`。本测试守住「`/` 不得直接返回 index.html 原文」。
+    """
+
+    @classmethod
+    def _client(cls):
+        try:
+            from starlette.testclient import TestClient
+        except ImportError:
+            return None
+        try:
+            import webapp  # noqa: F401  触发路由构建
+        except Exception:
+            return None
+        # webapp 的 App 实例是模块级对象，这里直接复用
+        try:
+            import webapp as w
+            app = getattr(w, "app", None) or getattr(w, "APP", None)
+            if app is None:
+                return None
+            return TestClient(app, follow_redirects=False)
+        except Exception:
+            return None
+
+    def test_root_redirects_to_llama_ui_not_returns_html(self) -> None:
+        c = self._client()
+        if c is None:
+            self.skipTest("webapp.App 不可离线构造，跳过")
+        r = c.get("/")
+        self.assertEqual(r.status_code, 302, "根路径应 302 到 /llama-ui/（不直接返回 HTML）")
+        self.assertIn("/llama-ui/", r.headers.get("location", ""))
+        # 跟随重定向后拿到的是同一份 index.html，且相对资源能解析
+        r2 = c.get("/", follow_redirects=True)
+        self.assertEqual(r2.status_code, 200)
+        # 相对路径 ./_app/ 从 /llama-ui/ 解析后必须 200（不再 404）
+        self.assertIn("./_app/", r2.text)
+        from webapp import BASE_DIR
+        import re
+        m = re.search(r'href="\.?/(_app/[^"]+\.js)"', r2.text)
+        if m:
+            asset = f"/llama-ui/{m.group(1)}"
+            self.assertTrue(BASE_DIR / "web" / "llama-ui" / m.group(1).lstrip("./") ,
+                            f"资源文件 {m.group(1)} 必须在 web/llama-ui/ 下存在")
+            self.assertEqual(c.get(asset).status_code, 200, f"{asset} 必须 200（回归白屏修复）")
+
+    def test_spa_fallback_static_not_fallback(self) -> None:
+        # _app/* 静态资源缺失时不能回落成 index.html（否则 HTML 会被当 JS 执行）
+        c = self._client()
+        if c is None:
+            self.skipTest("webapp.App 不可离线构造，跳过")
+        r = c.get("/llama-ui/_app/nonexistent-xyz.js")
+        self.assertEqual(r.status_code, 404, "静态资源 404 必须保留 404，不能回落成 HTML")
+
+
 if __name__ == "__main__":
     unittest.main()
