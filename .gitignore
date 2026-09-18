@@ -20,7 +20,6 @@ data/
 *.db
 *.sqlite
 *.sqlite3
-runtime/
 
 # Agent 内部状态
 memory.json
@@ -53,3 +52,6 @@ Thumbs.db
 *.tar.gz
 *.bak
 backups/
+
+# llama-ui 前端静态产物（9.3M 二进制，由 zip 解压生成，不入库）
+web/llama-ui/
