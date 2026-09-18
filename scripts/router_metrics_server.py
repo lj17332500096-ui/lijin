@@ -158,5 +158,34 @@ def main() -> int:
     return 0
 
 
+def start_metrics_thread(port: int = 9095) -> bool:
+    """把指标服务以守护线程方式嵌入主进程，避免单独起进程。
+
+    主进程（如 webapp.py）启动时调用：
+        start_metrics_thread(9095)
+    返回 True 表示线程已起来；False 表示端口被占或启动失败（不阻塞主流程）。
+
+    设计要点：
+    - 复用 ThreadingHTTPServer（每个请求独立线程），不污染主事件循环
+    - daemon 线程：主进程退出时自动回收，不阻塞 shutdown
+    - 端口被占 / 其它异常：捕获并记日志，不 raise（C4 降级：指标不可用不阻塞主业务）
+    """
+    import threading
+    try:
+        server = ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    except OSError as e:
+        print(f"[router-metrics] 端口 {port} 启动失败（{e}），跳过指标线程（不阻塞主流程）", file=sys.stderr)
+        return False
+    t = threading.Thread(
+        target=server.serve_forever,
+        name=f"router-metrics-{port}",
+        daemon=True,  # 主进程退出时自动回收
+    )
+    t.start()
+    print(f"[router-metrics] 线程已起 http://127.0.0.1:{port}  (GET /metrics, /health)")
+    print(f"[router-metrics] 数据源: {_LOG_PATH}")
+    return True
+
+
 if __name__ == "__main__":
     sys.exit(main())

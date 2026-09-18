@@ -42,6 +42,9 @@ from runtime.runner import AgentRuntime
 from runtime.task import TaskState
 from schemas import AgentReply
 
+# llama-ui 前端适配层（OpenAI 协议 → AgentRuntime）
+import llama_bridge
+
 BASE_DIR = Path(__file__).resolve().parent
 DEFAULT_PORT = 8765
 MATERIALS_DIR = BASE_DIR / "materials"
@@ -173,13 +176,14 @@ async def _history_items(session_name: str) -> list[dict]:
 
 
 async def index_page(_request: Request) -> HTMLResponse:
-    """根路径 → v2 Runtime UI（旧聊天页移入 /chat）。"""
-    path = BASE_DIR / "web" / "runtime.html"
-    html = path.read_text(encoding="utf-8") if path.exists() else "<h1>web/runtime.html 缺失</h1>"
+    """根路径 → llama-ui 前端（OpenAI 协议，经 llama_bridge 接 AgentRuntime）。"""
+    path = BASE_DIR / "web" / "llama-ui" / "index.html"
+    html = path.read_text(encoding="utf-8") if path.exists() else "<h1>web/llama-ui/index.html 缺失</h1>"
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
 
 
 async def runtime_page(_request: Request) -> HTMLResponse:
+    """/runtime → 旧版 v2 Runtime UI（保留为回滚入口；根路径已切到 llama-ui）。"""
     path = BASE_DIR / "web" / "runtime.html"
     html = path.read_text(encoding="utf-8") if path.exists() else "<h1>web/runtime.html 缺失</h1>"
     return HTMLResponse(html, headers={"Cache-Control": "no-store"})
@@ -1903,6 +1907,10 @@ app = Starlette(
         Route("/api/tasks/{task_id}/pin", api_container_pin, methods=["POST"]),
         Route("/api/tasks/{task_id}/restore", api_container_restore, methods=["POST"]),
         Route("/api/tasks/{task_id}/delete", api_container_delete, methods=["POST"]),
+        # llama-ui 前端适配层（OpenAI 协议端点 + 静态资源）
+        *llama_bridge.build_llama_ui_routes(),
+        Mount("/llama-ui", app=StaticFiles(directory=str(BASE_DIR / "web" / "llama-ui")),
+              name="llama-ui-assets"),
         Mount("/rt", app=StaticFiles(directory=str(BASE_DIR / "web" / "runtime")), name="runtime-assets"),
     ]
 )
@@ -1913,6 +1921,8 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认仅本机）")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--open", action="store_true", help="启动后自动打开浏览器")
+    parser.add_argument("--metrics-port", type=int, default=9095,
+                        help="Router 指标 Prometheus 端点端口（0=不启动指标线程，默认 9095）")
     args = parser.parse_args()
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -1930,6 +1940,15 @@ def main() -> None:
             print(f"[RUNTIME] 自动恢复 {len(recovered)} 个崩溃遗留任务（RUNNING→failed）")
     except Exception:
         pass
+    # Router 指标线程（Prometheus /metrics on 127.0.0.1:<metrics-port>）
+    # 嵌入主进程，避免单独起 scripts/router_metrics_server.py；端口被占或 0 时静默跳过
+    if args.metrics_port and args.metrics_port != 0:
+        try:
+            sys.path.insert(0, str(BASE_DIR))
+            from scripts.router_metrics_server import start_metrics_thread
+            start_metrics_thread(args.metrics_port)
+        except Exception as _e:
+            print(f"[router-metrics] 指标线程启动失败（不影响主功能）：{_e}", file=sys.stderr)
     if args.open:
         webbrowser.open(url)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")

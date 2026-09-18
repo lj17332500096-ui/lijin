@@ -334,14 +334,14 @@ class C2CircuitBreakerTests(unittest.TestCase):
             os.environ["TOOL_ROUTER"] = self._saved
 
     def _hit_zero_query(self):
-        # 一个"命中 0 目标工具"的查询：纯文本任务（返回 []）→ 但 [] 不等于 BASE_TOOLS
-        # 实际 hit_zero 判定是"names 全在 BASE_TOOLS 里"，需要构造一个只有 BASE_TOOLS 的查询
-        # 用"分析这个"这种无明显意图的查询（select_tool_names 返回 4 个 BASE_TOOLS）
-        return "分析这个"
+        # 一个"命中 0 目标工具"的查询：select_tool_names 只返回 4 个 BASE_TOOLS，
+        # 即"结果里没有任何非 BASE_TOOLS 工具"。用"讲个笑话"这种纯闲聊/明显意图，
+        # 不触发任何意图族，是稳定的 hit_zero 探针（避免依赖已变化的高频查询）。
+        return "讲个笑话"
 
     def test_escalates_after_3_consecutive_zero_hits(self) -> None:
-        # "分析这个" 命中 0 目标工具（只有 4 个 BASE_TOOLS）
-        q = "分析这个"
+        # "讲个笑话" 命中 0 目标工具（只有 4 个 BASE_TOOLS）
+        q = "讲个笑话"
         full_len = len(assistant_agent.tools)
         # 前 2 次：应该走子集（不升级）
         for _ in range(2):
@@ -468,6 +468,35 @@ class RouterEvaluationSetTests(unittest.TestCase):
         ]:
             names = self._names(q)
             self.assertIn("calculate", names, q)
+            # C-fix：算式族命中 → 结果里至少 1 个非 BASE 工具（read_spreadsheet），消除误判 hit_zero
+            self.assertTrue(
+                any(n in names for n in ("read_spreadsheet",)),
+                f"{q!r} 算式族未命中非 base 工具: {names}",
+            )
+
+    def test_normal_doc_read_queries(self) -> None:
+        """C-fix：项目阅读/启动说明意图族（"看 README 怎么启动"）。"""
+        for q in [
+            "看 README 怎么启动",
+            "看这个项目的 README，告诉我怎么启动。",
+        ]:
+            names = self._names(q)
+            doc_hit = any(n in names for n in ("read_workspace_file", "list_workspace_files", "search_documents"))
+            self.assertTrue(doc_hit, f"{q!r} 文档阅读族未命中: {names}")
+
+    def test_normal_analysis_queries(self) -> None:
+        """C-fix：泛分析意图族（"分析这个"）。"""
+        for q in ["分析这个"]:
+            names = self._names(q)
+            analysis_hit = any(n in names for n in ("search_documents", "read_code_file", "list_code_files"))
+            self.assertTrue(analysis_hit, f"{q!r} 分析族未命中: {names}")
+
+    def test_normal_concept_qa_zero_tools(self) -> None:
+        """C-fix：纯概念问答 → direct_text，不配工具。"""
+        for q in ["Agent 和普通聊天模型有什么区别？"]:
+            self.assertTrue(tr.is_direct_text_task(q), f"{q!r} 应走 direct_text")
+            names = self._names(q)
+            self.assertEqual(names, [], f"{q!r} direct_text 应返回空工具: {names}")
 
     # === 边界（15 条）：易误判、易越权 ===
     def test_boundary_direct_text_zero_tools(self) -> None:
@@ -517,9 +546,11 @@ class RouterEvaluationSetTests(unittest.TestCase):
         self.assertIn("save_note", names)
 
     def test_boundary_translating_with_file_reference(self) -> None:
-        # "把这份文件翻译下" 含"文件"强信号 → 不返回 0 工具（需要读文件）
+        # "把这份文件翻译下" → 纯文本翻译（direct_text），即使带"文件"二字也
+        # 不应因文件强信号被误判"需要读文件"。C-fix：文件已移出 _TOOL_NEEDED 强信号，
+        # 翻译意图走 direct_text 直接回答。断言返回空工具列表。
         names = self._names("把这份文件翻译下")
-        self.assertNotEqual(names, [], "含文件强信号不应返回 0 工具")
+        self.assertEqual(names, [], f"纯文本翻译应 direct_text 返回 0 工具: {names}")
 
     def test_boundary_empty_query_returns_base(self) -> None:
         names = self._names("")

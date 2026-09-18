@@ -133,6 +133,45 @@ def test_unstructured_intermediate_output_never_streams():
     assert not sent
 
 
+def test_multiline_content_emits_incrementally_per_line_not_as_single_final_blob():
+    """真打字机：多行 content 必须逐行增量 emit（不是攒到 final 一次性爆发出所有行），
+    且过滤后行内的秘密内容不能出现在任何一帧里。"""
+    result = []
+    decoder = FinalContentStream(result.append)
+    raw = json.dumps({"content": "第一行结论。\n第二行说明。\npassword=hidden456\n结果通过。"},
+                      ensure_ascii=True)
+    # 喂到「第二行说明。」刚闭合（仍在字符串值内部、未到结尾引号）时的中间快照：
+    snapshot_at_second_line = None
+    for i, char in enumerate(raw):
+        decoder.feed(char)
+        # 在喂完 raw 前，一旦 decoded 已包含"第二行说明。"但还没到 final，记一次 emit 次数
+        if "第二行说明。" in decoder.decoded and i < len(raw) - 1 and not decoder.complete:
+            if snapshot_at_second_line is None:
+                snapshot_at_second_line = len(result)
+    assert decoder.complete
+    visible = "".join(result)
+    assert "第一行结论" in visible and "第二行说明" in visible and "结果通过" in visible
+    assert "hidden456" not in visible
+    # 关键断言：在 JSON 字符串值尚未最终闭合（decoder.complete 仍 False）时，
+    # 必须已经产生了至少 1 次非 final 增量 emit（否则退化成"整段一帧"的老 bug）。
+    assert snapshot_at_second_line is not None and snapshot_at_second_line > 0, (
+        "多行 content 应在到达行边界时就产生增量 emit，而不是攒到 final 一帧全部发出")
+
+
+def test_single_line_content_still_reaches_user_via_final_frame_not_lost():
+    """单行 content（无换行）在新方案下非 final 帧产生 0 增量是预期行为（受控降级，
+    安全优先：避免半截 JSON 假闭包解码污染 sent 前缀）；但 final 帧必须把全文补完，
+    内容不能因此丢失。"""
+    result = []
+    decoder = FinalContentStream(result.append)
+    single = "这是一段没有换行的单行最终答案。"
+    raw = json.dumps({"content": single}, ensure_ascii=True)
+    for char in raw:
+        decoder.feed(char)
+    assert decoder.complete
+    assert "".join(result) == single, "单行 content 必须完整可见，不允许因打字机改造而丢失"
+
+
 def test_sse_boundary_default_deny():
     for kind in ["reply_delta", "thinking", "analysis", "tool", "tool.progress", "stream_reset"]:
         assert public_wire("r", kind, {"text": "PRIVATE"}) is None
