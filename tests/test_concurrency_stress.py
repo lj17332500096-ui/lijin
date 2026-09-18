@@ -78,6 +78,12 @@ class ConcurrentRunStressTests(unittest.TestCase):
         self.tools = {t.name: t for t in main_mod.assistant_agent.tools}
         self.outputs: dict[str, str] = {}
         self.markers: dict[str, str] = {}
+        # 集成层只测并发隔离与收口；义务门判定由 tests/test_obligation_gate.py 独立覆盖。
+        # （典型冲突：@forget 删除记忆 带 mutation 义务，但 forget_memory 不属于
+        #   mutation 工具集，note_progress 无法置位 mutation_seen，义务门必然判缺证据。）
+        gate_off = mock.patch.dict(os.environ, {"FORGE_OBLIGATION_GATE": "off"})
+        gate_off.start()
+        self.addCleanup(gate_off.stop)
 
     def tearDown(self) -> None:
         main_mod.execute_turn = self._orig_execute
@@ -209,20 +215,18 @@ class ConcurrentRunStressTests(unittest.TestCase):
             pa = tm.list_approvals(task_id=wA.task.id, state="pending")[0]
             pb = tm.list_approvals(task_id=wB.task.id, state="pending")[0]
             self.assertNotEqual(pa["id"], pb["id"])
-            # resume 段：@forget 删除记忆 带 mutation 义务，而 forget_memory 不属于
-            # mutation 工具集（note_progress 无法置位 mutation_seen），义务门必然判缺证据。
-            # 本用例验证的是并发审批隔离与 resume 收口，不是义务门语义，故此处显式关闭。
-            with mock.patch.dict(os.environ, {"FORGE_OBLIGATION_GATE": "off"}):
-                tm.decide_approval(pa["id"], "approved", actor="stress", reason="A")
-                rA = await self.rt.run_turn("", task_id=wA.task.id, mode="async", max_turns=3)
-                self.assertTrue(rA.ok and rA.task.id == wA.task.id)
-                self.assertEqual(rA.task.state.value, "completed")
-                left = tm.list_approvals(state="pending")
-                self.assertEqual([p["task_id"] for p in left], [wB.task.id])
-                tm.decide_approval(pb["id"], "approved", actor="stress", reason="B")
-                rB = await self.rt.run_turn("", task_id=wB.task.id, mode="async", max_turns=3)
-                self.assertTrue(rB.ok and rB.task.state.value == "completed")
-                self.assertEqual(tm.list_approvals(state="pending"), [])
+            # resume 段：义务门已在 setUp 关闭（@forget 带 mutation 义务但
+            # forget_memory 不在 mutation 工具集，无法置位），此处只验证审批隔离与收口。
+            tm.decide_approval(pa["id"], "approved", actor="stress", reason="A")
+            rA = await self.rt.run_turn("", task_id=wA.task.id, mode="async", max_turns=3)
+            self.assertTrue(rA.ok and rA.task.id == wA.task.id)
+            self.assertEqual(rA.task.state.value, "completed")
+            left = tm.list_approvals(state="pending")
+            self.assertEqual([p["task_id"] for p in left], [wB.task.id])
+            tm.decide_approval(pb["id"], "approved", actor="stress", reason="B")
+            rB = await self.rt.run_turn("", task_id=wB.task.id, mode="async", max_turns=3)
+            self.assertTrue(rB.ok and rB.task.state.value == "completed")
+            self.assertEqual(tm.list_approvals(state="pending"), [])
 
             # 工具调用行归属各自 Run（无串写）
             for w in waits:

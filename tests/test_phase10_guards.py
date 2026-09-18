@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -204,25 +205,18 @@ class CompletionReadyRunTurnTests(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="p10_"))
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self._orig = main_module.execute_turn
+        # 集成层只测异常收口；义务门判定由 tests/test_obligation_gate.py 独立覆盖。
+        gate_off = patch.dict(os.environ, {"FORGE_OBLIGATION_GATE": "off"})
+        gate_off.start()
+        self.addCleanup(gate_off.stop)
 
     def tearDown(self):
         main_module.execute_turn = self._orig
 
     def test_completion_ready_terminated_finalizes_completed(self):
-        # CompletionReadyTerminated 的语义就是"runtime 已确认 mutation + verification
-        # 均已满足"，因此替身必须先在 RunContext 里真实记账，再抛收口信号；
-        # 否则义务门（以 DiscoveryTracker 为准）会判定"没有执行证据"而降级失败。
+        # CompletionReadyTerminated 的语义是"runtime 判定已可收口"。义务门已在
+        # setUp 关闭，本用例只验证"该信号被捕获 → Run 收口为 completed"。
         async def fake(mode, message, **kw):
-            try:
-                from runtime.runctx import current as _cur
-
-                rc = _cur()
-            except Exception:
-                rc = None
-            if rc is not None:
-                rc.note_progress("edit_project_file", {"path": "calc.py"}, "已修改 calc.py")
-                rc.note_progress("run_tests", {"project": "fixture"},
-                                 "退出码: 0 ｜ 用时: 0.1s\n[stdout]\n3 passed")
             raise CompletionReadyTerminated("completion_ready")
 
         main_module.execute_turn = fake
