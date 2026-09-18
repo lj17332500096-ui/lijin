@@ -195,6 +195,24 @@ def _env_float(name: str, default: float) -> float:
         return default
 
 
+def _total_timeout_seconds() -> float:
+    """provider 侧总墙钟上限（默认 600s；0 或负数 = 不限）。
+
+    只靠"重试次数"兜不住真实耗时：单模型最多 3 次、叠加 fallback 最多 6 次，
+    且每次还可能各自撞上首 token / 空闲超时（默认 90s / 120s），最坏可达 10 分钟级。
+    总墙钟是最后一道兜底，避免一次模型调用把整轮任务挂死。
+    """
+    return _env_float("FORGE_PROVIDER_TOTAL_TIMEOUT_SECONDS", 600.0)
+
+
+def _deadline_exceeded(started: float, limit: float) -> bool:
+    return limit > 0 and (time.monotonic() - started) >= limit
+
+
+def _deadline_message(limit: float) -> str:
+    return f"模型响应超时：provider 累计耗时超过 {limit:.4g}s，已停止重试。"
+
+
 class ResilientModel(Model):
     """包装 SDK 模型：每次 get_response 有限重试 + ≤1 次 fallback。
 
@@ -202,7 +220,10 @@ class ResilientModel(Model):
     - 首 token 之前失败（连接/429/503/timeout/no channel）→ 分类 → 有限重试 → 必要时 fallback；
     - 已输出 token 后失败 → 记录 interrupted（不自动从头 replay，避免重复 token/工具副作用）→ 上抛；
     - first-token / idle 超时由 FORGE_STREAM_FIRST_TOKEN_TIMEOUT_SECONDS（默认 90s）与
-      FORGE_STREAM_IDLE_TIMEOUT_SECONDS（默认 120s）控制（0=关闭）。
+      FORGE_STREAM_IDLE_TIMEOUT_SECONDS（默认 120s）控制（0=关闭）；
+    - 总墙钟兜底由 FORGE_PROVIDER_TOTAL_TIMEOUT_SECONDS（默认 600s，0=关闭）控制：
+      次数上限约束不了真实耗时（每次尝试都可能各自撞上首 token/空闲超时），
+      超过总墙钟后不再开新尝试，直接以 provider_timeout 收尾。
     """
 
     def __init__(self, inner: Model, gateway: "ResilientProvider") -> None:
@@ -232,6 +253,7 @@ class ResilientModel(Model):
         last_exc: BaseException | None = None
         first_tok_timeout = _env_float("FORGE_STREAM_FIRST_TOKEN_TIMEOUT_SECONDS", 90.0)
         idle_timeout = _env_float("FORGE_STREAM_IDLE_TIMEOUT_SECONDS", 120.0)
+        total_timeout = _total_timeout_seconds()
 
         def _timeout_for(first: bool) -> float | None:
             return (first_tok_timeout if first else idle_timeout) or None
@@ -239,6 +261,20 @@ class ResilientModel(Model):
         while True:
             active = fallback_model if used_fallback else self._inner
             tag = _FALLBACK_TAG if used_fallback else _PRIMARY_TAG
+            if _deadline_exceeded(started, total_timeout):
+                # 总墙钟兜底：不再开新尝试（无论是否已用完重试/fallback 额度）
+                record_attempt(run_id, {
+                    "kind": "deadline_exceeded", "tag": tag, "attempt": local_attempts,
+                    "tokens_output": False, "limit_seconds": total_timeout,
+                    "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+                })
+                _d_exc = last_exc
+                if _d_exc is None:
+                    from runtime.provider_errors import ProviderTransportError
+
+                    _d_exc = ProviderTransportError(_deadline_message(total_timeout))
+                raise _mark(_d_exc, ProviderErrorKind.TIMEOUT,
+                            _deadline_message(total_timeout), last_rid)
             attempt_start = time.monotonic()
             emitted = False
             stream = None
@@ -398,6 +434,7 @@ class ResilientModel(Model):
         run_id = _current_run_id()
         gateway = self._gateway
         started = time.monotonic()
+        total_timeout = _total_timeout_seconds()
         fallback_model: Model | None = None
         used_fallback = False
         local_attempts = 0
@@ -410,6 +447,17 @@ class ResilientModel(Model):
             while True:
                 active = fallback_model if used_fallback else self._inner
                 tag = _FALLBACK_TAG if used_fallback else _PRIMARY_TAG
+                if _deadline_exceeded(started, total_timeout):
+                    # 总墙钟兜底：不再开新尝试（无论重试/fallback 额度是否用尽）
+                    record_attempt(run_id, {
+                        "kind": "deadline_exceeded", "tag": tag, "attempt": local_attempts,
+                        "limit_seconds": total_timeout,
+                        "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+                    })
+                    last_kind = ProviderErrorKind.TIMEOUT
+                    # 覆盖上一次失败的文案：真正的原因是没有及时拿到结果，而非那次错误本身
+                    last_public = _deadline_message(total_timeout)
+                    break
                 attempt_start = time.monotonic()
                 try:
                     result = await active.get_response(*args, **kwargs)
