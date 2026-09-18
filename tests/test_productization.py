@@ -43,6 +43,20 @@ def call(name, args="{}", status=TOOL_EXECUTED, out=""):
     return {"name": name, "status": status, "args": args, "output_head": out}
 
 
+def _current_runctx():
+    """取当前 Run 的 RunContext；未绑定时返回 None（测试替身里安全降级）。
+
+    义务门（_succeed 内 obligation_deficits）以 RunContext 的 DiscoveryTracker
+    为准，而非工具包装器账本。模拟"真实执行过"的替身必须同时 note_progress 记账。
+    """
+    try:
+        from runtime.runctx import current
+
+        return current()
+    except Exception:
+        return None
+
+
 class NoProgressTests(unittest.TestCase):
     def setUp(self):
         self.gate = CompletionGate()
@@ -145,8 +159,14 @@ class BoundedRunnerTests(unittest.TestCase):
     def test_final_response_failure_with_passed_verification_completes_fallback(self):
         async def fake(mode, message, session=None, debug=False, max_turns=20,
                        history_limit=None, agent=None, audit=None, stream_events_cb=None):
+            # 模拟真实执行：工具包装器账本（供降级文案/审计）+ RunContext 记账
+            # （义务门以 DiscoveryTracker 为准，两者必须同时满足）。
             self.runtime._run_ledger.append(call("write_code_file", out="已写入"))
             self.runtime._run_ledger.append(call("run_python", out=EVID_OK))
+            rc = _current_runctx()
+            if rc is not None:
+                rc.note_progress("write_code_file", {}, "已写入")
+                rc.note_progress("run_python", {}, EVID_OK)
             raise main_module.FinalResponseFailed("模型没有产生任何可用回答")
 
         self._fake(fake)

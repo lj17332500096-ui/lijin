@@ -209,7 +209,20 @@ class CompletionReadyRunTurnTests(unittest.TestCase):
         main_module.execute_turn = self._orig
 
     def test_completion_ready_terminated_finalizes_completed(self):
+        # CompletionReadyTerminated 的语义就是"runtime 已确认 mutation + verification
+        # 均已满足"，因此替身必须先在 RunContext 里真实记账，再抛收口信号；
+        # 否则义务门（以 DiscoveryTracker 为准）会判定"没有执行证据"而降级失败。
         async def fake(mode, message, **kw):
+            try:
+                from runtime.runctx import current as _cur
+
+                rc = _cur()
+            except Exception:
+                rc = None
+            if rc is not None:
+                rc.note_progress("edit_project_file", {"path": "calc.py"}, "已修改 calc.py")
+                rc.note_progress("run_tests", {"project": "fixture"},
+                                 "退出码: 0 ｜ 用时: 0.1s\n[stdout]\n3 passed")
             raise CompletionReadyTerminated("completion_ready")
 
         main_module.execute_turn = fake

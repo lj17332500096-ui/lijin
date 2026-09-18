@@ -22,6 +22,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
@@ -61,6 +62,28 @@ def _evidence(*names, status: str = "executed", new_files=None, pending: int = 0
         new_files=new_files or [],
         approvals_pending=pending,
     )
+
+
+def _current_runctx():
+    """取当前 Run 的 RunContext；未绑定时返回 None（测试替身里安全降级）。
+
+    义务门（_succeed 内的 obligation_deficits）以 RunContext 的 DiscoveryTracker
+    为准，而不是工具包装器账本。因此模拟"真实执行过"的替身必须同时调用
+    note_progress 记账，否则义务门判定为"没有执行证据"而降级失败。
+    """
+    try:
+        from runtime.runctx import current
+
+        return current()
+    except Exception:
+        return None
+
+
+def _note_real_execution(rc, name: str, arguments: dict, result_text: str) -> None:
+    """通过 RunContext 登记一次真实执行（推进 mutation_seen / verification_passed）。"""
+    if rc is None:
+        return
+    rc.note_progress(name, arguments, result_text)
 
 
 class CompletionGateUnitTests(unittest.TestCase):
@@ -339,9 +362,14 @@ class RunTurnCompletionGateTests(unittest.TestCase):
             return json.dumps(_reply(kind="questions",
                                      questions=["请告诉我具体要修改哪个文件？"]), ensure_ascii=False)
 
-        with _FakeHarness(self) as h:
-            h.install(fake)
-            result = h.run("帮我修复 bug 并验证。")
+        # 本用例的语义是"假声明被拒 → repair 后诚实撤回声明 → 会话型完成"：
+        # 全程没有任何真实工具执行，这与义务门（要求 mutation/verification 证据）
+        # 天然冲突。义务门的判定由 CompletionGateUnitTests 独立覆盖，
+        # 这里显式关闭以聚焦 CompletionGate 自身的收口语义。
+        with patch.dict(os.environ, {"FORGE_OBLIGATION_GATE": "off"}):
+            with _FakeHarness(self) as h:
+                h.install(fake)
+                result = h.run("帮我修复 bug 并验证。")
             self.assertTrue(result.ok)
             # Phase 5：repaired 后模型给出 questions → Run 暂停 WAITING_USER。
             self.assertEqual(result.task.state, TaskState.WAITING_USER)
@@ -372,14 +400,18 @@ class RunTurnCompletionGateTests(unittest.TestCase):
             return json.dumps(_reply(content="明白了，我无法替你决定执行；请告诉我是否继续。"),
                               ensure_ascii=False)
 
-        with _FakeHarness(self) as h:
-            h.install(fake)
-            result = h.run("运行测试验证一下。")
-            self.assertTrue(result.ok)  # repair 后撤回声明 → 会话型完成
-            self.assertEqual(len(h.calls), 2)
-            types = self._events(h, result.task.id)
-            self.assertIn("completion.check.rejected", types)
-            self.assertIn("completion.check.passed", types)
+        # 本用例语义：模型口头声称等待批准（无真实 pending），repair 后撤回声明
+        # → 会话型完成。全程无真实工具执行，与义务门（要求 verification 证据）冲突；
+        # 义务门判定由 CompletionGateUnitTests 独立覆盖，此处显式关闭。
+        with patch.dict(os.environ, {"FORGE_OBLIGATION_GATE": "off"}):
+            with _FakeHarness(self) as h:
+                h.install(fake)
+                result = h.run("运行测试验证一下。")
+                self.assertTrue(result.ok)  # repair 后撤回声明 → 会话型完成
+                self.assertEqual(len(h.calls), 2)
+                types = self._events(h, result.task.id)
+                self.assertIn("completion.check.rejected", types)
+                self.assertIn("completion.check.passed", types)
 
     def test_verbal_approval_persists_fails_cleanly(self) -> None:
         with _FakeHarness(self) as h:
@@ -391,14 +423,25 @@ class RunTurnCompletionGateTests(unittest.TestCase):
             self.assertIn("需要你的确认", result.error)
 
     def test_real_execution_then_empty_output_degrades_to_completed(self) -> None:
+        # 真实执行语义：结果文本必须携带可被判定的成功标记
+        # （mutation 需命中成功标记；verification 需含"退出码: 0"）。
+        WRITE_OUT = "已写入 hello.py"
+        VERIFY_OUT = "退出码: 0 ｜ 用时: 0.1s\n[stdout]\n[0, 1, 1, 2, 3, 5]"
+
         async def fake(mode, message):
-            # 模拟真实工具已经执行（包装器账本），随后最终回复为空
+            # 模拟真实工具已经执行：既登记工具包装器账本（供降级文案/审计），
+            # 也通过 RunContext 记账（义务门以 DiscoveryTracker 为准）。
+            _rc = _current_runctx()
             h.runtime._run_ledger.append(
                 {"name": "write_code_file", "args": '{"project": "auditfib", "filename": "hello.py"}',
-                 "status": "executed", "output_head": "已写入"})
+                 "status": "executed", "output_head": WRITE_OUT})
             h.runtime._run_ledger.append(
                 {"name": "run_python", "args": '{"filename": "hello.py", "project": "auditfib"}',
-                 "status": "executed", "output_head": "[0, 1, 1, 2, 3, 5]"})
+                 "status": "executed", "output_head": VERIFY_OUT})
+            _note_real_execution(_rc, "write_code_file",
+                                 {"project": "auditfib", "filename": "hello.py"}, WRITE_OUT)
+            _note_real_execution(_rc, "run_python",
+                                 {"filename": "hello.py", "project": "auditfib"}, VERIFY_OUT)
             (h.notes / "修复报告.md").write_text("# 修复", encoding="utf-8")
             raise FinalResponseFailed("模型没有产生任何可用回答")
 
