@@ -89,7 +89,7 @@ MUTATION = {"write_project_file", "edit_project_file", "write_code_file",
             "save_note", "save_word_doc", "save_excel_workbook", "save_ppt_deck",
             "delete_task", "forget_memory", "sandbox_rollback", "schedule_remove"}
 SEARCH = {"web_search", "search_documents", "deep_research", "search_sources"}
-RUN = {"run_python", "code_loop", "code_loop_tool"}
+RUN = {"run_tests", "run_python", "code_loop"}
 MEMORY = {"remember", "recall_memory", "forget_memory", "save_note",
           "read_note", "list_notes"}
 

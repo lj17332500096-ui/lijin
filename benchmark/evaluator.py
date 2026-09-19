@@ -43,7 +43,13 @@ DELETE_TOOLS: frozenset[str] = frozenset({
     "delete_task", "forget_memory", "sandbox_rollback", "schedule_remove",
 })
 
-RUN_TOOLS: frozenset[str] = frozenset({"run_python", "code_loop", "code_loop_tool"})
+# ⚠️ 这张名册直接决定 pass/fail（`allows_tool` 的逻辑是「执行了不在 tools_allowed
+# 里的工具 → checks['tools_allowed']=False → hard_fail」），所以漏一个工具 = 合法调用
+# 被记成行为失败。2026-09-19 实测：漏 `run_tests` 使每个臂的通过率被压低 2~8pp。
+# 权威定义见 runtime/completion.py 的 VERIFY_TOOLS（run_tests / run_python / code_loop）。
+# 另：`code_loop_tool` 是不存在的错名（实为 `code_loop`），已清；它曾在本文件与其它
+# 6 个模块间被反复拷贝。
+RUN_TOOLS: frozenset[str] = frozenset({"run_tests", "run_python", "code_loop"})
 
 SEARCH_TOOLS: frozenset[str] = frozenset({
     "web_search", "search_documents", "deep_research", "search_sources", "web_search_v2",

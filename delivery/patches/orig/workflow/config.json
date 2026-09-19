@@ -1,0 +1,15 @@
+{
+  "name": "workflow",
+  "displayName": "流程编排 数据管道 任务自动化",
+  "encoding_fallback": [
+    "utf-8",
+    "gbk",
+    "gb18030"
+  ],
+  "features": [
+    "cli",
+    "selftest",
+    "dry-run",
+    "error-handling"
+  ]
+}

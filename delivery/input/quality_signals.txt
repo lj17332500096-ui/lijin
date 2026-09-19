@@ -1,0 +1,39 @@
+测试批次 1 共 12 个测试文件，通过 153 条，失败 0 条，跳过 0 条，错误 0 条，耗时 16.51 秒，退出码 0。
+
+测试批次 2 共 12 个测试文件，通过 106 条，失败 0 条，跳过 2 条，错误 0 条，耗时 18.77 秒，退出码 0。
+
+测试批次 3 共 12 个测试文件，通过 135 条，失败 0 条，跳过 2 条，错误 0 条，耗时 16.52 秒，退出码 0。
+
+测试批次 4 共 12 个测试文件，通过 156 条，失败 0 条，跳过 0 条，错误 0 条，耗时 12.91 秒，退出码 0。
+
+测试批次 5 共 12 个测试文件，通过 138 条，失败 0 条，跳过 0 条，错误 0 条，耗时 14.36 秒，退出码 0。
+
+测试批次 6 共 12 个测试文件，通过 159 条，失败 0 条，跳过 0 条，错误 0 条，耗时 15.4 秒，退出码 0。
+
+测试批次 7 共 12 个测试文件，通过 161 条，失败 0 条，跳过 1 条，错误 0 条，耗时 18.21 秒，退出码 0。
+
+测试批次 8 共 5 个测试文件，通过 34 条，失败 0 条，跳过 1 条，错误 0 条，耗时 6.91 秒，退出码 0。
+
+全项目 89 个测试文件、8 个批次合计：通过 1042 条，失败 0 条，跳过 6 条，错误 0 条。分批跑与单进程全量跑结果一致，质量门禁 G-04 判定通过。
+
+缺陷 DEF-01 位于技能 everything-openai-codex 的 scripts/main.py 第 459,462 行，严重度 high，问题为 自检函数使用无占位符的格式串，% 运算直接抛 TypeError。
+
+缺陷 DEF-02 位于技能 everything-openai-codex 的 scripts/main.py 第 488,493 行，严重度 high，问题为 _write_guarded 的 dry-run / verbose 提示格式串参数不匹配。
+
+缺陷 DEF-03 位于技能 everything-openai-codex 的 scripts/main.py 第 510 行，严重度 high，问题为 _cli 非 selftest 分支格式串无占位符。
+
+缺陷 DEF-04 位于技能 everything-openai-codex 的 scripts/main.py 第 442 行，严重度 medium，问题为 selftest() 函数体被截断，缺最后一项测试与收尾 return。
+
+缺陷 DEF-05 位于技能 everything-openai-codex 的 scripts/main.py 第 393-441 行，严重度 medium，问题为 自检带破坏性副作用：覆盖 memory.json / hooks.json / rules.json。
+
+缺陷 DEF-06 位于技能 everything-openai-codex 的 run.py 第 52 行，严重度 medium，问题为 run.py 挂载 run_selftest 取错函数名，恒为 None。
+
+缺陷 DEF-07 位于技能 workflow 的 run.py 第 8 行，严重度 high，问题为 run.py 守卫只认 --file，把 --data / --url 当成未提供输入。
+
+缺陷 DEF-08 位于技能 workflow 的 scripts/main.py 第 163-186 行，严重度 high，问题为 --file 是桩实现：不回读文件内容。
+
+缺陷 DEF-09 位于技能 全部三个技能 的 run.py 第 53 行，严重度 low，问题为 run.py 挂载 read_text_safe 取错函数名，三个技能恒为 None。
+
+缺陷 DEF-10 位于技能 agent-ready-repo 的 scripts/main.py 第 513 行，严重度 low，问题为 read_text_safe 定义在 __main__ 卫兵之后，模块导入时不可见。
+
+未复现记录 NR-01：上一轮交付报告中称 tests/test_approval_execution_parity.py 有 7 条失败，原因为「审批通过后执行 run_tests，tool.invocation 证据事件未写入」 结论：本轮三种跑法结果一致且全绿，该失败集未复现。上一轮的 7 条失败最可能是当时环境干扰（沙箱批量删除护栏 / 并发进程）造成的假象，不宜再作为「已确认待修缺陷」推进。

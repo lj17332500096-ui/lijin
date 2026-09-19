@@ -19,7 +19,16 @@ class RuntimeError(AgentError):
 
 
 class BudgetExceeded(RuntimeError):
-    pass
+    """预算超限：token_budget（成本闸门）或 wall_clock（墙钟预算）。
+
+    携带 reason 属性供 classify_exception 区分终态类型：
+    - reason="token_budget" → KIND_TOKEN_BUDGET
+    - 其它 reason          → KIND_TIMEOUT
+    """
+
+    def __init__(self, reason: str = "") -> None:
+        super().__init__(reason or "预算超限")
+        self.reason = reason or ""
 
 
 class FinalResponseFailed(RuntimeError):

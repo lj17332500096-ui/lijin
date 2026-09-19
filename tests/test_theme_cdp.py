@@ -16,9 +16,15 @@ from pathlib import Path
 EDGE = r"C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"
 PORT = 9360 + random.randint(0, 100)
 HOST = "http://127.0.0.1:8765"
-# 被测主题样式属于旧版 Web UI（web/runtime/*）。`/` 入口已切换为 llama-ui 前端，
-# 旧 UI 保留在 /runtime 路由，因此主题回归必须显式指向旧 UI 入口。
+# 被测主题样式属于旧版 Web UI（web/runtime/*）。该 UI 已按「llama-ui 为唯一前端」
+# 下线：`/` 与 `/runtime` 均为 301 → `/llama-ui/`，web/runtime.html 与 web/runtime/
+# 已移除。被测对象不存在，本文件显式跳过，避免留下“永远红”的历史噪声。
+# 如需覆盖 llama-ui 主题，应基于 web/llama-ui 的 DOM 另写一套断言。
 ENTRY = HOST + "/runtime"
+
+_LEGACY_UI_PRESENT = (Path(__file__).resolve().parent.parent / "web" / "runtime" / "design.css").exists()
+if not _LEGACY_UI_PRESENT:
+    raise unittest.SkipTest("旧 Web UI 已下线（web/runtime/ 已移除），主题回归无被测对象")
 
 
 def rgb_brightness(rgb: str) -> float:

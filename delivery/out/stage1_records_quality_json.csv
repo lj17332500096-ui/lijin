@@ -1,0 +1,19 @@
+id,content,keywords,confidence
+
+BATCH-01,批 1/8：12 个文件，passed=153 failed=0 skipped=0 errors=0，16.51s,,0.0
+
+BATCH-02,批 2/8：12 个文件，passed=106 failed=0 skipped=2 errors=0，18.77s,,0.0
+
+BATCH-03,批 3/8：12 个文件，passed=135 failed=0 skipped=2 errors=0，16.52s,,0.0
+
+BATCH-04,批 4/8：12 个文件，passed=156 failed=0 skipped=0 errors=0，12.91s,,0.0
+
+BATCH-05,批 5/8：12 个文件，passed=138 failed=0 skipped=0 errors=0，14.36s,,0.0
+
+BATCH-06,批 6/8：12 个文件，passed=159 failed=0 skipped=0 errors=0，15.4s,,0.0
+
+BATCH-07,批 7/8：12 个文件，passed=161 failed=0 skipped=1 errors=0，18.21s,,0.0
+
+BATCH-08,批 8/8：5 个文件，passed=34 failed=0 skipped=1 errors=0，6.91s,,0.0
+
+TOTAL,合计：files=89 passed=1042 failed=0 skipped=6 errors=0,,0.0

@@ -28,13 +28,24 @@ class TaskState(StrEnum):
 
 @dataclass(slots=True)
 class RunBudget:
-    """单 Task 的运行预算（本轮先落字段，检查逻辑随 Runner 迁移启用）。"""
+    """单 Task 的运行预算。
+
+    - ``max_turns`` / ``max_tool_calls`` / ``max_wall_seconds`` / ``max_failures``：
+      既有维度，由 Runner 内循环检查。
+    - ``max_output_tokens``：单次模型调用输出上限（已接入 provider）。
+    - ``token_budget``（2026-09-19 ④ 成本闸门新增）：**单 Run 累计 token 总预算**
+      （input + output）。0 / None = 不启用；设了之后由 ``TokenBudgetGate``
+      在每次模型调用后记账，超预算抛 ``BudgetExceeded("token_budget")``。
+      默认 50_000（≈ 网关 4K 输出 × 10 次模型调用），可 env ``FORGE_TOKEN_BUDGET``
+      覆盖。这是「Agent 负债」的刹车，配合 wall_clock 上限形成双闸门。
+    """
 
     max_turns: int = 20
     max_tool_calls: int = 100
     max_wall_seconds: int = 3600
     max_failures: int = 3
     max_output_tokens: int | None = 4096
+    token_budget: int = 0
 
 
 @dataclass(slots=True)
@@ -47,6 +58,10 @@ class TaskUsage:
     input_tokens: int = 0
     output_tokens: int = 0
     cost_usd: float = 0.0
+
+    def tokens_total(self) -> int:
+        """累计 input + output token（④ 成本闸门的记账口径）。"""
+        return int(self.input_tokens or 0) + int(self.output_tokens or 0)
 
 
 @dataclass(slots=True)

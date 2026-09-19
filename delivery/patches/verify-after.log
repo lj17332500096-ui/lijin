@@ -1,0 +1,21 @@
+=== 技能缺陷验收（python=F:\Byong-hermes\Byong-hermes\my_creative_agent\.venv\Scripts\python.exe）===
+目标目录: C:\Users\Administrator\.workbuddy\plugins\marketplaces\experts\plugins\agent-orchestration-pro\skills
+
+  [OK ] DEF-01 run.py --selftest 不再因格式串抛 TypeError  —— rc=0
+  [OK ] DEF-02 _write_guarded 的 dry-run / verbose 路径可执行  —— rc=0
+  [OK ] DEF-03 run.py --dry-run --force 正常返回  —— rc=0
+  [OK ] DEF-04 自检链路不再截断且有显式 return 0  —— 已收尾 + 第10/11项已补齐
+  [OK ] DEF-05 selftest() 不覆盖 memory/hooks/rules  —— 三个配置文件无变化
+  [OK ] DEF-06 三个技能 run.run_selftest 均可解析  —— 含 _run_selftest 兜底
+  [OK ] DEF-09 三个技能 run.read_text_safe 均可解析  —— 含 _read_text_safe_enc 兜底
+  [OK ] DEF-07 workflow run.py 的 --data / --url 可达  —— --data=通过；--url=通过
+  [OK ] DEF-08 --file 真实读取 JSON 内容  —— 内容已读入
+  [OK ] DEF-08 --file 真实读取 CSV 内容  —— 内容已读入
+  [OK ] DEF-10 agent-ready-repo: read_text_safe 定义在 __main__ 卫兵之前  —— def@509 guard@527
+  [OK ] DEF-10 workflow: read_text_safe 定义在 __main__ 卫兵之前  —— def@359 guard@544
+  [OK ] GATE   agent-ready-repo/selftest.py 8/8  —— 自检完成: 8/8 通过
+  [OK ] GATE   everything-openai-codex/selftest.py 8/8  —— 自检完成: 8/8 通过
+  [OK ] GATE   workflow/selftest.py 8/8  —— 自检完成: 8/8 通过
+
+=== 结果：15/15 通过 ===
+ALL PASS

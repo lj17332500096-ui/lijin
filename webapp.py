@@ -1,7 +1,12 @@
-"""网页聊天界面：本地浏览器里和「全能助手」对话。
+"""网页聊天界面（已冻结）：本地浏览器里和「全能助手」对话。
 
-运行：python webapp.py          # 默认 http://127.0.0.1:8765
-      python webapp.py --port 9000 --open
+⚠️ 阶段状态：本项目已进入「只优化后端」阶段，本文件属于冻结的 UI 层。
+   默认情况下 `python webapp.py` 会拒绝启动并指向 CLI 消息平台；
+   仅当显式设置 FORGE_ENABLE_UI=1 或加 --enable-frozen-ui 时才真正起服务。
+   冻结范围与边界约定见 ui_frozen.py；主入口请改用 `python main.py`。
+
+运行（已开启冻结层时）：python webapp.py          # 默认 http://127.0.0.1:8765
+                        python webapp.py --port 9000 --open
 
 使用 Starlette（已随环境安装），SSE 推送工具调用与最终回复；
 会话历史存同一份 sessions.sqlite，与终端入口互通。
@@ -42,6 +47,7 @@ from agent import assistant_agent
 from runtime.runner import AgentRuntime
 from runtime.task import TaskState
 from schemas import AgentReply
+from ui_frozen import require_ui_enabled
 
 # llama-ui 前端适配层（OpenAI 协议 → AgentRuntime）
 import llama_bridge
@@ -197,11 +203,29 @@ class _SPAStaticFiles(StaticFiles):
     - 无扩展名的「前端路由」（chat/xxx、settings 等）→ 回落 index.html。
     """
 
-    def _is_static_resource(self, path: str) -> bool:
+    def _is_api_like(self, path: str) -> bool:
+        """判断是否为 API-like 命名空间（不得 SPA fallback 成 HTML）。
+
+        llama-ui 前端存在大量相对请求（./props、./v1/models 等），页面挂在
+        /llama-ui/ 下会被解析成 /llama-ui/props。若这些 API-like 路径被静态层
+        回落到 index.html，前端按 JSON 解析会报 Unexpected token '<'。
+        """
+        lowered = path.lower().lstrip("/")
+        if lowered.startswith("llama-ui/"):
+            lowered = lowered[len("llama-ui/"):]
+        if lowered.startswith(("props/", "v1/", "tools/", "slots/", "models/", "stream/")):
+            return True
+        return lowered in ("props", "v1", "tools", "slots", "models", "stream")
+
+    def _is_static_resource(self, path: str, scope: dict) -> bool:
         p = path.lower()
         if p.startswith("_app/") or "apple-splash" in p or "favicon" in p or "manifest" in p:
             return True
-        return any(p.endswith(s) for s in _RESOURCE_SUFFIXES)
+        if any(p.endswith(suffix) for suffix in _RESOURCE_SUFFIXES):
+            return True
+        if self._is_api_like(p) or self._is_api_like(scope.get("path", "")):
+            return True
+        return False
 
     async def get_response(self, path, scope):
         # 目录请求（/llama-ui/ 或 /llama-ui）→ 直接返回 index.html
@@ -210,9 +234,10 @@ class _SPAStaticFiles(StaticFiles):
         try:
             return await super().get_response(path, scope)
         except HTTPException as exc:
-            if exc.status_code == 404 and not self._is_static_resource(path):
-                # 前端路由（无资源扩展名）→ 回落 index.html 交给 SPA 路由
+            if exc.status_code == 404 and not self._is_static_resource(path, scope):
+                # 普通前端路由（无资源扩展名、且不是 API-like 命名空间）→ 回落 index.html
                 return await super().get_response("index.html", scope)
+            # API-like 命名空间（props/...、v1/... 等）/静态资源 → 保留 404 不回落
             raise
 
 
@@ -227,16 +252,14 @@ async def index_page(_request: Request) -> RedirectResponse:
     return RedirectResponse("/llama-ui/", status_code=302)
 
 
-async def runtime_page(_request: Request) -> HTMLResponse:
-    """/runtime → 旧版 v2 Runtime UI（保留为回滚入口；根路径已切到 llama-ui）。"""
-    path = BASE_DIR / "web" / "runtime.html"
-    html = path.read_text(encoding="utf-8") if path.exists() else "<h1>web/runtime.html 缺失</h1>"
-    return HTMLResponse(html, headers={"Cache-Control": "no-store"})
+async def runtime_page(_request: Request) -> RedirectResponse:
+    """旧 Runtime UI 入口已下线：统一跳转唯一前端 llama-ui。"""
+    return RedirectResponse("/llama-ui/", status_code=301)
 
 
 async def legacy_chat_page(_request: Request) -> RedirectResponse:
-    """旧版聊天页已下线：统一收敛到当前正式主界面（品牌统一）。"""
-    return RedirectResponse("/", status_code=301)
+    """旧版聊天页已下线：统一跳转唯一前端 llama-ui。"""
+    return RedirectResponse("/llama-ui/", status_code=301)
 
 
 async def api_sessions(_request: Request) -> JSONResponse:
@@ -1957,19 +1980,25 @@ app = Starlette(
         Mount("/llama-ui", app=_SPAStaticFiles(
             directory=str(BASE_DIR / "web" / "llama-ui")),
             name="llama-ui-assets"),
-        Mount("/rt", app=StaticFiles(directory=str(BASE_DIR / "web" / "runtime")), name="runtime-assets"),
     ]
 )
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="全能助手 - 本地网页界面")
+    parser = argparse.ArgumentParser(description="全能助手 - 本地网页界面（已冻结，见 ui_frozen.py）")
     parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认仅本机）")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--open", action="store_true", help="启动后自动打开浏览器")
     parser.add_argument("--metrics-port", type=int, default=9095,
                         help="Router 指标 Prometheus 端点端口（0=不启动指标线程，默认 9095）")
+    parser.add_argument("--enable-frozen-ui", action="store_true",
+                        help="显式开启已冻结的网页界面（等价于 FORGE_ENABLE_UI=1）")
     args = parser.parse_args()
+
+    # 冻结层门禁：未显式开启时拒绝启动，避免「只优化后端」阶段被 UI 意外带起来。
+    if not require_ui_enabled(sys.argv[1:]):
+        raise SystemExit(2)
+
     for stream in (sys.stdout, sys.stderr):
         try:
             stream.reconfigure(encoding="utf-8")

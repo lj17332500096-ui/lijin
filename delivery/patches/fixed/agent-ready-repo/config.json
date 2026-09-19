@@ -1,0 +1,15 @@
+{
+  "name": "agent-ready-repo",
+  "displayName": "软件交付 智能编排 质量门禁",
+  "encoding_fallback": [
+    "utf-8",
+    "gbk",
+    "gb18030"
+  ],
+  "features": [
+    "cli",
+    "selftest",
+    "dry-run",
+    "error-handling"
+  ]
+}

@@ -631,3 +631,143 @@ def test_full_headless():
             assert panel.bar.popup is not None
 
     asyncio.run(_run())
+
+
+# ════════════════════════════════════════════════════════════════
+#  Section 7: 布局回归（"界面显示不全" 的真实成因）
+#
+#  三个成因（均已修复，此处锁定）：
+#   1. InputBar 继承 Textual Vertical 的默认 height: 1fr
+#      → 和 MessageLog 平分屏幕，消息区被压扁、底部留大片空白
+#   2. .forge-input 写 height: 1，上下边框各吃 1 行
+#      → 内容区 0 行，输入框变成空的边框方块，placeholder 不可见
+#   3. SlashPopup 默认可见 + Footer 在 1fr 容器里 dock: bottom
+#      → 启动时常驻空白方块；Footer 宽度不扣 margin，最右 binding 被挤出屏幕
+# ════════════════════════════════════════════════════════════════
+
+def test_message_log_fills_available_height():
+    """MessageLog 必须吃掉剩余全部高度，不能被 InputBar 分走一半。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="layout")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            panel = app.query_one(TuiPanels)
+            assert panel.msglog.region.height >= 20, (
+                f"MessageLog 只拿到 {panel.msglog.region.height} 行，"
+                "InputBar 疑似又抢走了 1fr"
+            )
+            assert panel.bar.region.height <= 6, (
+                f"InputBar 占了 {panel.bar.region.height} 行"
+            )
+
+    asyncio.run(_run())
+
+
+def test_layout_fills_screen_exactly():
+    """Header + MessageLog + InputBar 高度之和 == 终端行数，底部不留空白。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="layout")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            panel = app.query_one(TuiPanels)
+            total = (
+                panel.header.region.height
+                + panel.msglog.region.height
+                + panel.bar.region.height
+            )
+            assert total == app.screen.region.height, (
+                f"三段高度 {total} != 屏幕 {app.screen.region.height}"
+            )
+            assert panel.bar.region.bottom == app.screen.region.height
+
+    asyncio.run(_run())
+
+
+def test_input_has_visible_content_row():
+    """输入框至少 1 行内容区，否则 placeholder 完全不显示。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="layout")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            inp = app.query_one(TuiPanels).bar.input
+            assert inp.content_size.height >= 1, "输入框内容区高度为 0，占位符不可见"
+            assert inp.content_size.width > 40
+            assert "Enter" in inp.placeholder
+
+    asyncio.run(_run())
+
+
+def test_slash_popup_hidden_on_start():
+    """启动时 popup 必须隐藏，否则常驻一个空白边框方块。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="layout")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            popup = app.query_one(TuiPanels).bar.popup
+            assert popup is not None
+            assert popup.display is False
+            assert popup.region.width == 0 and popup.region.height == 0
+
+    asyncio.run(_run())
+
+
+def test_slash_popup_expands_then_collapses():
+    """popup 出现时 MessageLog 让出高度，Esc 后收回。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="layout")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            panel = app.query_one(TuiPanels)
+            full = panel.msglog.region.height
+
+            panel.bar.input.value = "/mo"
+            await pilot.pause()
+            await pilot.pause()
+            assert panel.bar.popup.display is True
+            assert panel.bar.popup.region.height >= 1
+            assert panel.msglog.region.height < full
+
+            await pilot.press("escape")
+            await pilot.pause()
+            await pilot.pause()
+            assert panel.bar.popup.display is False
+            assert panel.msglog.region.height == full
+
+    asyncio.run(_run())
+
+
+def test_footer_within_screen_width():
+    """Footer 不得溢出屏幕右边界。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="layout")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            footer = app.query_one(TuiPanels).bar.footer
+            assert footer.region.right <= app.screen.region.width, (
+                f"Footer 右边界 {footer.region.right} 溢出屏幕 {app.screen.region.width}"
+            )
+            assert footer.region.height == 1
+
+    asyncio.run(_run())
+
+
+def test_layout_survives_narrow_terminal():
+    """80x24 窄屏也不能出现塌陷或溢出。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="layout")
+        async with app.run_test(size=(80, 24)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            panel = app.query_one(TuiPanels)
+            assert panel.msglog.region.height >= 10
+            assert panel.bar.region.height <= 6
+            assert panel.bar.region.bottom == app.screen.region.height
+            assert panel.bar.input.content_size.height >= 1
+
+    asyncio.run(_run())

@@ -187,18 +187,61 @@ def format_mcp_result(display_name: str, result: Any, max_len: int = 6000) -> st
 
 
 def _make_mcp_invoke(server: MCPServerStdio, remote_name: str, display_name: str):
+    import asyncio as _asyncio
+    import json as _json
+
+    # 网络类异常（幂等）适合退避重试；非网络类直接返回错误文本，不重试。
+    _MCP_RETRYABLE: tuple[type[BaseException], ...] = (
+        _asyncio.TimeoutError,
+        ConnectionError,
+        TimeoutError,
+        OSError,
+    )
+
     async def invoke(_ctx: Any, args_json: str) -> str:
         try:
-            arguments = json.loads(args_json or "{}")
+            arguments = _json.loads(args_json or "{}")
             if not isinstance(arguments, dict):
                 arguments = {}
-        except json.JSONDecodeError:
+        except _json.JSONDecodeError:
             return f"{display_name} 参数不是合法 JSON，已拒绝调用。"
-        try:
-            result = await server.call_tool(remote_name, arguments)
-        except Exception as exc:  # noqa: BLE001 - 工具错误以文本返回给模型，不崩 Run
-            return f"{display_name} 执行出错：{type(exc).__name__}: {str(exc)[:300]}"
-        return format_mcp_result(display_name, result)
+
+        import os as _os
+        import random as _random
+
+        attempts = int(_os.getenv("FORGE_MCP_ATTEMPTS", "3") or 3)
+        base_delay = float(_os.getenv("FORGE_MCP_BASE_DELAY", "0.5") or 0.5)
+        cap = float(_os.getenv("FORGE_MCP_RETRY_CAP", "8.0") or 8.0)
+
+        last_network_exc: BaseException | None = None
+        result: Any = None
+        got_result = False
+        for attempt in range(1, max(1, attempts) + 1):
+            try:
+                result = await server.call_tool(remote_name, arguments)
+                got_result = True
+                break
+            except _MCP_RETRYABLE as exc:
+                last_network_exc = exc
+                if attempt >= attempts:
+                    break
+                backoff = min(cap, base_delay * (2 ** (attempt - 1)))
+                sleep_s = _random.uniform(0.0, backoff)
+                import logging as _logging
+                _logging.getLogger("mcp_bridge").info(
+                    "%s attempt %d/%d failed (%s), retry in %.2fs",
+                    display_name, attempt, attempts,
+                    type(exc).__name__, sleep_s,
+                )
+                await _asyncio.sleep(sleep_s)
+            except Exception as exc:  # 非网络类：参数/认证等错误，不重试
+                return f"{display_name} 执行出错：{type(exc).__name__}: {str(exc)[:300]}"
+
+        if got_result:
+            return format_mcp_result(display_name, result)
+        # 网络异常耗尽
+        return (f"{display_name} 执行出错（已重试 {attempts} 次）："
+                f"{type(last_network_exc).__name__}: {str(last_network_exc)[:300]}")
 
     return invoke
 
@@ -292,12 +335,16 @@ async def ensure_connected() -> bool:
         return True
 
     mounted_total: list[FunctionTool] = []
+    # npx 冷启动（拉包）可能 > 5s（库默认 client_session_timeout_seconds=5），
+    # 提到 60s 避免 gitee/playwright 冷启动时超时被跳过；FORGE_MCP_CONNECT_TIMEOUT 可覆盖。
+    _conn_timeout_s: float = float(os.getenv("FORGE_MCP_CONNECT_TIMEOUT", "60") or 60)
     for spec in specs:
         env = dict(os.environ)
         env.update(spec["env"])
         server = MCPServerStdio(
             name=spec["name"],
             params={"command": spec["command"], "args": spec["args"], "env": env},
+            client_session_timeout_seconds=_conn_timeout_s,
         )
         try:
             await server.connect()

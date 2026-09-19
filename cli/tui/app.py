@@ -171,28 +171,41 @@ class ForgeTuiApp(App):
         padding: 0 1;
     }}
     InputBar {{
-        /* 不固定高度：popup 显示时自动扩展，隐藏时收缩 */
+        /* ⚠️ Textual 的 Vertical 默认 CSS 是 height: 1fr，
+           不显式写 auto 会让 InputBar 和 MessageLog 各抢一半屏幕，
+           表现为消息区被压扁、输入区下留大片空白。
+           popup 显示时自动扩展，隐藏时收缩。 */
+        height: auto;
         width: 100%;
     }}
     .forge-input {{
-        height: 1;
+        /* Textual 的 height 是边框盒高度：上下边框各占 1 行，
+           所以 1 行内容需要 height: 3（写 1 会被边框吃光，内容区变 0 行，
+           placeholder 完全不显示）。 */
+        height: 3;
         margin: 0 1;
         background: {PANEL};
         border: solid {BORDER};
         color: {TEXT_C};
     }}
     Footer {{
+        /* 覆盖 Footer 默认的 dock: bottom。它已经被 auto 高度的 InputBar
+           放到屏幕底部，再 dock 一次会让宽度不扣 margin（溢出 1 列），
+           并把最右侧的 binding 挤掉。改为跟随 InputBar 内部流式排列。 */
+        dock: none;
         height: 1;
         margin: 0 1;
         color: {MUTED};
     }}
     SlashPopup {{
+        /* 默认隐藏；show() 用 inline style 覆盖成 display: block。
+           不隐藏的话启动时会常驻一个空的带边框方块。 */
+        display: none;
         height: auto;
         background: {PANEL};
         border: solid {BORDER};
         margin: 0 1;
         padding: 0 1;
-        /* 默认隐藏；show() 时 display=True */
     }}
     """
 

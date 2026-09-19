@@ -1,15 +1,19 @@
 """Phase 19：Decision Qualification Harness（checkpoint-based decision probe）。
 
-不跑完整 coding run：重建“mutation 已完成、verification_due=true”的真实 checkpoint
+不跑完整 coding run：重建"mutation 已完成、verification_due=true"的真实 checkpoint
 （真实 RunContext / Tool Router / tool definitions / system prompt / 真实 mutation 工具结果 /
-真实 obligation feedback），然后让**真实本地模型**做一次真实 decision turn，只观察第一项动作。
+真实 obligation feedback），然后让**真实模型**做一次真实 decision turn，只观察第一项动作。
 
 不是 Mock：使用真实 agent（route_agent）、真实工具、真实模型、真实 obligation 文本。
 Decision qualification ≠ E2E qualification。
 
+模型源跟随生产（2026-09-19 Phase 1 审计纠正）：
+- FORGE_MODEL_PREF=local → local_model_provider()
+- 其余 → 生产默认 MODEL_PROVIDER（.env 的网关，当前为 agnes-2.5-flash）
+不再硬置 local。
+
 用法：
     python -m benchmark.decision_checkpoint --n 10 --out phase19
-强制本地模型。
 """
 
 from __future__ import annotations
@@ -35,7 +39,7 @@ CASES = {
 
 MUTATION_TOOLS = {"write_project_file", "edit_project_file", "write_code_file",
                   "save_note", "save_word_doc", "save_excel_workbook", "save_ppt_deck"}
-VERIFICATION_TOOLS = {"run_tests", "run_python", "code_loop", "code_loop_tool"}
+VERIFICATION_TOOLS = {"run_tests", "run_python", "code_loop"}
 PREP_TOOLS = {"read_workspace_file", "list_workspace_files", "search_documents",
               "read_code_file", "list_code_files"}
 
@@ -76,9 +80,18 @@ async def _real_mutation() -> tuple[str, str, str]:
 async def _probe_case(case_id: str) -> dict:
     from agents import Runner, RunHooks
     import main as main_module
-    from agent import local_model_provider
+    from agent import local_model_provider, MODEL_PROVIDER
     from runtime.runner import AgentRuntime
     from runtime.runctx import RunContext, bind
+
+    # Phase 1 审计纠正：模型源跟随生产 resolver（.env 的 FORGE_MODEL_PREF）。
+    # local 才用 local provider；其余走生产网关 MODEL_PROVIDER（当前 agnes-2.5-flash）。
+    # 不再硬置 local（那是 BENCHMARK_NOT_PRODUCTION_PARITY 的根因）。
+    pref = (os.getenv("FORGE_MODEL_PREF", "") or "").strip().lower() or "gateway"
+    provider = local_model_provider() if pref == "local" else MODEL_PROVIDER
+    if provider is None:
+        # 兜底：跟随 main._run_config 的语义（None → 全局默认 MODEL_PROVIDER）
+        provider = main_module.MODEL_PROVIDER
 
     rt = AgentRuntime.get_default()
     rt._ensure()
@@ -113,7 +126,7 @@ async def _probe_case(case_id: str) -> dict:
     try:
         await Runner.run(agent, input=checkpoint,
                          run_config=main_module._run_config(
-                             provider=local_model_provider()),
+                             provider=provider),
                          hooks=hooks, max_turns=1)
     except Exception as exc:  # noqa: BLE001
         error = f"{type(exc).__name__}: {str(exc)[:120]}"
@@ -121,15 +134,15 @@ async def _probe_case(case_id: str) -> dict:
     latency = round(time.monotonic() - t, 1)
     return {"case": case_id, "verification_due": due, "revision": rev,
             "first_tool": first, "capability": _capability(first) if first else None,
+            "model_source": "local" if pref == "local" else "production_gateway",
             "latency_s": latency, "error": error,
             "mutation_result_head": mutation_result[:80]}
 
 
 async def run(n: int, outdir: Path) -> dict:
     import main as main_module  # noqa: F401
-    pref = (os.getenv("FORGE_MODEL_PREF", "") or "").strip().lower()
-    if pref != "local":
-        raise SystemExit(f"FORGE_MODEL_PREF={pref!r}；本轮禁止 gateway，必须为 local")
+    # Phase 1 审计纠正：不再强制 FORGE_MODEL_PREF=local。
+    # 模型源跟随生产 resolver（.env），消除 BENCHMARK_NOT_PRODUCTION_PARITY 的模型源漂移。
     rows: dict[str, list[dict]] = {}
     for case_id in CASES:
         runs = []

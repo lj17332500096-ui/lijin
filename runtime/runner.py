@@ -175,6 +175,7 @@ from runtime.terminalization import (
     KIND_NO_PROGRESS,
     KIND_REFUSED,
     KIND_TIMEOUT,
+    KIND_TOKEN_BUDGET,
     classify_exception,
     consistency_errors,
 )
@@ -898,9 +899,27 @@ class AgentRuntime:
                 activity = current_activity()
                 activity_call = activity.tool_started(name, effective_args, invocation_id) if activity else None
                 try:
-                    result = original.on_invoke_tool(ctx, args_json)
-                    if asyncio.iscoroutine(result):
-                        result = await result
+                    # MCP 网络工具（_mcp_source == "mcp"）走并发限流池：
+                    # 单 Run 最多 FORGE_TOOL_MAX_CONCURRENT（默认 3）个 MCP 工具并行；
+                    # 等待超时 → asyncio.TimeoutError，由下方 except 收口。
+                    _is_mcp = getattr(original, "_mcp_source", None) == "mcp"
+                    if _is_mcp:
+                        import resilience
+                        import os as _os_res
+                        _cap = int(_os_res.getenv("FORGE_TOOL_MAX_CONCURRENT", "3") or 3)
+                        _wait_timeout = float(_os_res.getenv("FORGE_MCP_SLOT_WAIT_TIMEOUT", "30") or 30)
+                        async with resilience.tool_slot(
+                            run_rid or "anon",
+                            max_concurrent=_cap,
+                            wait_timeout=_wait_timeout,
+                        ):
+                            result = original.on_invoke_tool(ctx, args_json)
+                            if asyncio.iscoroutine(result):
+                                result = await result
+                    else:
+                        result = original.on_invoke_tool(ctx, args_json)
+                        if asyncio.iscoroutine(result):
+                            result = await result
                 except asyncio.CancelledError:
                     if activity:
                         activity.tool_finished(activity_call, error=True)
@@ -1755,6 +1774,18 @@ class AgentRuntime:
         effective_budget, effective_turns = resolve_budget(task, budget, max_turns)
         profile = route_profile(task)
 
+        # ---- ④ 成本闸门：token 预算（与墙钟闸门并列的第二道刹车）----
+        # 记账口径：AuditCollector.ingest() 内按每次模型调用调 on_token_note；
+        # 超预算抛 BudgetExceeded("token_budget")，由 _fail 收口为终态
+        # （保留已发生的 mutation/验证证据，不静默降级）。0 关闭。
+        _tg_gate = None
+        _tg_usage: dict = {}
+        try:
+            from runtime.token_gate import attach_to_task as _attach_tgate
+            _tg_gate, _tg_usage = _attach_tgate(task, effective_budget.token_budget)
+        except Exception:
+            _tg_gate, _tg_usage = None, {}
+
         # v3：记忆作用域绑定 + Project Context（说明/来源/项目记忆/工作位置）
         proj = None
         if container_id:
@@ -1800,6 +1831,18 @@ class AgentRuntime:
             requested_model = None
         collector = AuditCollector(self.tasks, task.id,
                                    requested_model=requested_model, profile=profile)
+
+        # ---- ④ 成本闸门：把 token 记账回调挂到 collector（per-call 触发）----
+        if _tg_gate is not None and _tg_gate.is_open():
+            _gate = _tg_gate
+            _usage = _tg_usage
+
+            def _tg_note(in_tokens: int, out_tokens: int) -> None:
+                _usage["input"] = int(_usage.get("input", 0)) + int(in_tokens or 0)
+                _usage["output"] = int(_usage.get("output", 0)) + int(out_tokens or 0)
+                _gate.note(in_tokens, out_tokens)
+
+            collector.on_token_note = _tg_note
 
         # ---- P1-B/P1-C：绑定 RunContext（内存/文件边界/审批的 run-scoped 事实源）----
         try:
@@ -1999,7 +2042,35 @@ class AgentRuntime:
                   run_state: str = "failed", event_reason: str | None = None,
                   exc_orig: BaseException | None = None,
                   terminal_kind: str = KIND_BOUNDED_FAILURE) -> RunResult:
-            """把 Run 收口为失败：保留错误原因与已发生事实，不假装成功。"""
+            """把 Run 收口为失败：保留错误原因与已发生事实，不假装成功。
+
+            终态幂等预检：若任务已被取消/完成（CANCELLED/COMPLETED/FAILED），
+            不再尝试 CANCELLED→FAILED 等非法转换；只补一条事件后返回既有 task。
+            这修复了 cancel 与 fail 双收口时的竞态（runner.py:1053 _fail 调
+            mark_failure → assert_transition 抛"非法任务状态转换"）的根因。
+            """
+            _cur = self.tasks.get_task(task.id)
+            if _cur is not None and _cur.state in (
+                    TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELLED):
+                try:
+                    self.tasks.add_event(task.id, "run.terminal_idempotent_skip", {
+                        "already_state": _cur.state.value,
+                        "attempted": run_state,
+                        "error": str(error_text)[:300],
+                    })
+                except Exception:
+                    pass
+                result = RunResult(
+                    task=_cur, final_output=resp, ok=False,
+                    error=f"task already {_cur.state.value}; skipped failed transition",
+                    elapsed_seconds=_elapsed(), container_id=container_id,
+                    message_ids=message_ids,
+                )
+                if raise_on_error and _cur.state not in (TaskState.FAILED, TaskState.CANCELLED):
+                    if exc_orig is not None:
+                        raise exc_orig
+                    raise AgentError(str(error_text)[:1000])
+                return result
             failed = self.tasks.mark_failure(task.id, str(error_text)[:2000])
             try:
                 save_failure_checkpoint(self.tasks, failed, str(error_text)[:2000])
@@ -2152,41 +2223,53 @@ class AgentRuntime:
                 pass
 
         def _close_run() -> None:
-            activity = current_activity()
-            if activity and activity.run_id == task.id:
-                final_task = self.tasks.get_task(task.id)
-                if final_task and final_task.state.value in {"waiting_approval", "waiting_user"}:
-                    if not activity.waiting:
-                        activity.wait()
-                    activity.flush()
-                    activity.closed = True
-                elif final_task:
-                    activity.finish(final_task.state.value)
-            try:
-                gate.clear_run(task.id)
-            except Exception:
-                pass
-            try:
-                from runtime.provider_gateway import take_attempts
+            """收尾清理（纯副作用）——**任何异常都不得冒泡**。
 
-                attempts = take_attempts(task.id)
-                if self.tasks is not None:
-                    self.tasks.add_event(
-                        task.id, "provider.model_attempts",
-                        {"run_id": task.id, "count": len(attempts),
-                         "attempts": attempts[-10:]})
-                    # P1-4：同步落库（跨进程审计兜底）
-                    for _a in attempts:
-                        try:
-                            self.tasks.record_provider_attempt(
-                                task.id, _a.get("kind", "ok"), _a)
-                        except Exception:
-                            pass
-            except Exception:
+            清理路径会触碰文件系统（删除 provider 尝试记录等）。在部分运行环境
+            下，删文件可能抛 SystemExit（沙箱 / 安全护栏 / 自定义 sitecustomize）。
+            若让它冒泡，会顺着 run_turn -> _succeed 一路终止整个 uvicorn 进程
+            （症状是“服务跑一段时间后突然退出”）。因此最外层统一兜底。
+            """
+            try:
+                activity = current_activity()
+                if activity and activity.run_id == task.id:
+                    final_task = self.tasks.get_task(task.id)
+                    if final_task and final_task.state.value in {"waiting_approval", "waiting_user"}:
+                        if not activity.waiting:
+                            activity.wait()
+                        activity.flush()
+                        activity.closed = True
+                    elif final_task:
+                        activity.finish(final_task.state.value)
+                try:
+                    gate.clear_run(task.id)
+                except (Exception, SystemExit):
+                    pass
+                try:
+                    from runtime.provider_gateway import take_attempts
+
+                    attempts = take_attempts(task.id)
+                    if self.tasks is not None:
+                        self.tasks.add_event(
+                            task.id, "provider.model_attempts",
+                            {"run_id": task.id, "count": len(attempts),
+                             "attempts": attempts[-10:]})
+                        # P1-4：同步落库（跨进程审计兜底）
+                        for _a in attempts:
+                            try:
+                                self.tasks.record_provider_attempt(
+                                    task.id, _a.get("kind", "ok"), _a)
+                            except Exception:
+                                pass
+                except (Exception, SystemExit):
+                    # 审计清理失败不影响运行结果，也不影响后续状态复位。
+                    pass
+                self._ledgers.pop(task.id, None)
+                self._active_run_id = None
+                self.unregister_run_task(task.id)
+            except (Exception, SystemExit):
+                # 兜底：即使上面的清理步骤出现漏网异常，也不能拖垮服务。
                 pass
-            self._ledgers.pop(task.id, None)
-            self._active_run_id = None
-            self.unregister_run_task(task.id)
 
         # ------------------------------------------------------------------
         # 执行（含最多 1 次 Completion Repair）
@@ -2317,6 +2400,18 @@ class AgentRuntime:
                         clear_active_memory_binding()
                     except Exception:
                         pass
+
+                # ④ 成本闸门：终态前把累计 token 回灌事件（审计用途）
+                try:
+                    if _tg_usage:
+                        self.tasks.add_event(task.id, "run.token_usage", {
+                            "run_id": task.id,
+                            "input_tokens": _tg_usage.get("input", 0),
+                            "output_tokens": _tg_usage.get("output", 0),
+                            "budget": getattr(effective_budget, "token_budget", 0),
+                        })
+                except Exception:
+                    pass
 
                 # 审批结果判定（先于完成判定：真实 pending 就是唯一审批事实源；
                 # P1-C：显式按本 run 读取，避免并发时读错别的 run）
@@ -2514,6 +2609,11 @@ class AgentRuntime:
                                 stream_final(canonical, selected_agent, run_provider, activity, collector),
                                 effective_budget, task,
                             )
+                            # stream_final 返回的是最终 canonical（含面向用户的 content）。
+                            # 必须回写 canonical_json，否则 _succeed 会把 final_output 留成
+                            # None：llama_bridge / 其它消费者经 _assistant_parts(None) 只能
+                            # 拿到空正文（流式模式下表现为回答内容丢失）。
+                            canonical_json = json.dumps(canonical, ensure_ascii=False)
                             # Recheck the final expression against the same evidence, not a second verifier.
                             if completion_gate.evaluate(canonical, evidence, request_text=message) != GateVerdict.PASS:
                                 # P0-2 修复：stream 最终表达重评未过 → 不再 _fail 丢弃执行证据，

@@ -1,0 +1,248 @@
+{
+  "collected_at": "2026-09-19T07:31:38+0800",
+  "project": "my_creative_agent",
+  "stage": "UI frozen / backend-only optimization",
+  "runner": "pytest -q --tb=no",
+  "batch_size": 12,
+  "total_test_files": 89,
+  "batches": 8,
+  "totals": {
+    "passed": 1042,
+    "failed": 0,
+    "skipped": 6,
+    "errors": 0
+  },
+  "failed_tests": [],
+  "frozen_ui_tests": [
+    "tests/test_llama_bridge.py",
+    "tests/test_llama_stream_resume.py",
+    "tests/test_webapp.py"
+  ],
+  "batch_detail": [
+    {
+      "files": [
+        "tests/test_approval.py",
+        "tests/test_approval_execution_parity.py",
+        "tests/test_approval_lifecycle.py",
+        "tests/test_artifacts.py",
+        "tests/test_audit.py",
+        "tests/test_aux_provider_retry.py",
+        "tests/test_benchmark_evaluator.py",
+        "tests/test_budget_router.py",
+        "tests/test_capability_introspection.py",
+        "tests/test_cleanup_resilience.py",
+        "tests/test_cli_platform.py",
+        "tests/test_code_exec.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "duration_s": 16.51,
+      "counts": {
+        "passed": 153,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "failed_names": [],
+      "interrupted": false,
+      "tail": "........................................................................ [ 47%]\n............................................................... [ 88%]\n..................                                                       [100%]\n153 passed, 9 subtests passed in 15.43s",
+      "batch_index": 1
+    },
+    {
+      "files": [
+        "tests/test_codex_loop.py",
+        "tests/test_compact.py",
+        "tests/test_completion_gate.py",
+        "tests/test_concurrency_stress.py",
+        "tests/test_context_guard.py",
+        "tests/test_contract.py",
+        "tests/test_convergence_hardening.py",
+        "tests/test_dep_doctor.py",
+        "tests/test_fail_idempotent.py",
+        "tests/test_final_answer_boundary.py",
+        "tests/test_frontend_smoke.py",
+        "tests/test_github_fetch.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "duration_s": 18.77,
+      "counts": {
+        "passed": 106,
+        "failed": 0,
+        "skipped": 2,
+        "errors": 0
+      },
+      "failed_names": [],
+      "interrupted": false,
+      "tail": "...........................................................s............ [ 66%]\n..........................s.........                                     [100%]\n106 passed, 2 skipped in 17.92s",
+      "batch_index": 2
+    },
+    {
+      "files": [
+        "tests/test_guardrails.py",
+        "tests/test_llama_bridge.py",
+        "tests/test_llama_stream_resume.py",
+        "tests/test_m3_analyzer_truth.py",
+        "tests/test_main_helpers.py",
+        "tests/test_markdown_js.py",
+        "tests/test_mcp_bridge.py",
+        "tests/test_mcp_bridge_policy.py",
+        "tests/test_memory_store.py",
+        "tests/test_message_attachments.py",
+        "tests/test_model_select.py",
+        "tests/test_multimodal.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "duration_s": 16.52,
+      "counts": {
+        "passed": 135,
+        "failed": 0,
+        "skipped": 2,
+        "errors": 0
+      },
+      "failed_names": [],
+      "interrupted": false,
+      "tail": "    \"\"\"Streaming Markdown 空项目符号根因回归（TEST 1~7 的离线确定性部分）。\n\n-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html\n135 passed, 2 skipped, 1 warning in 15.64s",
+      "batch_index": 3
+    },
+    {
+      "files": [
+        "tests/test_obligation_gate.py",
+        "tests/test_observability.py",
+        "tests/test_office_docs.py",
+        "tests/test_p1_reliability.py",
+        "tests/test_phase10_guards.py",
+        "tests/test_phase11_completion.py",
+        "tests/test_phase12_obligations.py",
+        "tests/test_phase18_repair_semantics.py",
+        "tests/test_phase22_router_authority.py",
+        "tests/test_phase23_mutation_truth.py",
+        "tests/test_phase24_evidence_truth.py",
+        "tests/test_phase26_codeloop_dual.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "duration_s": 12.91,
+      "counts": {
+        "passed": 156,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "failed_names": [],
+      "interrupted": false,
+      "tail": "........................................................................ [ 46%]\n........................................................................ [ 92%]\n............                                                             [100%]\n156 passed in 11.95s",
+      "batch_index": 4
+    },
+    {
+      "files": [
+        "tests/test_phase30_strict_window.py",
+        "tests/test_phase3_hardening.py",
+        "tests/test_phase4_convergence.py",
+        "tests/test_phase4_terminalization.py",
+        "tests/test_phase5_runtime_proof.py",
+        "tests/test_phase7_reliability.py",
+        "tests/test_phase9_decision_policy.py",
+        "tests/test_production_closure.py",
+        "tests/test_productization.py",
+        "tests/test_project_edit.py",
+        "tests/test_project_model.py",
+        "tests/test_provider_deadline.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "duration_s": 14.36,
+      "counts": {
+        "passed": 138,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "failed_names": [],
+      "interrupted": false,
+      "tail": "........................................................................ [ 52%]\n..................................................................       [100%]\n138 passed in 13.47s",
+      "batch_index": 5
+    },
+    {
+      "files": [
+        "tests/test_provider_errors.py",
+        "tests/test_public_activity.py",
+        "tests/test_rag.py",
+        "tests/test_readiness_closure.py",
+        "tests/test_reply_parser.py",
+        "tests/test_research.py",
+        "tests/test_router_metrics_server.py",
+        "tests/test_runtime.py",
+        "tests/test_runtime_cleanup.py",
+        "tests/test_sandbox_snapshot.py",
+        "tests/test_scheduler.py",
+        "tests/test_schedules.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "duration_s": 15.4,
+      "counts": {
+        "passed": 159,
+        "failed": 0,
+        "skipped": 0,
+        "errors": 0
+      },
+      "failed_names": [],
+      "interrupted": false,
+      "tail": "........................................................................ [ 45%]\n........................................................................ [ 90%]\n...............                                                          [100%]\n159 passed in 14.49s",
+      "batch_index": 6
+    },
+    {
+      "files": [
+        "tests/test_schemas.py",
+        "tests/test_skill_gorden_ppt.py",
+        "tests/test_skills_loader.py",
+        "tests/test_sources_rag.py",
+        "tests/test_stream_pipe.py",
+        "tests/test_task_readiness.py",
+        "tests/test_task_runtime.py",
+        "tests/test_theme_cdp.py",
+        "tests/test_tmr_model.py",
+        "tests/test_tool_router.py",
+        "tests/test_tools.py",
+        "tests/test_trust.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "duration_s": 18.21,
+      "counts": {
+        "passed": 161,
+        "failed": 0,
+        "skipped": 1,
+        "errors": 0
+      },
+      "failed_names": [],
+      "interrupted": false,
+      "tail": "........................................................................ [ 44%]\n........................................................................ [ 89%]\n.................                                                        [100%]\n161 passed, 1 skipped in 17.13s",
+      "batch_index": 7
+    },
+    {
+      "files": [
+        "tests/test_ui_isolation.py",
+        "tests/test_ui_schema.py",
+        "tests/test_verification.py",
+        "tests/test_voice.py",
+        "tests/test_webapp.py"
+      ],
+      "returncode": 0,
+      "timed_out": false,
+      "duration_s": 6.91,
+      "counts": {
+        "passed": 34,
+        "failed": 0,
+        "skipped": 1,
+        "errors": 0
+      },
+      "failed_names": [],
+      "interrupted": false,
+      "tail": "..................................                                       [100%]\n34 passed, 1 skipped in 6.03s",
+      "batch_index": 8
+    }
+  ]
+}

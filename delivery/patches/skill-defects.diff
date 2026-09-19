@@ -1,0 +1,777 @@
+diff -ruN delivery/patches/orig/agent-ready-repo/run.py delivery/patches/fixed/agent-ready-repo/run.py
+--- delivery/patches/orig/agent-ready-repo/run.py	2026-09-19 07:53:28.305711400 +0800
++++ delivery/patches/fixed/agent-ready-repo/run.py	2026-09-19 08:00:05.851889700 +0800
+@@ -1,6 +1,9 @@
+ #!/usr/bin/env python3
+-"""run.py — 入口（WB 守卫 v2：契约自愈 + 边界守卫，2026-09-13 注入）
++"""run.py — 入口（WB 守卫 v3：契约自愈 + 边界守卫，2026-09-19 修订）
+ 原入口契约保留：暴露 main / run_selftest / read_text_safe / dry_run
++
++DEF-09：原按固定名 `_read_text_safe` 取名，而实现层暴露的是 `read_text_safe`，
++挂载结果恒为 None——「多编码容错」这条独有能力在入口层不可达。
+ """
+ import os, sys
+ 
+@@ -49,18 +52,45 @@
+     return None
+ 
+ 
+-run_selftest = getattr(_impl, 'run_selftest', None) if _impl is not None else None
+-read_text_safe = getattr(_impl, '_read_text_safe', None) if _impl is not None else None
++def _resolve(*names):
++    """按候选名依次解析实现层符号。
++
++    DEF-06/09：契约文档写的是 run_selftest / read_text_safe，实现层暴露的可能是
++    _run_selftest / _read_text_safe / _read_text_safe_enc。只取一个固定名会静默
++    变成 None——调用方拿不到能力却不报错，比抛异常更危险。
++    """
++    if _impl is None:
++        return None
++    for _n in names:
++        _f = getattr(_impl, _n, None)
++        if _f is not None:
++            return _f
++    return None
++
++
++run_selftest = _resolve('run_selftest', '_run_selftest', 'selftest')
++read_text_safe = _resolve('read_text_safe', '_read_text_safe', '_read_text_safe_enc')
+ dry_run = getattr(_impl, 'dry_run', False) if _impl is not None else False
+ 
+ 
++def _arg_names():
++    """把 _IN_ARG 归一化成参数名元组（支持单值字符串与多值元组两种历史形态）"""
++    if not _IN_ARG:
++        return ()
++    if isinstance(_IN_ARG, (tuple, list)):
++        return tuple(_IN_ARG)
++    return (_IN_ARG,)
++
++
+ def _b_read_input():
+     argv = sys.argv[1:]
+     if '--selftest' in argv or '--dry-run' in argv or '--help' in argv or '-h' in argv:
+         return ('SKIP', None)
+-    if _IN_ARG:
+-        for i, a in enumerate(argv):
+-            if a == _IN_ARG:
++    cands = _arg_names()
++    if cands:
++        for a in cands:
++            if a in argv:
++                i = argv.index(a)
+                 if i + 1 >= len(argv):
+                     return ('MISSING', None)
+                 v = argv[i + 1]
+@@ -80,8 +110,10 @@
+     if mode in ('SKIP', 'NOARG'):
+         return None
+     if mode == 'MISSING':
++        names = _arg_names()
++        expected = (' / '.join(names) if names else '--input') + ' <文件路径或文本>'
+         return _b_emit('need_input', reason='未提供输入参数',
+-                       expected=(_IN_ARG or '--input') + ' <文件路径或文本>',
++                       expected=expected,
+                        next_action='请提供待处理内容后重试')
+     if mode == 'UNREADABLE':
+         return _b_emit('unreadable_input', reason=text,
+@@ -94,10 +126,12 @@
+         return _b_emit('insufficient_input', got_chars=len(s), min_chars=_MIN_CHARS,
+                        next_action='请补充更多内容（至少 %d 个字符）后重试' % _MIN_CHARS)
+     if len(text) > _BIG_MAX:
+-        for i, a in enumerate(sys.argv):
+-            if a == _IN_ARG and i + 1 < len(sys.argv):
+-                sys.argv[i + 1] = s[:_BIG_MAX]
+-                break
++        for a in _arg_names():
++            if a in sys.argv:
++                i = sys.argv.index(a)
++                if i + 1 < len(sys.argv):
++                    sys.argv[i + 1] = s[:_BIG_MAX]
++                    break
+     return None
+ 
+ 
+diff -ruN delivery/patches/orig/agent-ready-repo/scripts/main.py delivery/patches/fixed/agent-ready-repo/scripts/main.py
+--- delivery/patches/orig/agent-ready-repo/scripts/main.py	2026-09-19 07:53:28.306808500 +0800
++++ delivery/patches/fixed/agent-ready-repo/scripts/main.py	2026-09-19 08:00:05.859136100 +0800
+@@ -17,14 +17,14 @@
+ import uuid
+ from dataclasses import dataclass, field
+ from typing import Any, Dict, List, Optional
+-
+-# WB 依赖降级注入（2026-09-13）：网络调用默认 8s 超时，防 hang 死（无产出）
+-try:
+-    import socket as _wb_sock
+-    _wb_sock.setdefaulttimeout(8)
+-except Exception:
+-    pass
+-
++
++# WB 依赖降级注入（2026-09-13）：网络调用默认 8s 超时，防 hang 死（无产出）
++try:
++    import socket as _wb_sock
++    _wb_sock.setdefaulttimeout(8)
++except Exception:
++    pass
++
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -506,12 +506,13 @@
+         return 1
+ 
+ 
+-if __name__ == "__main__":
+-    sys.exit(main())
+-
+-
+ def read_text_safe(path):
+-    """多编码容错读取 (selftest contract)"""
++    """多编码容错读取 (selftest contract)
++
++    DEF-10：原定义在 `if __name__ == "__main__":` 之后。脚本方式运行时
++    sys.exit(main()) 会在定义执行前就终止进程；模块导入方式却正常——
++    同一份代码两条路径行为不一致。上移到卫兵之前。
++    """
+     import codecs
+     for enc in ("utf-8", "gbk", "gb18030"):
+         try:
+@@ -521,3 +522,7 @@
+             continue
+     with open(path, "r", encoding="utf-8", errors="replace") as fh:
+         return fh.read()
++
++
++if __name__ == "__main__":
++    sys.exit(main())
+diff -ruN delivery/patches/orig/everything-openai-codex/run.py delivery/patches/fixed/everything-openai-codex/run.py
+--- delivery/patches/orig/everything-openai-codex/run.py	2026-09-19 07:53:28.832462000 +0800
++++ delivery/patches/fixed/everything-openai-codex/run.py	2026-09-19 08:00:05.896396100 +0800
+@@ -49,8 +49,24 @@
+     return None
+ 
+ 
+-run_selftest = getattr(_impl, 'run_selftest', None) if _impl is not None else None
+-read_text_safe = getattr(_impl, '_read_text_safe', None) if _impl is not None else None
++def _resolve(*names):
++    """按候选名依次解析实现层符号。
++
++    DEF-06/09：契约文档写的是 run_selftest / read_text_safe，实现层暴露的却是
++    _run_selftest / _read_text_safe_enc。只取一个固定名会静默变成 None，
++    调用方拿不到能力却不报错——比抛异常更危险。
++    """
++    if _impl is None:
++        return None
++    for _n in names:
++        _f = getattr(_impl, _n, None)
++        if _f is not None:
++            return _f
++    return None
++
++
++run_selftest = _resolve('run_selftest', '_run_selftest', 'selftest')
++read_text_safe = _resolve('read_text_safe', '_read_text_safe', '_read_text_safe_enc')
+ dry_run = getattr(_impl, 'dry_run', False) if _impl is not None else False
+ 
+ 
+diff -ruN delivery/patches/orig/everything-openai-codex/scripts/main.py delivery/patches/fixed/everything-openai-codex/scripts/main.py
+--- delivery/patches/orig/everything-openai-codex/scripts/main.py	2026-09-19 07:53:28.831461500 +0800
++++ delivery/patches/fixed/everything-openai-codex/scripts/main.py	2026-09-19 08:00:05.894397100 +0800
+@@ -10,14 +10,14 @@
+ from pathlib import Path
+ from datetime import datetime, timezone
+ from concurrent.futures import ThreadPoolExecutor, as_completed
+-
+-# WB 依赖降级注入（2026-09-13）：网络调用默认 8s 超时，防 hang 死（无产出）
+-try:
+-    import socket as _wb_sock
+-    _wb_sock.setdefaulttimeout(8)
+-except Exception:
+-    pass
+-
++
++# WB 依赖降级注入（2026-09-13）：网络调用默认 8s 超时，防 hang 死（无产出）
++try:
++    import socket as _wb_sock
++    _wb_sock.setdefaulttimeout(8)
++except Exception:
++    pass
++
+ dry_run = False  # v3.274 模块级 dry-run 标志
+ 
+ HERE = Path(__file__).resolve().parent
+@@ -27,6 +27,30 @@
+ HOOKS_FILE = HERE / "hooks.json"
+ RULES_FILE = HERE / "rules.json"
+ 
++# ── 自检隔离（DEF-05）──────────────────────────────────────────────
++# 自检里既会 save_memory() 也会直接写 hooks/rules 文件；不隔离就会用测试数据
++# 覆盖跨会话记忆与治理配置（真实事故：scripts/memory.json 曾被写成 task=test）。
++import contextlib as _contextlib
++import tempfile as _tempfile
++
++
++@_contextlib.contextmanager
++def contract_files_sandboxed():
++    """把 MEMORY_FILE / HOOKS_FILE / RULES_FILE 临时指向隔离目录，退出时无条件还原。"""
++    global MEMORY_FILE, HOOKS_FILE, RULES_FILE
++    saved = (MEMORY_FILE, HOOKS_FILE, RULES_FILE)
++    tmp = _tempfile.TemporaryDirectory(prefix="eoc-selftest-")
++    try:
++        base = Path(tmp.name)
++        MEMORY_FILE = base / "memory.json"
++        HOOKS_FILE = base / "hooks.json"
++        RULES_FILE = base / "rules.json"
++        yield base
++    finally:
++        MEMORY_FILE, HOOKS_FILE, RULES_FILE = saved
++        tmp.cleanup()
++
++
+ # 默认配置（可被 config.json 覆盖）
+ DEFAULT_CONFIG = {
+     "api_base": "https://api.openai.com/v1",
+@@ -359,7 +383,12 @@
+ 
+ 
+ def selftest() -> int:
+-    """自检：验证核心链路"""
++    """自检：验证核心链路（DEF-05：写盘类操作整体隔离在临时目录，不污染真实配置）"""
++    with contract_files_sandboxed():
++        return _selftest_body()
++
++
++def _selftest_body() -> int:
+     print("== everything-openai-codex 命令行工具自检 ==")
+     
+     # 1. 基础检查
+@@ -395,7 +424,7 @@
+     loaded_memory = load_memory()
+     assert loaded_memory["entries"], "记忆加载失败"
+     assert loaded_memory["last_updated"], "记忆时间戳缺失"
+-    print("  [OK] 记忆读写: %d 条" % len(loaded_memory["entries"]))
++    print("  [OK] 记忆读写: %d 条（隔离目录，真实记忆未改动）" % len(loaded_memory["entries"]))
+     
+     # 5. 钩子和规则加载测试（包含类型验证）
+     hooks = load_hooks()
+@@ -441,26 +470,60 @@
+     assert result["metadata"]["status"] == "error", "钩子测试应返回错误状态"
+     print("  [OK] 钩子执行: 已触发")
+     
+-    # 10. 测试 JSON 解析失败处理（应
++    # 10. 测试 JSON 解析失败处理（DEF-04：此前函数在此处被截断，隐式返回 None）
++    try:
++        json.loads("{invalid")
++        raise AssertionError("非法 JSON 应抛出 JSONDecodeError")
++    except json.JSONDecodeError:
++        print("  [OK] 非法 JSON 处理: 已捕获 JSONDecodeError")
++
++    # 11. 格式化输出路径（DEF-01/02/03 的点位：曾因格式串参数不匹配直接抛 TypeError）
++    with contract_files_sandboxed() as probe_dir:
++        assert _write_guarded(probe_dir / "probe.json", "abc", dry_run=True) is False
++        assert _write_guarded(probe_dir / "probe.json", "abc", dry_run=False, verbose=True) is True
++    assert "执行模式: everything-openai-codex / %s" % "正常执行"
++    print("  [OK] 格式化输出路径: dry-run / verbose / 执行模式")
++
++    print("\n== 自检完成：全部通过 ==")
++    return 0
+ 
+ # ==== 71 军规契约补丁 ====
+ 
++def _check_format_paths() -> None:
++    """DEF-01/02/03 回归点：这三条格式化输出路径曾因格式串参数不匹配直接抛 TypeError。"""
++    with contract_files_sandboxed() as sandbox:
++        assert _write_guarded(sandbox / "probe.json", "abc", dry_run=True) is False
++        assert _write_guarded(sandbox / "probe.json", "abc", dry_run=False, verbose=True) is True
++    assert "执行模式: everything-openai-codex / %s" % "force 强制写盘"
++    assert "  [PASS] everything-openai-codex %s" % "格式串自检"
++    assert "  [FAIL] everything-openai-codex %s" % "格式串自检"
++
++
+ def _run_selftest():
+-    """R1 契约：自测验证核心函数"""
++    """R1 契约：自测验证核心函数（含 DEF-01/02/03 覆盖的格式化输出路径）"""
+     import traceback
+     failures = 0
+     tests = [
+         ("模块可导入", lambda: __import__("sys") is not None),
+-        ("核心函数存在", lambda: True),
++        ("核心函数存在", lambda: all(callable(globals().get(_n)) for _n in (
++            "load_config", "load_memory", "save_memory", "load_hooks", "load_rules",
++            "match_trigger", "orchestrate_workflow"))),
++        ("SKILL.md 可读", lambda: bool(load_spec().strip())),
++        ("格式化输出路径", _check_format_paths),
+     ]
+     for name, fn in tests:
+         try:
+             fn()
+-            print("  [PASS] everything-openai-codex" % name)
++            print("  [PASS] everything-openai-codex/%s" % name)
+         except Exception:
+             failures += 1
+-            print("  [FAIL] everything-openai-codex" % name)
++            print("  [FAIL] everything-openai-codex/%s" % name)
+             traceback.print_exc()
++    # 全链路自检（DEF-04/05：selftest() 已补全收尾，且写盘类操作全部隔离在临时目录）
++    print("  [RUN ] everything-openai-codex/全链路 selftest()")
++    rc = selftest()
++    if rc != 0:
++        failures += 1
+     if failures:
+         print("自检失败 %d 项" % failures)
+         return 1
+@@ -482,15 +545,35 @@
+     return ""
+ 
+ 
++def read_text_safe(path):
++    """多编码容错读取（对外契约名）。
++
++    DEF-09：实现层原先只暴露 _read_text_safe_enc，run.py 按 read_text_safe /
++    _read_text_safe 取名都落空，导致「多编码容错」这条卖点在入口层不可达。
++    """
++    return _read_text_safe_enc(path)
++
++
++_read_text_safe = read_text_safe  # 兼容下划线前缀的挂载名
++
++
+ def _write_guarded(path, content, dry_run=False, force=False, verbose=False):
+-    """R4 预览/撤回：dry-run 默认不写盘，--force 才落盘；R6 输出明细"""
++    """R4 预览/撤回：dry-run 默认不写盘，--force 才落盘；R6 输出明细
++
++    DEF-02：原实现两条提示串只有 1 个 %d 占位符却传了 (path, len(content))，
++    参数错位必然抛 TypeError —— dry-run 预览（本技能的安全卖点）因此完全不可用。
++    """
++    _text = content if isinstance(content, str) else json.dumps(content, ensure_ascii=False, indent=2)
+     if dry_run and not force:
+-        print("[dry-run] 不写盘: everything-openai-codex (%d 字符)" % (path, len(content)))
++        print("[dry-run] 不写盘: %s (%d 字符)" % (path, len(_text)))
+         return False
+     from pathlib import Path as _P
+-    _P(path).write_text(content, encoding="utf-8")
++    _target = _P(path)
++    if str(_target.parent) and not _target.parent.exists():
++        _target.parent.mkdir(parents=True, exist_ok=True)
++    _target.write_text(_text, encoding="utf-8")
+     if verbose:
+-        print("[verbose] 已写盘: everything-openai-codex (%d 字符)" % (path, len(content)))
++        print("[verbose] 已写盘: %s (%d 字符)" % (path, len(_text)))
+     return True
+ 
+ 
+@@ -507,7 +590,7 @@
+         return _run_selftest()
+     if not args.dry_run or args.force:
+         # R4: dry-run 默认不写盘，force 才落盘
+-        print("执行模式: everything-openai-codex" % ("force 强制写盘" if args.force else "正常执行"))
++        print("执行模式: everything-openai-codex / %s" % ("force 强制写盘" if args.force else "正常执行"))
+     else:
+         print("预览模式: 仅展示不写盘")
+     return 0
+diff -ruN delivery/patches/orig/everything-openai-codex/scripts/memory.json delivery/patches/fixed/everything-openai-codex/scripts/memory.json
+--- delivery/patches/orig/everything-openai-codex/scripts/memory.json	2026-09-19 07:53:28.831461500 +0800
++++ delivery/patches/fixed/everything-openai-codex/scripts/memory.json	2026-09-19 08:00:05.895395400 +0800
+@@ -1,10 +1,4 @@
+ {
+-  "entries": [
+-    {
+-      "task": "test",
+-      "result": "ok",
+-      "timestamp": "2024-01-01T00:00:00+00:00"
+-    }
+-  ],
+-  "last_updated": "2026-08-14T07:11:24.799495+00:00"
+-}
+\ No newline at end of file
++  "entries": [],
++  "last_updated": null
++}
+diff -ruN delivery/patches/orig/workflow/run.py delivery/patches/fixed/workflow/run.py
+--- delivery/patches/orig/workflow/run.py	2026-09-19 07:53:29.378140300 +0800
++++ delivery/patches/fixed/workflow/run.py	2026-09-19 08:00:05.931160100 +0800
+@@ -1,11 +1,16 @@
+ #!/usr/bin/env python3
+-"""run.py — 入口（WB 守卫 v2：契约自愈 + 边界守卫，2026-09-13 注入）
++"""run.py — 入口（WB 守卫 v3：契约自愈 + 边界守卫 + 多输入参数，2026-09-19 修订）
+ 原入口契约保留：暴露 main / run_selftest / read_text_safe / dry_run
++
++DEF-07：原 `_IN_ARG = '--file'` 只扫描 --file，而实现层的主入口是
++--data / --url / --file 三选一，导致 --data 与 --url 两条有效路径经 run.py
++完全不可达，恒返回 status=need_input。
++DEF-09：原按固定名 _read_text_safe 取名，恒为 None。
+ """
+ import os, sys
+ 
+ _SKILL = 'workflow'
+-_IN_ARG = '--file'
++_IN_ARG = ('--data', '--url', '--file', '-d', '-u', '-f')
+ _BIG_MAX = 200000
+ _MIN_CHARS = 5
+ 
+@@ -49,18 +54,45 @@
+     return None
+ 
+ 
+-run_selftest = getattr(_impl, 'run_selftest', None) if _impl is not None else None
+-read_text_safe = getattr(_impl, '_read_text_safe', None) if _impl is not None else None
++def _resolve(*names):
++    """按候选名依次解析实现层符号。
++
++    DEF-06/09：契约文档写的是 run_selftest / read_text_safe，实现层暴露的可能是
++    _run_selftest / _read_text_safe / _read_text_safe_enc。只取一个固定名会静默
++    变成 None——调用方拿不到能力却不报错，比抛异常更危险。
++    """
++    if _impl is None:
++        return None
++    for _n in names:
++        _f = getattr(_impl, _n, None)
++        if _f is not None:
++            return _f
++    return None
++
++
++run_selftest = _resolve('run_selftest', '_run_selftest', 'selftest')
++read_text_safe = _resolve('read_text_safe', '_read_text_safe', '_read_text_safe_enc')
+ dry_run = getattr(_impl, 'dry_run', False) if _impl is not None else False
+ 
+ 
++def _arg_names():
++    """把 _IN_ARG 归一化成参数名元组（支持单值字符串与多值元组两种历史形态）"""
++    if not _IN_ARG:
++        return ()
++    if isinstance(_IN_ARG, (tuple, list)):
++        return tuple(_IN_ARG)
++    return (_IN_ARG,)
++
++
+ def _b_read_input():
+     argv = sys.argv[1:]
+     if '--selftest' in argv or '--dry-run' in argv or '--help' in argv or '-h' in argv:
+         return ('SKIP', None)
+-    if _IN_ARG:
+-        for i, a in enumerate(argv):
+-            if a == _IN_ARG:
++    cands = _arg_names()
++    if cands:
++        for a in cands:
++            if a in argv:
++                i = argv.index(a)
+                 if i + 1 >= len(argv):
+                     return ('MISSING', None)
+                 v = argv[i + 1]
+@@ -80,8 +112,10 @@
+     if mode in ('SKIP', 'NOARG'):
+         return None
+     if mode == 'MISSING':
++        names = _arg_names()
++        expected = (' / '.join(names) if names else '--input') + ' <文件路径或文本>'
+         return _b_emit('need_input', reason='未提供输入参数',
+-                       expected=(_IN_ARG or '--input') + ' <文件路径或文本>',
++                       expected=expected,
+                        next_action='请提供待处理内容后重试')
+     if mode == 'UNREADABLE':
+         return _b_emit('unreadable_input', reason=text,
+@@ -94,10 +128,12 @@
+         return _b_emit('insufficient_input', got_chars=len(s), min_chars=_MIN_CHARS,
+                        next_action='请补充更多内容（至少 %d 个字符）后重试' % _MIN_CHARS)
+     if len(text) > _BIG_MAX:
+-        for i, a in enumerate(sys.argv):
+-            if a == _IN_ARG and i + 1 < len(sys.argv):
+-                sys.argv[i + 1] = s[:_BIG_MAX]
+-                break
++        for a in _arg_names():
++            if a in sys.argv:
++                i = sys.argv.index(a)
++                if i + 1 < len(sys.argv):
++                    sys.argv[i + 1] = s[:_BIG_MAX]
++                    break
+     return None
+ 
+ 
+diff -ruN delivery/patches/orig/workflow/scripts/main.py delivery/patches/fixed/workflow/scripts/main.py
+--- delivery/patches/orig/workflow/scripts/main.py	2026-09-19 07:53:29.377140200 +0800
++++ delivery/patches/fixed/workflow/scripts/main.py	2026-09-19 08:00:05.930159200 +0800
+@@ -7,24 +7,26 @@
+ 功能: 将用户输入的数据、文件或链接，按规范转换为结构化结果并输出。
+ 
+ 本脚本为 clean-room 独立实现，仅依据功能规格编写。
+-支持 --selftest 参数进行离线自检（硬编码样例数据，不依赖外部环境）。
++支持 --selftest 参数进行离线自检（样例数据 + 临时文件，不依赖外部环境）。
+ """
+ 
+ import argparse
++import csv
+ import json
++import os
+ import re
+ import sys
+ from datetime import datetime
+ from typing import Any, Dict, List, Optional
+ from datetime import timezone  # G2 时区修复
+-
+-# WB 依赖降级注入（2026-09-13）：网络调用默认 8s 超时，防 hang 死（无产出）
+-try:
+-    import socket as _wb_sock
+-    _wb_sock.setdefaulttimeout(8)
+-except Exception:
+-    pass
+-
++
++# WB 依赖降级注入（2026-09-13）：网络调用默认 8s 超时，防 hang 死（无产出）
++try:
++    import socket as _wb_sock
++    _wb_sock.setdefaulttimeout(8)
++except Exception:
++    pass
++
+ 
+ # 错误码定义
+ ERROR_CODES = {
+@@ -46,6 +48,9 @@
+     "身份证", "银行卡", "密码", "密钥", "authorization",
+ ]
+ 
++# 支持的文件扩展名（DEF-08：读取能力与校验规则必须一致）
++SUPPORTED_FILE_RE = r"\.(txt|json|md|log|csv)$"
++
+ 
+ class WorkflowError(Exception):
+     """自定义异常类，携带错误码。"""
+@@ -123,6 +128,23 @@
+     raise WorkflowError("E002", f"无法从文本中提取结构化信息: {text[:50]}...")
+ 
+ 
++def _extract_from_csv(text: str) -> List[Dict[str, str]]:
++    """把 CSV 文本解析为记录列表（首行为表头）。
++
++    SKILL.md 声明的核心能力是「CSV、JSON、TXT 等常见格式转为目标结构」，
++    而 CSV 无法被 _extract_from_text 的 JSON/键值对分支识别，必须单独处理。
++    """
++    reader = csv.DictReader(text.splitlines())
++    rows: List[Dict[str, str]] = []
++    for row in reader:
++        clean = {k: v for k, v in row.items() if k is not None}
++        if clean:
++            rows.append(clean)
++    if not rows:
++        raise WorkflowError("E002", "CSV 中没有可用的数据行")
++    return rows
++
++
+ def _extract_from_url(url: str) -> Dict[str, Any]:
+     """
+     从 URL 中提取信息（不实际访问网络，仅解析链接结构）。
+@@ -161,29 +183,64 @@
+ 
+ 
+ def _extract_from_file(file_path: str) -> Dict[str, Any]:
++    """从文件路径读取内容并提取结构化信息。
++
++    DEF-08：原实现只做扩展名正则校验就回显路径，并在返回里自陈
++    「文件内容未实际读取」，而 SKILL.md 把「文件格式转换」列为核心能力。
++    这里改为真正读取并解析；解析不出结构时降级为整文快照，而不是直接失败。
+     """
+-    从文件路径中读取内容并提取信息。
+-    注意：实际运行时可能无法读取文件，此处仅做格式检查。
+-    """
+-    # 检查文件路径格式
+     if not file_path or not isinstance(file_path, str):
+         raise WorkflowError("E007")
+ 
+-    # 检查扩展名
+-    if not re.search(r"\.(txt|json|md|log|csv)$", file_path, re.IGNORECASE):
++    if not re.search(SUPPORTED_FILE_RE, file_path, re.IGNORECASE):
+         raise WorkflowError("E007", f"不支持的文件类型: {file_path}")
+ 
+-    # 注意：根据规格说明，本脚本不实际读取文件内容
+-    # 仅返回文件路径信息，由上层调用者负责读取
+-    return {
+-        "data": {
+-            "file_path": file_path,
+-            "file_type": file_path.split(".")[-1] if "." in file_path else "unknown",
+-        },
++    if not os.path.exists(file_path):
++        raise WorkflowError("E007", f"文件不存在: {file_path}")
++    if os.path.isdir(file_path):
++        raise WorkflowError("E007", f"传入的是目录而非文件: {file_path}")
++
++    try:
++        with open(file_path, "r", encoding="utf-8", errors="replace") as fh:
++            text = fh.read()
++    except OSError as exc:
++        raise WorkflowError("E007", f"文件读取失败: {exc}") from exc
++
++    if not text.strip():
++        raise WorkflowError("E003", f"文件内容为空: {file_path}")
++
++    ext = file_path.rsplit(".", 1)[-1].lower()
++    base = {"file_path": file_path, "file_type": ext}
++
++    if ext == "csv":
++        rows = _extract_from_csv(text)
++        return {
++            "data": rows,
++            "source_type": "file",
++            "confidence": "高",
++            **base,
++            "note": f"已读取文件内容（{len(text)} 字符，{len(rows)} 行记录）",
++        }
++
++    try:
++        out = _extract_from_text(text)
++    except WorkflowError:
++        # md / log / txt：没有可识别的结构时给出整文快照
++        return {
++            "data": {"text": text},
++            "source_type": "file",
++            "confidence": "中",
++            **base,
++            "note": f"已读取文件内容（{len(text)} 字符），未识别出键值结构",
++        }
++
++    out.update({
+         "source_type": "file",
+-        "confidence": "低",
+-        "note": "文件内容未实际读取，请确认文件可访问",
+-    }
++        "confidence": out.get("confidence", "中"),
++        **base,
++        "note": f"已读取文件内容（{len(text)} 字符）",
++    })
++    return out
+ 
+ 
+ def _convert_to_markdown(structured_data: Dict[str, Any]) -> str:
+@@ -269,6 +326,11 @@
+             structured = _extract_from_url(url)
+         else:
+             structured = _extract_from_file(file_path)
++            # DEF-08 修复带来的新边界：文件既然被真实读取，其内容也必须过 E005 门禁，
++            # 否则 `--file` 会变成绕过敏感信息检测的旁路。
++            hit = _detect_sensitive_data(structured.get("data"))
++            if hit:
++                raise WorkflowError("E005", f"检测到敏感字段: {hit}（来自文件内容）")
+     except WorkflowError:
+         raise
+     except Exception as e:
+@@ -294,12 +356,30 @@
+     return result
+ 
+ 
++def read_text_safe(path):
++    """多编码容错读取 (selftest contract)
++
++    DEF-10：原定义在 `if __name__ == "__main__":` 之后。脚本方式运行时
++    main() 之后进程即结束，定义永不执行；模块导入方式却正常——同一份代码
++    两条路径行为不一致。上移到卫兵之前。
++    """
++    import codecs
++    for enc in ("utf-8", "gbk", "gb18030"):
++        try:
++            with codecs.open(path, "r", encoding=enc) as fh:
++                return fh.read()
++        except (UnicodeDecodeError, OSError):
++            continue
++    with open(path, "r", encoding="utf-8", errors="replace") as fh:
++        return fh.read()
++
++
+ def run_selftest() -> None:
+     """
+     运行自检程序，验证核心逻辑的正确性。
+     """
+     print("开始自检...")
+-    
++
+     # 测试 1: JSON 输入
+     try:
+         result = process_input(data='{"name": "张三", "age": 30}')
+@@ -333,12 +413,19 @@
+         print(f"✗ URL 输入测试失败: {e}")
+         sys.exit(1)
+ 
+-    # 测试 4: 文件输入
++    # 测试 4: 文件输入（DEF-08：必须真实读取内容，而不是只回显路径）
+     try:
+-        result = process_input(file_path="/tmp/test.json")
+-        assert result["status"] == "success"
+-        assert result["data"]["source_type"] == "file"
+-        print("✓ 文件输入测试通过")
++        import tempfile
++        with tempfile.TemporaryDirectory() as td:
++            probe = os.path.join(td, "sample.json")
++            with open(probe, "w", encoding="utf-8") as fh:
++                json.dump({"姓名": "张三", "年龄": 30}, fh, ensure_ascii=False)
++            result = process_input(file_path=probe)
++            assert result["status"] == "success"
++            assert result["data"]["source_type"] == "file"
++            assert result["data"]["file_type"] == "json"
++            assert result["data"]["data"]["姓名"] == "张三", "文件内容未被真实读取"
++        print("✓ 文件输入测试通过（内容已真实读取）")
+     except Exception as e:
+         print(f"✗ 文件输入测试失败: {e}")
+         sys.exit(1)
+@@ -377,6 +464,44 @@
+         print(f"✗ Markdown 输出测试失败: {e}")
+         sys.exit(1)
+ 
++    # 测试 8: CSV 文件输入（SKILL.md 声明的「CSV → 规范 JSON 数组」能力）
++    try:
++        import tempfile
++        with tempfile.TemporaryDirectory() as td:
++            csv_probe = os.path.join(td, "sample.csv")
++            with open(csv_probe, "w", encoding="utf-8") as fh:
++                fh.write("姓名,年龄\n张三,30\n李四,25\n")
++            result = process_input(file_path=csv_probe)
++            assert result["status"] == "success"
++            rows = result["data"]["data"]
++            assert isinstance(rows, list) and len(rows) == 2, f"CSV 行数异常: {rows}"
++            assert rows[0]["姓名"] == "张三"
++            assert rows[1]["年龄"] == "25"
++        print("✓ CSV 文件输入测试通过")
++    except Exception as e:
++        print(f"✗ CSV 文件输入测试失败: {e}")
++        sys.exit(1)
++
++    # 测试 9: 文件内容同样受敏感信息门禁约束（防 --file 绕过 E005）
++    try:
++        import tempfile
++        with tempfile.TemporaryDirectory() as td:
++            sec = os.path.join(td, "secret.json")
++            with open(sec, "w", encoding="utf-8") as fh:
++                json.dump({"password": "123456"}, fh, ensure_ascii=False)
++            try:
++                process_input(file_path=sec)
++                print("✗ 文件敏感信息门禁测试失败: 未拦截")
++                sys.exit(1)
++            except WorkflowError as e:
++                assert e.error_code == "E005", f"错误码应为 E005，实际 {e.error_code}"
++        print("✓ 文件敏感信息门禁测试通过")
++    except SystemExit:
++        raise
++    except Exception as e:
++        print(f"✗ 文件敏感信息门禁测试失败: {e}")
++        sys.exit(1)
++
+     print("\n所有自检测试通过！")
+ 
+ 
+@@ -418,16 +543,3 @@
+ 
+ if __name__ == "__main__":
+     main()
+-
+-
+-def read_text_safe(path):
+-    """多编码容错读取 (selftest contract)"""
+-    import codecs
+-    for enc in ("utf-8", "gbk", "gb18030"):
+-        try:
+-            with codecs.open(path, "r", encoding=enc) as fh:
+-                return fh.read()
+-        except (UnicodeDecodeError, OSError):
+-            continue
+-    with open(path, "r", encoding="utf-8", errors="replace") as fh:
+-        return fh.read()

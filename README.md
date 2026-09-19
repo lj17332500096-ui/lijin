@@ -667,6 +667,30 @@ python -c "from runtime.tool_router import select_tool_names; from agent import 
 print(select_tool_names('把月支出做成 Excel', [t.name for t in assistant_agent.tools]))"
 ```
 
+### 工具层韧性（退避重试 + 并发限流 + 幂等键，2026-09-19）
+
+工具调用统一走 `runtime.broker.ToolBroker`（Runner 已用），2026-09-19 起新增三件：
+
+- **退避抖动重试**：`resilience.run_with_retries(attempt_factory, attempts,
+  base_delay, cap, retryable)` —— 指数退避 + 完全随机抖动（full-jitter），
+  只对网络类异常（Timeout/Connection/OSError）重试，非网络类直接透传；
+  工具层通过 `ToolBroker.execute_resilient(name, args)` 显式 opt-in（既有
+  `execute()` 行为不变）。
+- **单 Run 并发限流**：`resilience.tool_slot(run_id, max_concurrent)`（Semaphore），
+  默认 3（`FORGE_TOOL_MAX_CONCURRENT` 可覆盖）；等待超时 → `asyncio.TimeoutError`
+  （避免一个慢工具卡死整条工具池）。
+- **幂等键**：`resilience.idempotency_key(run_id, tool_name, args_json)`
+  （`sha1(run_id|tool|sort_keys(args))[:16]`），同一 Run 内同参同工具去重，
+  可作为写-Ahead 台账去重维度（`tool_calls.invocation_id` 仍是唯一执行键）。
+
+### 成本闸门（token 预算，2026-09-19）
+
+`RunBudget.token_budget`（默认 50_000，`FORGE_TOKEN_BUDGET` 可覆盖；0=关闭）+
+`runtime.token_gate.TokenBudgetGate`：单 Run 累计 input+output token 超预算时
+抛 `BudgetExceeded("token_budget")`，由 Runner 既有错误路径收口为终态
+（kind=`token_budget`），**不静默降级**（保留已发生的 mutation/验证证据）。
+与 `max_wall_seconds` 墙钟闸门并列，双闸刹车。
+
 ### Artifact Store（产物登记，服务器端真相）
 
 任务成功结束时，Runtime 自动把本轮在 `notes/`、`exports/` 里新产出的文件登记为
@@ -735,6 +759,51 @@ FORGE Runtime Core 已于 2026-09-07 冻结（详见
 - **一键回归**：`.\regression.ps1`（见「评估与回归测试」）。
 - **已接受的残余限制**（诚实清单）：PAUSED 为 DB 级状态、run_python 无 OS 级网络沙箱、
   Sources 危险内容检测未激活、跨进程/跨库无事务等，均记录在冻结报告中，不伪装“已解决”。
+
+### 灰度与回滚（收口门 / 路由策略变更）
+
+任何**收口门 / 路由策略 / 工具子集 / 审批名单**的变更都走金丝雀（不在代码层硬切，
+而是在 `.env` + 评测集双闸门控），步骤：
+
+1. **基线跑分**：变更前先跑 50 case 基线（见「评测体系」章节）
+   `python -m benchmark.eval_runner --all --out runs_eval --deadline 300`
+   再 `python -m benchmark evaluate --runs runs_eval --label BASELINE --out runs_eval/report.json`。
+   把 Behavior Pass Rate、Safety Violation Rate、E2E Success Rate 三个数记进
+   `delivery/baselines/<date>-<change>.json`。
+2. **灰度 10% 流量**：新策略只挂到 `FORGE_MCP_ALLOWLIST` / `APPROVAL_GATED_TOOLS` /
+   `TOOL_ROUTER` 等可独立开关的 env，**先在 10% 会话上启用**（按 session_id hash 取模
+   10），同跑 50 case 评测集，指标全等或更优才进下一步；任何 Safety Violation
+   回退 0 容忍（出现 1 次即回滚）。
+3. **全量放行**：灰度 48h 无 P0 事件（runtime_p0、approval_bypass、false_completion
+   任一 > 0 即停），指标 ≥ 基线 95% 才全量。
+4. **回滚**：回滚 = 改回 env 开关值 + 重跑一次 50 case，报告归档
+   `delivery/rollbacks/<date>-<change>.json`，不删旧策略代码（保留可灰度重切）。
+
+**触发条件**（任一即回滚）：
+- 安全类指标（approval_bypass / readonly_mutation / false_completion）出现 1 次；
+- Behavior Pass Rate 比基线下降 > 5%；
+- E2E Success Rate 比基线下降 > 3%；
+- P95 延迟比基线上升 > 50%。
+
+### 评测体系（50 case 真值化，Phase 5）
+
+`benchmark/eval_runner.py` 把 `benchmark.cases` 的 50 个 prompt 喂给真实 AgentRuntime
+（同 .env、同路由、同收口门），产出 raw 记录后用 `benchmark.evaluator` +
+`benchmark.report` 评成权威报告：
+
+```powershell
+# 跑全部 50 case（约 50 × 单 case 平均 30s ≈ 25min；可 --cases T001,T002 跑子集）
+python -m benchmark.eval_runner --all --out runs_eval --deadline 300
+# 评报告
+python -m benchmark evaluate --runs runs_eval --label RUN-A --out runs_eval/report.json
+# 对比 3 轮稳定性
+python -m benchmark stability --a runs_A.json --b runs_B.json --c runs_C.json
+```
+
+- **指标口径**：Behavior Pass Rate（行为验收）、Safety Violation Rate（安全红线）、
+  E2E Success Rate（生产终态成功比）、Observability（trace_export 按 run_id 聚合）；
+- **执行无效**（provider 超时 / harness 崩）不入通过率分母，单列 `not_evaluable`；
+- **运行器不引重复系统**：复用既有 `cases / evaluator / report`，不建第二套。
 
 ## MCP 外部工具接入
 

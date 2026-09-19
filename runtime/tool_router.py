@@ -28,7 +28,8 @@ _ROUTER_METRICS_PATH = _PROJECT_ROOT / "logs" / "router_metrics.jsonl"
 # 指标累加器（进程内，按时间窗口聚合）
 _metrics_state: dict = {
     "total": 0,          # 总调用次数
-    "hit_zero": 0,       # 命中 0 目标工具次数（只给基础 4 件套）
+    "hit_zero": 0,       # 命中 0 目标工具次数（仅 tool_needed/ambiguous 计入，修复 C）
+    "total_intent_tool": 0,  # 新增：tool_needed + ambiguous 调用次数（hit_zero 真实分母）
     "escalated": 0,      # C2 熔断升级次数
     "fast_mode": 0,      # 逃生门命中次数
     "empty": 0,         # direct_text 路径（返回 0 工具）
@@ -52,7 +53,12 @@ def _maybe_flush_metrics() -> None:
         entry = {
             "ts": datetime.now().isoformat(timespec="seconds"),
             "total_calls": _metrics_state["total"],
-            "hit_zero_rate": round(_metrics_state["hit_zero"] / max(_metrics_state["total"], 1), 4),
+            # 修复 C：hit_zero_rate 分母改为"有工具意图"的调用次数（total_intent_tool），
+            # 不再混入 direct_text / concept_qa / arith 这些本就无需工具的查询。
+            "hit_zero_rate": round(
+                _metrics_state["hit_zero"] / max(_metrics_state["total_intent_tool"], 1), 4
+            ),
+            "total_intent_tool": _metrics_state["total_intent_tool"],
             "escalated_total": _metrics_state["escalated"],
             "fast_mode_total": _metrics_state["fast_mode"],
             "empty_rate": round(_metrics_state["empty"] / max(_metrics_state["total"], 1), 4),
@@ -72,6 +78,7 @@ def record_router_call(
     escalated: bool = False,
     fast_mode: bool = False,
     empty: bool = False,
+    intent_class: str = "",
 ) -> None:
     """外部（C2 熔断/fast 模式）调用的指标记录入口；由 select_tool_names 内部调用。"""
     _metrics_state["total"] += 1
@@ -83,6 +90,9 @@ def record_router_call(
         _metrics_state["fast_mode"] += 1
     if empty:
         _metrics_state["empty"] += 1
+    # 修复 C：hit_zero 分母只算"有工具意图"的调用（tool_needed + ambiguous）
+    if intent_class in ("tool_needed", "ambiguous"):
+        _metrics_state["total_intent_tool"] += 1
     _metrics_state["latencies"].append(latency_ms)
     if len(_metrics_state["latencies"]) > 1000:
         _metrics_state["latencies"] = _metrics_state["latencies"][-1000:]
@@ -114,6 +124,7 @@ def _write_tool_router_log(
     selected_count: int,
     hit_zero: bool,
     reasons: list[str] | None = None,
+    intent_class: str = "",
 ) -> None:
     """C1：把 router 决策写一行 JSON 到 logs/tool_router.jsonl（失败不阻塞）。"""
     if not _tool_router_log_enabled():
@@ -122,11 +133,13 @@ def _write_tool_router_log(
         _TOOL_ROUTER_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         entry = {
             "ts": datetime.now().isoformat(timespec="seconds"),
+            "schema_version": 2,  # 修复 C：hit_zero 口径收敛后的 schema 版本
             "query": _mask_pii((query or "")[:500]),  # PII 脱敏 + 截断
             "selected": selected,
             "selected_count": selected_count,
             "total_available": total_available,
-            "hit_zero": hit_zero,  # 命中 0 目标工具（只给基础 4 件套）→ 高风险信号
+            "hit_zero": hit_zero,  # 仅 tool_needed/ambiguous 的 0 工具计 True（修复 C）
+            "intent_class": intent_class or "unclassified",
             "reasons": reasons or [],
         }
         with _TOOL_ROUTER_LOG_PATH.open("a", encoding="utf-8") as f:
@@ -275,9 +288,16 @@ _WEB_INTENT = re.compile(
     r"资讯|what|news|weather|current|today",
     re.IGNORECASE,
 )
+#: B-fix（2026-09-19 工具清单对账）：`search_sources` 已移出联网补齐族。
+#: 它是**本地参考资料检索**，与"联网查实时信息"是两件事 —— 留在族里会让
+#: "北京天气/航班/股价"这类纯联网查询凭空多带一个本地资料检索工具，
+#: 与 BASE_TOOLS 注释里"web_search 不常驻"的清理理由完全同类。
+#: 实测：50 道评测题里有 11 题被这样捎带，而它的采纳数是 1/11，
+#: 且 `source_chunks` 当前为 0 行（库空，调用必然返回空）。
+#: 用户明确提"参考资料/查资料/资料里"时仍由 TOOL_TERMS 词条派发，功能不丢。
 _WEB_SUPPORT = {
     "web_search", "get_current_datetime", "deep_research",
-    "search_sources", "search_documents",
+    "search_documents",
 }
 
 #: C-fix：「项目阅读 / 启动说明」意图族——"看 README 怎么启动""告诉我怎么跑起来"
@@ -326,6 +346,22 @@ _ARITH_INTENT = re.compile(
     re.IGNORECASE,
 )
 _ARITH_SUPPORT = {"calculate", "read_spreadsheet"}
+
+#: C-fix：「纯问候/闲聊」——"你好""介绍你自己""讲个笑话""谢谢""再见""hi"。
+#: 这类无任务意图的寒暄不该配工具、更不该记 hit_zero（制造"新问题"假阳性）。
+#: 与 _TOOL_NEEDED 反向排除：命中工具强信号（如"文件/代码/查询"）的仍走工具路径，
+#: 避免"帮我读一下文件，谢谢"被问候词误吞。
+_GREETING_INTENT = re.compile(
+    r"^你好|^您好|^嗨|^哈喽|^hi\b|^hello\b|^hey\b|hi$|嗨$"
+    r"|^(?:请|麻烦)?你?(?:用一?句话)?(?:介绍|说说)(?:你|您|自己|一下)*(?:你|您)?(?:自己)?$"
+    r"|^(?:你|您)?是?(?:谁|什么模型|什么人|什么|哪个)(?:呀|啊|呢|哦)?$"
+    r"|讲个?(?:笑话|段子|故事|冷笑话)"
+    r"|^(?:谢谢|多谢|感谢|thanks|thank ?you)\b"
+    r"|^(?:再见|拜拜|bye|goodbye)\b"
+    r"|^(?:早上好|下午好|晚上好|早安|晚安)\b"
+    r"|^在吗\b|^在不在\b|^在不在家\b",
+    re.IGNORECASE,
+)
 
 # ---------------------------------------------------------------------------
 # Phase 22：MCP / Plugin candidate catalog + domain approval
@@ -547,11 +583,20 @@ _EXPLICIT_ONLY_TOOLS = {
     "save_excel_workbook",
     "deep_research",
     "scan_dependencies",
-    "code_loop_tool",
+    "code_loop",
     "sandbox_rollback",
     "sandbox_snapshot",
     "list_sandbox_snapshots",
 }
+# ⚠️ 刻意**不含**技能工具 gorden_ppt_*（四个），且 `_HIGH_GATE_TERMS` 里也不该有它们的词条。
+# 它们靠下方 `_GORDEN_PPT_INTENT` 意图族主动补齐 —— 有真实故障背景：
+# 任务 goal 没写"套模板/做PPT"这类精确词时，工具会被裁出 16 窗口，
+# 模型随后按技能指令调用即报 "Tool ... not found in agent"。
+# 把它们塞进本集合（或补回词条）会掐掉这条补齐路径，丢掉
+# "简约商务总结汇报"这类自然口语 —— 见
+# tests/test_tool_router.py::test_natural_ppt_phrasing_keeps_gorden_tools。
+# 代价（已接受）：不含 PPT 字面词的纯文字请求（"帮我写个季度总结"）也会带上
+# 这 4 个工具，实测工具数 4→8；换来的确定性更值钱。
 _HIGH_GATE_TERMS = (
     ("fetch_github_repo", ("github", "仓库", "repo", "开源项目", "抓取", "克隆", "clone")),
     ("save_ppt_deck", ("ppt", "pptx", "幻灯片", "演示文稿", "课件")),
@@ -562,11 +607,11 @@ _HIGH_GATE_TERMS = (
     ("sandbox_rollback", ("回滚", "恢复沙箱", "撤销", "rollback")),
     ("sandbox_snapshot", ("快照", "备份沙箱", "savepoint")),
     ("list_sandbox_snapshots", ("查看快照", "快照列表")),
-    ("code_loop_tool", ("修复", "代码修复", "code_loop")),
-    ("gorden_ppt_build", ("ppt", "pptx", "模板", "做ppt", "生成ppt", "汇报", "总结")),
-    ("gorden_ppt_templates", ("ppt", "pptx", "模板", "选模板", "汇报", "总结")),
-    ("gorden_ppt_apply_custom", ("ppt", "模板", "自定义模板", "我的模板", "汇报", "总结")),
-    ("gorden_ppt_template_intro", ("ppt", "模板", "模板介绍", "汇报", "总结")),
+    ("code_loop", ("修复", "代码修复", "code_loop")),
+    # 注：gorden_ppt_* 四个技能工具**刻意没有词条** —— 它们不走高门槛，只走
+    # `_GORDEN_PPT_INTENT` 意图族补齐（理由见 `_EXPLICIT_ONLY_TOOLS` 后的注释）。
+    # 别在此处"补全"：词条只在工具名同时出现在 `_EXPLICIT_ONLY_TOOLS` 里才会被求值，
+    # 补在这里只是给一个永不求值的位置再添一条死数据（2026-09-19 踩过）。
 )
 
 
@@ -703,6 +748,36 @@ def is_direct_text_task(query: str) -> bool:
     return False
 
 
+def _classify_intent(text: str, raw_query: str) -> str:
+    """把查询归入 6 类意图，用于 hit_zero 口径收敛（修复 C）。
+
+    返回值：
+      'tool_needed'  命中 _TOOL_NEEDED 强信号 → 有工具意图，0 工具 = 真 hit_zero
+      'greeting'     命中纯问候/闲聊且无强信号 → 不计 hit_zero
+      'concept_qa'   命中概念问句且无强信号 → 直接回答，不计 hit_zero
+      'arith'        命中算术算式 → calculate/read_spreadsheet 族，不计 hit_zero
+      'direct_text'  命中改写/翻译/润色 或 is_direct_text_task → 不计 hit_zero
+      'ambiguous'    无任何信号 → 保守计 hit_zero（保持旧口径兜底）
+
+    设计原则：hit_zero 只在"有工具意图却 0 工具"时才是真风险；
+    纯文本/问候/概念问答被记 hit_zero 是假阳性（制造"新问题"假象）。
+    """
+    t = (text or "").lower()
+    if _TOOL_NEEDED.search(t):
+        return "tool_needed"
+    # 问候/闲聊优先于概念问答（"介绍你自己"既可能命中 concept_qa 也可能是 greeting，
+    # 问候族更精确，放在前面）。
+    if _GREETING_INTENT.search(t) and not _TOOL_NEEDED.search(t):
+        return "greeting"
+    if _CONCEPT_QA_INTENT.search(t):
+        return "concept_qa"
+    if _ARITH_INTENT.search(t):
+        return "arith"
+    if _DIRECT_TEXT_INTENT.search(t) or is_direct_text_task(raw_query):
+        return "direct_text"
+    return "ambiguous"
+
+
 def router_enabled() -> bool:
     """Router 是否启用（TOOL_ROUTER=off 关闭）。
 
@@ -836,17 +911,24 @@ def select_tool_names(
         result = [n for n in result if n not in _WRITE_TOOLS_SET]
     limit = max(len(base), min(int(max_tools), len(available_set)))
     result = result[:limit]
-    # C1 可观测：写一行 JSON 到 logs/tool_router.jsonl（命中 0 目标工具是高风险信号）
+    # 修复 C：hit_zero 口径收敛 —— 仅当"有工具意图"（tool_needed / ambiguous）
+    # 且 0 个非基础工具时才计 hit_zero；纯文本/概念/算式/问候不计（消除假阳性）。
+    _intent_class = _classify_intent(text, query)
+    _non_base_hits = [n for n in result if n not in BASE_TOOLS]
+    _hit_zero = (_intent_class in ("tool_needed", "ambiguous")) and (len(_non_base_hits) == 0)
+    # C1 可观测：写一行 JSON 到 logs/tool_router.jsonl（含 intent_class 便于分桶）
     _write_tool_router_log(
         query=query,
         selected=result,
         total_available=len(available),
         selected_count=len(result),
-        hit_zero=len([n for n in result if n not in BASE_TOOLS]) == 0,
+        hit_zero=_hit_zero,
+        intent_class=_intent_class,
     )
-    # C1 指标：记录本次调用延迟（hit_zero 与 _write_tool_router_log 同口径）
+    # C1 指标：记录本次调用延迟；hit_zero 口径同上
     record_router_call(
         (time.time() - _t0) * 1000.0,
-        hit_zero=len([n for n in result if n not in BASE_TOOLS]) == 0,
+        hit_zero=_hit_zero,
+        intent_class=_intent_class,
     )
     return result

@@ -22,7 +22,7 @@ READ = {"read_workspace_file", "read_code_file", "read_note", "recall_memory",
         "read_office_file", "read_spreadsheet"}
 MUTATION = {"write_project_file", "edit_project_file", "write_code_file",
             "save_note", "save_word_doc", "save_excel_workbook", "save_ppt_deck"}
-VERIFY = {"run_python", "code_loop", "code_loop_tool"}
+VERIFY = {"run_tests", "run_python", "code_loop"}
 CODING_RELEVANT = DISCOVERY | READ | MUTATION | VERIFY
 
 

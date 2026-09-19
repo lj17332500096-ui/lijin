@@ -1,0 +1,11 @@
+id,skill,severity,file,line,title,evidence
+DEF-01,everything-openai-codex,high,scripts/main.py,"459,462",自检函数使用无占位符的格式串，% 运算直接抛 TypeError,TypeError: not all arguments converted during string formatting  →  run.py --selftest 输出 [ERROR] not all arguments converted during string formatting
+DEF-02,everything-openai-codex,high,scripts/main.py,"488,493",_write_guarded 的 dry-run / verbose 提示格式串参数不匹配,"TypeError: %d format: a real number is required, not str"
+DEF-03,everything-openai-codex,high,scripts/main.py,510,_cli 非 selftest 分支格式串无占位符,[ERROR] not all arguments converted during string formatting  →  rc=1
+DEF-04,everything-openai-codex,medium,scripts/main.py,442,selftest() 函数体被截断，缺最后一项测试与收尾 return,selftest end_lineno= 442 has_return= True (仅 except 分支里的 return 1) ；total lines: 531
+DEF-05,everything-openai-codex,medium,scripts/main.py,393-441,自检带破坏性副作用：覆盖 memory.json / hooks.json / rules.json,"scripts/main.py:394 save_memory(test_memory) / :430 open(RULES_FILE,""w"") / :438 open(HOOKS_FILE,""w"")"
+DEF-06,everything-openai-codex,medium,run.py,52,run.py 挂载 run_selftest 取错函数名，恒为 None,impl 暴露 run_selftest: False / _run_selftest: True  →  run.py.run_selftest: False
+DEF-07,workflow,high,run.py,8,run.py 守卫只认 --file，把 --data / --url 当成未提供输入,"run.py --data '{""a"":1}' → {""status"":""need_input"",""reason"":""未提供输入参数"",""expected"":""--file <文件路径或文本>""}"
+DEF-08,workflow,high,scripts/main.py,163-186,--file 是桩实现：不回读文件内容,"run.py --file /tmp/wf_probe.json → {""data"":{""file_path"":""/tmp/wf_probe.json"",""file_type"":""json""},""confidence"":""低"",""note"":""文件内容未实际读取，请确认文件可访问""}"
+DEF-09,全部三个技能,low,run.py,53,run.py 挂载 read_text_safe 取错函数名，三个技能恒为 None,agent-ready-repo / workflow / everything-openai-codex 三处：impl 暴露 read_text_safe: True → run.py.read_text_safe: False
+DEF-10,agent-ready-repo,low,scripts/main.py,513,read_text_safe 定义在 __main__ 卫兵之后，模块导入时不可见,"line 509: if __name__ == ""__main__"": / line 513: def read_text_safe(path):"

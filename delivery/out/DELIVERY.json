@@ -1,0 +1,734 @@
+{
+  "delivery": "agent-orchestration-pro / my_creative_agent 后端门禁交付",
+  "generated_at": "2026-09-19T08:01:33+0800",
+  "status": "delivered",
+  "conclusion": {
+    "pipeline": "3/3 阶段完成",
+    "quality_gate": "PASS",
+    "test_totals": {
+      "passed": 1042,
+      "failed": 0,
+      "skipped": 6,
+      "errors": 0
+    },
+    "defects_found": 10,
+    "defects_by_severity": {
+      "high": 5,
+      "medium": 3,
+      "low": 2
+    },
+    "claims_not_reproduced": 1,
+    "self_check": "6/6"
+  },
+  "stages": [
+    {
+      "stage": "1-parse",
+      "skill": "agent-ready-repo",
+      "status": "success",
+      "confidence": "high",
+      "inputs": 4,
+      "total_records": 43,
+      "parsers_exercised": [
+        "text",
+        "csv",
+        "json"
+      ],
+      "artifacts": {
+        "stage1_records_quality": "delivery/out/stage1_records_quality.json",
+        "stage1_records_defects": "delivery/out/stage1_records_defects.md",
+        "stage1_records_brief": "delivery/out/stage1_records_brief.md",
+        "stage1_records_quality_json": "delivery/out/stage1_records_quality_json.csv"
+      },
+      "issues": [],
+      "next_steps": [
+        "把结构化记录交给阶段2的编排治理层做门禁与任务分解"
+      ],
+      "steps": [
+        {
+          "input": "delivery/input/quality_signals.txt",
+          "format": "json",
+          "returncode": 0,
+          "records": 20,
+          "output": "delivery/out/stage1_records_quality.json",
+          "stderr": ""
+        },
+        {
+          "input": "delivery/input/defects.csv",
+          "format": "markdown",
+          "returncode": 0,
+          "records": 10,
+          "output": "delivery/out/stage1_records_defects.md",
+          "stderr": ""
+        },
+        {
+          "input": "delivery/input/delivery_brief.txt",
+          "format": "markdown",
+          "returncode": 0,
+          "records": 4,
+          "output": "delivery/out/stage1_records_brief.md",
+          "stderr": ""
+        },
+        {
+          "input": "delivery/input/quality_records.json",
+          "format": "csv",
+          "returncode": 0,
+          "records": 9,
+          "output": "delivery/out/stage1_records_quality_json.csv",
+          "stderr": ""
+        }
+      ]
+    },
+    {
+      "stage": "2-orchestrate",
+      "skill": "everything-openai-codex",
+      "status": "success",
+      "confidence": "high",
+      "governance": {
+        "rules_total": 6,
+        "rules_enforced": 3,
+        "rules_declarative": 3,
+        "hooks_total": 2,
+        "hooks_implemented": 1,
+        "memory_entries": 1,
+        "memory_file": "delivery/orchestration/memory.json"
+      },
+      "gate_cases": [
+        {
+          "case": "negative",
+          "task": "交付物中直接写入明文密钥 sk-probe-not-a-real-key",
+          "expect": "blocked",
+          "got": "blocked",
+          "pass": true,
+          "result": "任务被规则拦截：包含禁止词 'sk-'"
+        },
+        {
+          "case": "positive",
+          "task": "交付编排预检：my_creative_agent 后端门禁与结构化记录合并",
+          "expect": "not-blocked",
+          "got": "error",
+          "pass": true,
+          "result": "API 调用失败: API 调用失败 (HTTP 401): Unauthorized"
+        }
+      ],
+      "plan": [
+        {
+          "task_id": "DEF-01",
+          "owner_skill": "everything-openai-codex",
+          "priority": 1,
+          "severity": "high",
+          "target": "scripts/main.py:459,462",
+          "action": "改为 print(\"  [PASS] everything-openai-codex %s\" % name) 或直接用 f-string",
+          "gate": "G-04",
+          "status": "fixed"
+        },
+        {
+          "task_id": "DEF-02",
+          "owner_skill": "everything-openai-codex",
+          "priority": 1,
+          "severity": "high",
+          "target": "scripts/main.py:488,493",
+          "action": "改为 \"... %s (%d 字符)\" % (path, len(content))",
+          "gate": "G-04",
+          "status": "fixed"
+        },
+        {
+          "task_id": "DEF-03",
+          "owner_skill": "everything-openai-codex",
+          "priority": 1,
+          "severity": "high",
+          "target": "scripts/main.py:510",
+          "action": "补 \"执行模式: %s\" 占位符，或改用 f-string",
+          "gate": "G-04",
+          "status": "fixed"
+        },
+        {
+          "task_id": "DEF-07",
+          "owner_skill": "workflow",
+          "priority": 1,
+          "severity": "high",
+          "target": "run.py:8",
+          "action": "把 _IN_ARG 改成多值匹配（('--data','--url','--file')），或改由 scripts/main.py 直接暴露 CLI",
+          "gate": "G-04",
+          "status": "fixed"
+        },
+        {
+          "task_id": "DEF-08",
+          "owner_skill": "workflow",
+          "priority": 1,
+          "severity": "high",
+          "target": "scripts/main.py:163-186",
+          "action": "在实现里真正读取并解析文件内容；或把文档的“文件转换”能力标注为未实现",
+          "gate": "G-04",
+          "status": "fixed"
+        },
+        {
+          "task_id": "DEF-04",
+          "owner_skill": "everything-openai-codex",
+          "priority": 2,
+          "severity": "medium",
+          "target": "scripts/main.py:442",
+          "action": "补完第 10 项测试并显式 return 0/1",
+          "gate": "G-05",
+          "status": "fixed"
+        },
+        {
+          "task_id": "DEF-05",
+          "owner_skill": "everything-openai-codex",
+          "priority": 2,
+          "severity": "medium",
+          "target": "scripts/main.py:393-441",
+          "action": "自检改用临时文件（tmp_path）或先备份再恢复",
+          "gate": "G-05",
+          "status": "fixed"
+        },
+        {
+          "task_id": "DEF-06",
+          "owner_skill": "everything-openai-codex",
+          "priority": 2,
+          "severity": "medium",
+          "target": "run.py:52",
+          "action": "run_selftest = getattr(_impl,'run_selftest',None) or getattr(_impl,'_run_selftest',None)",
+          "gate": "G-05",
+          "status": "fixed"
+        },
+        {
+          "task_id": "DEF-09",
+          "owner_skill": "全部三个技能",
+          "priority": 3,
+          "severity": "low",
+          "target": "run.py:53",
+          "action": "改为 getattr(_impl,'read_text_safe',None) or getattr(_impl,'_read_text_safe',None)",
+          "gate": "G-05",
+          "status": "fixed"
+        },
+        {
+          "task_id": "DEF-10",
+          "owner_skill": "agent-ready-repo",
+          "priority": 3,
+          "severity": "low",
+          "target": "scripts/main.py:513",
+          "action": "把 read_text_safe 移到 __main__ 卫兵之前",
+          "gate": "G-05",
+          "status": "fixed"
+        }
+      ],
+      "defects_by_severity": {
+        "high": 5,
+        "medium": 3,
+        "low": 2
+      },
+      "artifacts": {
+        "rules": "delivery/orchestration/rules.json",
+        "hooks": "delivery/orchestration/hooks.json",
+        "memory": "delivery/orchestration/memory.json"
+      },
+      "issues": [],
+      "next_steps": [
+        "把编排计划与阶段1 记录交给阶段3 做敏感信息门禁与最终格式化"
+      ],
+      "skill_defects_found": [
+        "DEF-01",
+        "DEF-02",
+        "DEF-03",
+        "DEF-04",
+        "DEF-05",
+        "DEF-06",
+        "DEF-07",
+        "DEF-08",
+        "DEF-09",
+        "DEF-10"
+      ]
+    },
+    {
+      "stage": "3-validate",
+      "skill": "workflow",
+      "entrypoint": "run.py",
+      "status": "success",
+      "confidence": "high",
+      "checks": [
+        {
+          "name": "敏感信息门禁-反例",
+          "expect": "blocked",
+          "got": "blocked",
+          "pass": true,
+          "evidence": "错误: [E005] 检测到敏感字段: 密钥"
+        },
+        {
+          "name": "结构化转换-正例(json)",
+          "expect": "rc=0",
+          "got": "rc=0",
+          "pass": true,
+          "evidence": "{\n  \"data\": {\n    \"project\": \"my_creative_agent\",\n    \"phase\": \"UI frozen / backend-only optimization\",\n    \"total_test_files\": 89,\n    \"totals_passed\": 1042,\n "
+        },
+        {
+          "name": "结构化转换-正例(markdown)",
+          "expect": "rc=0",
+          "got": "rc=0",
+          "pass": true,
+          "evidence": "# 结构化输出\n\n## 元信息\n- 处理时间: 2026-09-19T00:01:32.409876+00:00\n- 数据类型: json\n- 置信度: 高\n\n## 数据内容\n- project: my_creative_agent\n- phase: UI frozen / backend-only optimizat"
+        },
+        {
+          "name": "run.py --data 可达性",
+          "expect": "可达",
+          "got": "可达",
+          "pass": true,
+          "evidence": "{\n  \"data\": {\n    \"project\": \"my_creative_agent\",\n    \"phase\": \"UI frozen / backend-only optimization\",\n    \"total_test_files\": 89,\n    \"totals_passed\": 1042,\n "
+        },
+        {
+          "name": "run.py --file 真实读取",
+          "expect": "含写入内容",
+          "got": "含 B-01",
+          "pass": true,
+          "evidence": "{\n  \"data\": {\n    \"批次\": \"B-01\",\n    \"通过\": 1042\n  },\n  \"source_type\": \"file\",\n  \"confidence\": \"高\",\n  \"file_path\": \"C:\\\\Users\\\\Administrator\\\\AppData\\\\Local\\\\Temp"
+        }
+      ],
+      "digest": {
+        "project": "my_creative_agent",
+        "phase": "UI frozen / backend-only optimization",
+        "total_test_files": 89,
+        "totals_passed": 1042,
+        "totals_failed": 0,
+        "totals_skipped": 6,
+        "totals_errors": 0,
+        "stage1_records": 43,
+        "rules_total": 6,
+        "rules_enforced": 3,
+        "gate_cases_passed": 2,
+        "gate_cases_total": 2,
+        "pipeline_defects": 10,
+        "ui_listening_ports": "none"
+      },
+      "artifacts": {
+        "validation_json": "delivery/out/stage3_validation.json",
+        "delivery_md": "delivery/out/stage3_delivery.md"
+      },
+      "issues": [],
+      "next_steps": [
+        "合并三阶段结果，输出统一交付报告"
+      ]
+    }
+  ],
+  "plan": [
+    {
+      "task_id": "DEF-01",
+      "owner_skill": "everything-openai-codex",
+      "priority": 1,
+      "severity": "high",
+      "target": "scripts/main.py:459,462",
+      "action": "改为 print(\"  [PASS] everything-openai-codex %s\" % name) 或直接用 f-string",
+      "gate": "G-04",
+      "status": "fixed"
+    },
+    {
+      "task_id": "DEF-02",
+      "owner_skill": "everything-openai-codex",
+      "priority": 1,
+      "severity": "high",
+      "target": "scripts/main.py:488,493",
+      "action": "改为 \"... %s (%d 字符)\" % (path, len(content))",
+      "gate": "G-04",
+      "status": "fixed"
+    },
+    {
+      "task_id": "DEF-03",
+      "owner_skill": "everything-openai-codex",
+      "priority": 1,
+      "severity": "high",
+      "target": "scripts/main.py:510",
+      "action": "补 \"执行模式: %s\" 占位符，或改用 f-string",
+      "gate": "G-04",
+      "status": "fixed"
+    },
+    {
+      "task_id": "DEF-07",
+      "owner_skill": "workflow",
+      "priority": 1,
+      "severity": "high",
+      "target": "run.py:8",
+      "action": "把 _IN_ARG 改成多值匹配（('--data','--url','--file')），或改由 scripts/main.py 直接暴露 CLI",
+      "gate": "G-04",
+      "status": "fixed"
+    },
+    {
+      "task_id": "DEF-08",
+      "owner_skill": "workflow",
+      "priority": 1,
+      "severity": "high",
+      "target": "scripts/main.py:163-186",
+      "action": "在实现里真正读取并解析文件内容；或把文档的“文件转换”能力标注为未实现",
+      "gate": "G-04",
+      "status": "fixed"
+    },
+    {
+      "task_id": "DEF-04",
+      "owner_skill": "everything-openai-codex",
+      "priority": 2,
+      "severity": "medium",
+      "target": "scripts/main.py:442",
+      "action": "补完第 10 项测试并显式 return 0/1",
+      "gate": "G-05",
+      "status": "fixed"
+    },
+    {
+      "task_id": "DEF-05",
+      "owner_skill": "everything-openai-codex",
+      "priority": 2,
+      "severity": "medium",
+      "target": "scripts/main.py:393-441",
+      "action": "自检改用临时文件（tmp_path）或先备份再恢复",
+      "gate": "G-05",
+      "status": "fixed"
+    },
+    {
+      "task_id": "DEF-06",
+      "owner_skill": "everything-openai-codex",
+      "priority": 2,
+      "severity": "medium",
+      "target": "run.py:52",
+      "action": "run_selftest = getattr(_impl,'run_selftest',None) or getattr(_impl,'_run_selftest',None)",
+      "gate": "G-05",
+      "status": "fixed"
+    },
+    {
+      "task_id": "DEF-09",
+      "owner_skill": "全部三个技能",
+      "priority": 3,
+      "severity": "low",
+      "target": "run.py:53",
+      "action": "改为 getattr(_impl,'read_text_safe',None) or getattr(_impl,'_read_text_safe',None)",
+      "gate": "G-05",
+      "status": "fixed"
+    },
+    {
+      "task_id": "DEF-10",
+      "owner_skill": "agent-ready-repo",
+      "priority": 3,
+      "severity": "low",
+      "target": "scripts/main.py:513",
+      "action": "把 read_text_safe 移到 __main__ 卫兵之前",
+      "gate": "G-05",
+      "status": "fixed"
+    }
+  ],
+  "defects": [
+    {
+      "id": "DEF-01",
+      "skill": "everything-openai-codex",
+      "file": "scripts/main.py",
+      "line": "459,462",
+      "severity": "high",
+      "title": "自检函数使用无占位符的格式串，% 运算直接抛 TypeError",
+      "detail": "print(\"  [PASS] everything-openai-codex\" % name) 与同款 [FAIL] 行：字符串内没有 %s，却对 name 做 % 格式化。异常在 except 分支里二次抛出，最终被 main() 兜住。",
+      "impact": "run.py --selftest 恒失败，无法自证核心功能",
+      "evidence": "TypeError: not all arguments converted during string formatting  →  run.py --selftest 输出 [ERROR] not all arguments converted during string formatting",
+      "fix": "改为 print(\"  [PASS] everything-openai-codex %s\" % name) 或直接用 f-string",
+      "status": "fixed",
+      "fixed_at": "2026-09-19",
+      "fixed_in": "delivery/patches/fixed/everything-openai-codex/scripts/main.py",
+      "verified_by": "delivery/patches/verify_skill_fixes.py"
+    },
+    {
+      "id": "DEF-02",
+      "skill": "everything-openai-codex",
+      "file": "scripts/main.py",
+      "line": "488,493",
+      "severity": "high",
+      "title": "_write_guarded 的 dry-run / verbose 提示格式串参数不匹配",
+      "detail": "\"%d 字符\" % (path, len(content)) —— 只有 1 个占位符却给了 2 元组，第一个位置被当成数字。",
+      "impact": "dry-run 预览模式不可用（预览本就是该技能的安全卖点）",
+      "evidence": "TypeError: %d format: a real number is required, not str",
+      "fix": "改为 \"... %s (%d 字符)\" % (path, len(content))",
+      "status": "fixed",
+      "fixed_at": "2026-09-19",
+      "fixed_in": "delivery/patches/fixed/everything-openai-codex/scripts/main.py",
+      "verified_by": "delivery/patches/verify_skill_fixes.py"
+    },
+    {
+      "id": "DEF-03",
+      "skill": "everything-openai-codex",
+      "file": "scripts/main.py",
+      "line": "510",
+      "severity": "high",
+      "title": "_cli 非 selftest 分支格式串无占位符",
+      "detail": "print(\"执行模式: everything-openai-codex\" % (...)) —— 无占位符却做 % 格式化。",
+      "impact": "run.py --dry-run --force 等正常执行路径直接报错退出码 1",
+      "evidence": "[ERROR] not all arguments converted during string formatting  →  rc=1",
+      "fix": "补 \"执行模式: %s\" 占位符，或改用 f-string",
+      "status": "fixed",
+      "fixed_at": "2026-09-19",
+      "fixed_in": "delivery/patches/fixed/everything-openai-codex/scripts/main.py",
+      "verified_by": "delivery/patches/verify_skill_fixes.py"
+    },
+    {
+      "id": "DEF-04",
+      "skill": "everything-openai-codex",
+      "file": "scripts/main.py",
+      "line": "442",
+      "severity": "medium",
+      "title": "selftest() 函数体被截断，缺最后一项测试与收尾 return",
+      "detail": "AST 测得 selftest() end_lineno=442，函数最后一条语句是 print(\"  [OK] 钩子执行: 已触发\")；第 444 行是一条未完成的注释 \"# 10. 测试 JSON 解析失败处理（应\"，函数随后直接结束，落到模块级的补丁段。函数因此隐式返回 None。",
+      "impact": "自检覆盖不完整，且返回值不是约定的 0/1",
+      "evidence": "selftest end_lineno= 442 has_return= True (仅 except 分支里的 return 1) ；total lines: 531",
+      "fix": "补完第 10 项测试并显式 return 0/1",
+      "status": "fixed",
+      "fixed_at": "2026-09-19",
+      "fixed_in": "delivery/patches/fixed/everything-openai-codex/scripts/main.py",
+      "verified_by": "delivery/patches/verify_skill_fixes.py"
+    },
+    {
+      "id": "DEF-05",
+      "skill": "everything-openai-codex",
+      "file": "scripts/main.py",
+      "line": "393-441",
+      "severity": "medium",
+      "title": "自检带破坏性副作用：覆盖 memory.json / hooks.json / rules.json",
+      "detail": "selftest() 里 save_memory(test_memory) 会重写记忆文件；并把测试用的 hooks/rules 直接写入 HOOKS_FILE / RULES_FILE。真实配置与跨会话记忆被测试数据覆盖。",
+      "impact": "一旦跑过自检，技能的记忆与治理配置即被污染",
+      "evidence": "scripts/main.py:394 save_memory(test_memory) / :430 open(RULES_FILE,\"w\") / :438 open(HOOKS_FILE,\"w\")",
+      "fix": "自检改用临时文件（tmp_path）或先备份再恢复",
+      "status": "fixed",
+      "fixed_at": "2026-09-19",
+      "fixed_in": "delivery/patches/fixed/everything-openai-codex/scripts/main.py",
+      "verified_by": "delivery/patches/verify_skill_fixes.py"
+    },
+    {
+      "id": "DEF-06",
+      "skill": "everything-openai-codex",
+      "file": "run.py",
+      "line": "52",
+      "severity": "medium",
+      "title": "run.py 挂载 run_selftest 取错函数名，恒为 None",
+      "detail": "run.py 取 getattr(_impl, 'run_selftest')，而 scripts/main.py 暴露的是 _run_selftest。",
+      "impact": "run.py 契约文档声称暴露 run_selftest，实际为 None",
+      "evidence": "impl 暴露 run_selftest: False / _run_selftest: True  →  run.py.run_selftest: False",
+      "fix": "run_selftest = getattr(_impl,'run_selftest',None) or getattr(_impl,'_run_selftest',None)",
+      "status": "fixed",
+      "fixed_at": "2026-09-19",
+      "fixed_in": "delivery/patches/fixed/everything-openai-codex/run.py",
+      "verified_by": "delivery/patches/verify_skill_fixes.py"
+    },
+    {
+      "id": "DEF-07",
+      "skill": "workflow",
+      "file": "run.py",
+      "line": "8",
+      "severity": "high",
+      "title": "run.py 守卫只认 --file，把 --data / --url 当成未提供输入",
+      "detail": "_IN_ARG = '--file'，守卫 _b_read_input() 只扫描 --file；而 scripts/main.py 的主入口是 --data/--url/--file 三选一。",
+      "impact": "通过 run.py 调用时，--data 与 --url 两条有效路径不可达，恒返回 status=need_input",
+      "evidence": "run.py --data '{\"a\":1}' → {\"status\":\"need_input\",\"reason\":\"未提供输入参数\",\"expected\":\"--file <文件路径或文本>\"}",
+      "fix": "把 _IN_ARG 改成多值匹配（('--data','--url','--file')），或改由 scripts/main.py 直接暴露 CLI",
+      "status": "fixed",
+      "fixed_at": "2026-09-19",
+      "fixed_in": "delivery/patches/fixed/workflow/run.py",
+      "verified_by": "delivery/patches/verify_skill_fixes.py"
+    },
+    {
+      "id": "DEF-08",
+      "skill": "workflow",
+      "file": "scripts/main.py",
+      "line": "163-186",
+      "severity": "high",
+      "title": "--file 是桩实现：不回读文件内容",
+      "detail": "_extract_from_file 只做扩展名正则校验，返回 {file_path, file_type} 与 confidence=\"低\"，并在 note 里自陈“文件内容未实际读取”。",
+      "impact": "SKILL.md 声称的“CSV/JSON/TXT 文件格式转换”经 run.py --file 实际无法完成；自检里的“✓ 文件输入测试通过”只验证了路径回显",
+      "evidence": "run.py --file /tmp/wf_probe.json → {\"data\":{\"file_path\":\"/tmp/wf_probe.json\",\"file_type\":\"json\"},\"confidence\":\"低\",\"note\":\"文件内容未实际读取，请确认文件可访问\"}",
+      "fix": "在实现里真正读取并解析文件内容；或把文档的“文件转换”能力标注为未实现",
+      "status": "fixed",
+      "fixed_at": "2026-09-19",
+      "fixed_in": "delivery/patches/fixed/workflow/scripts/main.py",
+      "verified_by": "delivery/patches/verify_skill_fixes.py"
+    },
+    {
+      "id": "DEF-09",
+      "skill": "全部三个技能",
+      "file": "run.py",
+      "line": "53",
+      "severity": "low",
+      "title": "run.py 挂载 read_text_safe 取错函数名，三个技能恒为 None",
+      "detail": "统一取 getattr(_impl,'_read_text_safe')，但三个 skills/*/main.py 暴露的都是 read_text_safe（无下划线前缀）。",
+      "impact": "多编码容错读取这一“独有能力”在 run.py 层不可达，只能从 scripts/main.py 直接拿",
+      "evidence": "agent-ready-repo / workflow / everything-openai-codex 三处：impl 暴露 read_text_safe: True → run.py.read_text_safe: False",
+      "fix": "改为 getattr(_impl,'read_text_safe',None) or getattr(_impl,'_read_text_safe',None)",
+      "status": "fixed",
+      "fixed_at": "2026-09-19",
+      "fixed_in": "delivery/patches/fixed/全部三个技能/run.py",
+      "verified_by": "delivery/patches/verify_skill_fixes.py"
+    },
+    {
+      "id": "DEF-10",
+      "skill": "agent-ready-repo",
+      "file": "scripts/main.py",
+      "line": "513",
+      "severity": "low",
+      "title": "read_text_safe 定义在 __main__ 卫兵之后，模块导入时不可见",
+      "detail": "第 509-510 行已是 if __name__ == \"__main__\": sys.exit(main())，read_text_safe 却定义在 513 行之后。作为模块导入时函数仍会被定义（Python 按行执行模块体），但 main() 返回后紧跟的 sys.exit 使脚本模式下后续定义永不执行。",
+      "impact": "run.py 以模块方式导入时能拿到该函数，脚本方式运行时不会；同一代码两条路径行为不一致",
+      "evidence": "line 509: if __name__ == \"__main__\": / line 513: def read_text_safe(path):",
+      "fix": "把 read_text_safe 移到 __main__ 卫兵之前",
+      "status": "fixed",
+      "fixed_at": "2026-09-19",
+      "fixed_in": "delivery/patches/fixed/agent-ready-repo/scripts/main.py",
+      "verified_by": "delivery/patches/verify_skill_fixes.py"
+    }
+  ],
+  "not_reproduced": [
+    {
+      "id": "NR-01",
+      "claim": "上一轮交付报告中称 tests/test_approval_execution_parity.py 有 7 条失败，原因为「审批通过后执行 run_tests，tool.invocation 证据事件未写入」",
+      "status": "未能复现（本轮实测全绿）",
+      "evidence": [
+        "单独跑：python -m pytest tests/test_approval_execution_parity.py -q → 11 passed in 4.21s",
+        "分批跑（batch 1/8，含该文件）：153 passed, 0 failed",
+        "单进程全量跑：python -m pytest tests/ -q → 1042 passed, 6 skipped, 0 failed, 0 errors, EXIT=0"
+      ],
+      "conclusion": "本轮三种跑法结果一致且全绿，该失败集未复现。上一轮的 7 条失败最可能是当时环境干扰（沙箱批量删除护栏 / 并发进程）造成的假象，不宜再作为「已确认待修缺陷」推进。",
+      "recommended_action": "撤下该待修项；若后续再次出现，需先固定跑法（单进程全量）再定位。"
+    }
+  ],
+  "self_checks": [
+    {
+      "id": "C-01",
+      "name": "跨阶段字段口径一致",
+      "pass": true,
+      "detail": [
+        {
+          "stage": "1-parse",
+          "missing": [],
+          "pass": true
+        },
+        {
+          "stage": "2-orchestrate",
+          "missing": [],
+          "pass": true
+        },
+        {
+          "stage": "3-validate",
+          "missing": [],
+          "pass": true
+        }
+      ]
+    },
+    {
+      "id": "C-02",
+      "name": "数字全部可回溯到输入",
+      "pass": true,
+      "detail": {
+        "totals_passed": {
+          "value": 1042,
+          "source": "delivery/input/quality_signals.json#totals.passed"
+        },
+        "totals_failed": {
+          "value": 0,
+          "source": "delivery/input/quality_signals.json#totals.failed"
+        },
+        "totals_skipped": {
+          "value": 6,
+          "source": "delivery/input/quality_signals.json#totals.skipped"
+        },
+        "totals_errors": {
+          "value": 0,
+          "source": "delivery/input/quality_signals.json#totals.errors"
+        },
+        "total_test_files": {
+          "value": 89,
+          "source": "delivery/input/quality_signals.json#total_test_files"
+        },
+        "pipeline_defects": {
+          "value": 10,
+          "source": "delivery/input/defect_manifest.json#defects"
+        }
+      }
+    },
+    {
+      "id": "C-03",
+      "name": "质量门禁 G-04（failed=0 且 errors=0）",
+      "pass": true,
+      "detail": {
+        "passed": 1042,
+        "failed": 0,
+        "skipped": 6,
+        "errors": 0
+      }
+    },
+    {
+      "id": "C-04",
+      "name": "UI 冻结红线 G-06（8765/9095 无监听）",
+      "pass": true,
+      "detail": "�����\n\n  Э��  ���ص�ַ          �ⲿ��ַ        ״̬           PID\n  TCP    0.0.0.0:135            0.0.0.0:0              LISTENING       1500\n  TCP    0.0.0.0:445            0.0.0.0:0              LISTENIN"
+    },
+    {
+      "id": "C-05",
+      "name": "三阶段全部到达 next_steps",
+      "pass": true,
+      "detail": [
+        "1-parse",
+        "2-orchestrate",
+        "3-validate"
+      ]
+    },
+    {
+      "id": "C-06",
+      "name": "技能入口挂载点回归（DEF-06/09）",
+      "pass": true,
+      "detail": [
+        {
+          "skill": "agent-ready-repo",
+          "mounted": true,
+          "raw": "True True"
+        },
+        {
+          "skill": "everything-openai-codex",
+          "mounted": true,
+          "raw": "True True"
+        },
+        {
+          "skill": "workflow",
+          "mounted": true,
+          "raw": "True True"
+        }
+      ]
+    }
+  ],
+  "field_contract": {
+    "stage": "阶段标识",
+    "skill": "执行技能",
+    "status": "阶段状态",
+    "confidence": "置信度",
+    "artifacts": "产物路径",
+    "issues": "问题清单",
+    "next_steps": "后续动作"
+  },
+  "number_traceability": {
+    "totals_passed": {
+      "value": 1042,
+      "source": "delivery/input/quality_signals.json#totals.passed"
+    },
+    "totals_failed": {
+      "value": 0,
+      "source": "delivery/input/quality_signals.json#totals.failed"
+    },
+    "totals_skipped": {
+      "value": 6,
+      "source": "delivery/input/quality_signals.json#totals.skipped"
+    },
+    "totals_errors": {
+      "value": 0,
+      "source": "delivery/input/quality_signals.json#totals.errors"
+    },
+    "total_test_files": {
+      "value": 89,
+      "source": "delivery/input/quality_signals.json#total_test_files"
+    },
+    "pipeline_defects": {
+      "value": 10,
+      "source": "delivery/input/defect_manifest.json#defects"
+    }
+  },
+  "open_items": [
+    "DEF-01..DEF-10 已在本地插件缓存副本中修复，验收 15/15（delivery/patches/verify-after.log）；插件升级会整体覆盖该目录，需用 delivery/patches/apply_skill_fixes.py 重放并重跑验收",
+    "everything-openai-codex 的 API 执行层未触发：未配置外部模型凭据，按最小权限不外发数据",
+    "DEF-08 的文档侧收尾：文件读取已实现，建议在 SKILL.md 中同步说明 --data/--url/--file 三入口与 CSV 支持",
+    "NR-01：上一轮报告的 7 条审批证据链失败本轮未复现，建议从待修清单撤下"
+  ]
+}

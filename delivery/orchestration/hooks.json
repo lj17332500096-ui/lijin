@@ -1,0 +1,14 @@
+[
+  {
+    "type": "pre_task",
+    "name": "交付前门禁：规则命中 + 敏感词检查",
+    "implemented": true,
+    "desc": "orchestrate_workflow() 在调用外部 API 之前执行，命中 forbidden 规则即返回 status=blocked"
+  },
+  {
+    "type": "post_task",
+    "name": "交付后：跨阶段字段口径一致性校验",
+    "implemented": false,
+    "desc": "技能侧未实现该钩子类型；本版由流水线驱动在合并阶段以代码完成（见 run_pipeline.py::merge）"
+  }
+]

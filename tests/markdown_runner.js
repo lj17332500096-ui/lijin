@@ -2,7 +2,7 @@
 const fs = require("fs");
 const path = require("path");
 global.window = global; // markdown.js IIFE 挂到 window
-const src = fs.readFileSync(path.join(__dirname, "..", "web", "runtime", "markdown.js"), "utf-8");
+const src = fs.readFileSync(path.join(__dirname, "..", "web", "shared", "markdown.js"), "utf-8");
 eval(src);
 const RT = global.RT;
 let input = "";

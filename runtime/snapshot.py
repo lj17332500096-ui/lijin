@@ -129,6 +129,10 @@ def create_snapshot(
                 "agent_db": schema_version(agent_db),
                 "sessions_db": schema_version(sessions_db),
             },
+            # 2026-09-19 P2：标记本快照「仅做 DB 一致性校验」，没有回放/续跑
+            # 语义（restore_snapshot.valid() 只查 schema_version + db hash）。
+            # 显式打标避免将来有消费方误以为可跨版本回放。
+            "capability": "db_consistency_only",
             "agent_db_hash": _sha256(tmp_agent),
             "sessions_db_hash": _sha256(tmp_sessions),
             "source_paths": {"agent_db": str(agent_db), "sessions_db": str(sessions_db)},

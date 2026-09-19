@@ -686,6 +686,22 @@ class TaskManager:
             )
         return result
 
+    def clear_container_history(self, container_id: str) -> dict:
+        """清空容器的对话历史（消息 + 事件 + 消息附件），返回删除计数。
+
+        为什么保留 run/tool_call 等审计表：那些是「执行发生过什么」的证据，
+        清空对话不应该毁掉审计链。要真正重置模型记忆，调用方还需额外清掉
+        LLM 侧的上下文会话（`SQLiteSession.clear_session()`）。
+        """
+        deleted = {"messages": 0, "events": 0, "attachments": 0}
+        with self._connect() as conn:
+            for table, key in (("message_attachments", "attachments"),
+                               ("task_events", "events"),
+                               ("messages", "messages")):
+                cursor = conn.execute(f"DELETE FROM {table} WHERE task_id = ?", (container_id,))
+                deleted[key] = int(cursor.rowcount or 0)
+        return deleted
+
     # ---------- 创建 / 读取（Run 语义；v1 方法名保持兼容） ----------
 
     def create_task(
@@ -2053,7 +2069,9 @@ class TaskManager:
         try:
             if path.exists():
                 path.unlink()
-        except OSError:
+        except (OSError, SystemExit):
+            # 物理文件删除属收尾副作用：失败（含运行环境安全护栏抛出的
+            # SystemExit）不得冒泡，否则会终止整个 Web 服务进程。
             pass
         return dict(row)
 
@@ -2131,7 +2149,8 @@ class TaskManager:
         if not keep_file and stored and Path(stored).exists():
             try:
                 Path(stored).unlink()
-            except OSError:
+            except (OSError, SystemExit):
+                # 同上：物理文件删除失败不得冒泡终止服务。
                 pass
         return row
 
@@ -2162,7 +2181,8 @@ class TaskManager:
             if old_path and Path(old_path).exists() and Path(old_path).resolve() != Path(src["stored_path"]).resolve():
                 try:
                     Path(old_path).unlink()
-                except OSError:
+                except (OSError, SystemExit):
+                    # 同上：去重时清理旧副本失败不得冒泡终止服务。
                     pass
             return self.get_message_attachment(attachment_id) or row
         # 复制入 sources 目录（物理一份在 sources；数据库记录来源关系）

@@ -1,4 +1,4 @@
-"""Markdown 渲染器测试（经 Node 运行 web/runtime/markdown.js，断言安全 AST）。"""
+"""Markdown 渲染器测试（经 Node 运行 web/shared/markdown.js，断言安全 AST）。"""
 
 import json
 import subprocess

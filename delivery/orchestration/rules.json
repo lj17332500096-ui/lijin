@@ -1,0 +1,41 @@
+[
+  {
+    "id": "G-01",
+    "type": "forbidden",
+    "forbidden": "sk-",
+    "enforced": true,
+    "desc": "真实 API 密钥前缀（sk- / sk-ant-）不得出现在任务描述与交付物中"
+  },
+  {
+    "id": "G-02",
+    "type": "forbidden",
+    "forbidden": "Bearer ",
+    "enforced": true,
+    "desc": "Authorization 凭据不得进入交付物"
+  },
+  {
+    "id": "G-03",
+    "type": "forbidden",
+    "forbidden": "password",
+    "enforced": true,
+    "desc": "口令类字段不得进入交付物"
+  },
+  {
+    "id": "G-04",
+    "type": "declarative",
+    "enforced": false,
+    "desc": "质量门禁：测试失败数与错误数必须为 0，才允许把交付状态标为 delivered（本版由流水线在合并阶段自校验，技能侧未实现该类型）"
+  },
+  {
+    "id": "G-05",
+    "type": "declarative",
+    "enforced": false,
+    "desc": "数字纪律：交付物中每个数字必须可回溯到原始输入，不可回溯的标 [需核实]"
+  },
+  {
+    "id": "G-06",
+    "type": "declarative",
+    "enforced": false,
+    "desc": "UI 冻结期：不得因为交付动作而启动 webapp.py / llama_bridge.py（端口 8765/9095 保持无监听）"
+  }
+]

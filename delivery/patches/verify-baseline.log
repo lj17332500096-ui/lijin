@@ -1,0 +1,39 @@
+=== 技能缺陷验收（python=F:\Byong-hermes\Byong-hermes\my_creative_agent\.venv\Scripts\python.exe）===
+目标目录: C:\Users\Administrator\.workbuddy\plugins\marketplaces\experts\plugins\agent-orchestration-pro\skills
+
+  [NG ] DEF-01 run.py --selftest 不再因格式串抛 TypeError  —— rc=1，仍有格式串错误
+  [NG ] DEF-02 _write_guarded 的 dry-run / verbose 路径可执行  —— rc=1｜TypeError: %d format: a real number is required, not WindowsPath
+  [NG ] DEF-03 run.py --dry-run --force 正常返回  —— rc=1
+  [NG ] DEF-04 selftest() 收尾有显式 return 0  —— RESULT False Expr 442 531
+  [NG ] DEF-05 selftest() 不覆盖 memory/hooks/rules  —— selftest() 未干净返回 rc=0；被改写: ['memory.json', 'hooks.json', 'rules.json']
+  [NG ] DEF-09 agent-ready-repo: run.read_text_safe 非 None  —— RESULT True False
+  [NG ] DEF-06 everything-openai-codex: run.run_selftest 非 None  —— RESULT False False
+  [NG ] DEF-09 everything-openai-codex: run.read_text_safe 非 None  —— RESULT False False
+  [NG ] DEF-09 workflow: run.read_text_safe 非 None  —— RESULT True False
+  [NG ] DEF-07 workflow run.py 的 --data / --url 可达  —— --data=不可达；--url=不可达
+  [NG ] DEF-08 --file 真实读取 JSON 内容  —— 仍是路径回显
+  [NG ] DEF-08 --file 真实读取 CSV 内容  —— CSV 未被解析
+  [NG ] DEF-10 agent-ready-repo: read_text_safe 定义在 __main__ 卫兵之前  —— def@513 guard@509
+  [NG ] DEF-10 workflow: read_text_safe 定义在 __main__ 卫兵之前  —— def@423 guard@419
+  [NG ] GATE   agent-ready-repo/selftest.py 8/8  —— 自检完成: 7/8 通过
+  [OK ] GATE   everything-openai-codex/selftest.py 8/8  —— 自检完成: 8/8 通过
+  [NG ] GATE   workflow/selftest.py 8/8  —— 自检完成: 7/8 通过
+
+=== 结果：1/17 通过 ===
+  未通过：DEF-01 run.py --selftest 不再因格式串抛 TypeError rc=1，仍有格式串错误
+  未通过：DEF-02 _write_guarded 的 dry-run / verbose 路径可执行 rc=1｜TypeError: %d format: a real number is required, not WindowsPath
+  未通过：DEF-03 run.py --dry-run --force 正常返回 rc=1
+  未通过：DEF-04 selftest() 收尾有显式 return 0 RESULT False Expr 442 531
+  未通过：DEF-05 selftest() 不覆盖 memory/hooks/rules selftest() 未干净返回 rc=0；被改写: ['memory.json', 'hooks.json', 'rules.json']
+  未通过：DEF-09 agent-ready-repo: run.read_text_safe 非 None RESULT True False
+  未通过：DEF-06 everything-openai-codex: run.run_selftest 非 None RESULT False False
+  未通过：DEF-09 everything-openai-codex: run.read_text_safe 非 None RESULT False False
+  未通过：DEF-09 workflow: run.read_text_safe 非 None RESULT True False
+  未通过：DEF-07 workflow run.py 的 --data / --url 可达 --data=不可达；--url=不可达
+  未通过：DEF-08 --file 真实读取 JSON 内容 仍是路径回显
+  未通过：DEF-08 --file 真实读取 CSV 内容 CSV 未被解析
+  未通过：DEF-10 agent-ready-repo: read_text_safe 定义在 __main__ 卫兵之前 def@513 guard@509
+  未通过：DEF-10 workflow: read_text_safe 定义在 __main__ 卫兵之前 def@423 guard@419
+  未通过：GATE agent-ready-repo/selftest.py 8/8 自检完成: 7/8 通过
+  未通过：GATE workflow/selftest.py 8/8 自检完成: 7/8 通过
+HAS FAILURE

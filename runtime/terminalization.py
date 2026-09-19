@@ -40,6 +40,7 @@ KIND_COMPLETION_REJECTED = "completion_rejected"
 KIND_NO_PROGRESS = "no_progress"
 KIND_BOUNDED_FAILURE = "bounded_failure"
 KIND_FINAL_RESPONSE_FAILED = "final_response_failed"
+KIND_TOKEN_BUDGET = "token_budget"  # 2026-09-19 ④ 成本闸门新增
 KIND_UNKNOWN = "unknown"
 
 
@@ -70,6 +71,11 @@ def classify_exception(exc: BaseException) -> TerminalReason:
 
     # 墙钟预算 / 超时
     if name in ("BudgetExceeded", "TimeoutError") or "超过墙钟预算" in text:
+        # BudgetExceeded 区分来源：reason == "token_budget" → 专走 KIND_TOKEN_BUDGET
+        _reason = getattr(exc, "reason", "") or ""
+        if _reason == "token_budget":
+            return TerminalReason(KIND_TOKEN_BUDGET, TaskState.FAILED,
+                                  "本次执行超出 token 预算，已停止（保留已发生的操作）。")
         return TerminalReason(KIND_TIMEOUT, TaskState.FAILED,
                               "本次执行超过时间上限，已停止。")
 

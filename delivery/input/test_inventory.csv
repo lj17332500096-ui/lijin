@@ -1,0 +1,9 @@
+scope,files,passed,failed,skipped,errors,returncode,duration_s,interrupted
+batch_1,12,153,0,0,0,0,16.51,no
+batch_2,12,106,0,2,0,0,18.77,no
+batch_3,12,135,0,2,0,0,16.52,no
+batch_4,12,156,0,0,0,0,12.91,no
+batch_5,12,138,0,0,0,0,14.36,no
+batch_6,12,159,0,0,0,0,15.4,no
+batch_7,12,161,0,1,0,0,18.21,no
+batch_8,5,34,0,1,0,0,6.91,no

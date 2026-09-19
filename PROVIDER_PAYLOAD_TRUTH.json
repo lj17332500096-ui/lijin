@@ -1,0 +1,79 @@
+# PROVIDER PAYLOAD EXPECTATION（Phase 0，已降级）
+
+> **语义纠正**：本文件是 Phase 0 的产出。Phase 0 未拦截真实
+> `/chat/completions` 请求体，本表基于 `.env` 配置 + 代码路径 + `agent.db`
+> 历史表**推定**，非"真实 payload 落库"。
+> 按 Phase 1 第九项要求，正式语义降级为 **`PROVIDER_PAYLOAD_EXPECTATION`**，
+> 不冒充 Truth。Phase 1 的 `ESTABLISHED` 真相见
+> `FORGE-RUNTIME-TRUTH-AUDIT-PHASE1.md` §7 + `_audit/provider_payload_*.json`
+> （非侵入式拦截 5 个真实请求）。
+
+{
+  "_meta": {
+    "phase": "FORGE Runtime Truth Audit · Phase 0 (7)",
+    "semantic": "EXPECTATION (Phase 0 未拦截真实 payload，降级非 Truth)",
+    "evidence_level": "2 .env 配置 + 代码路径 + agent.db 历史表（无真实 payload 落库）",
+    "source_records": "agent.db: model_calls(4201) / provider_attempts(220) / tool_calls(6501)"
+  },
+  "model": {
+    "expected_configured": "agnes-2.5-flash",
+    "observed_in_history": "agnes-2.5-flash",
+    "actual_runtime_confirmed_by_phase1": "agnes-2.5-flash",
+    "source": ".env AGENT_MODEL + 历史 model_calls.model",
+    "match": true
+  },
+  "endpoint": {
+    "configured": "https://apihub.agnes-ai.cn/v1",
+    "scheme": "chat/completions (OPENAI_USE_RESPONSES=false)",
+    "note": "历史 provider_attempts 全 success/tag=primary；本地 Spark 在 pref=gateway 下未参与",
+    "match": true
+  },
+  "local_model": {
+    "configured": "G:\\models\\Spark-X2.5-4B.gguf @ http://localhost:8080/v1",
+    "active": false,
+    "reason": "FORGE_MODEL_PREF=gateway → run_turn 取 current_assistant_agent()，不克隆本地模型",
+    "match": "N/A (inactive)"
+  },
+  "messages": {
+    "expected_structure": "system(人设+AgentReply JSON 契约+SKILLS_BLOCK) + user(message) + tool role",
+    "actual_confirmed_by_phase1": "message_count 2→4→6→8→10（每轮 +2）",
+    "note": "Phase 0 仅推定结构；Phase 1 拦截实测坐实",
+    "to_verify": "[已由 Phase 1 坐实]"
+  },
+  "tool_names": {
+    "agent_exposed_max": 37,
+    "router_subset": "Tool Router 默认开启；按查询裁剪子集；C2 熔断命中 0 工具 ≥3 次则升级全量",
+    "actual_case1_subset": "9 工具（calculate/get_current_datetime/index_workspace/list_code_files/list_workspace_files/read_code_file/read_workspace_file/run_tests/search_documents）",
+    "actual_case2_4_subset": "14 工具（mutation 场景）",
+    "note": "Phase 0 推定为'每轮动态裁剪'；Phase 1 拦截实测 5 请求 tools_blob_sha256 全一致（`8d2e4842ffa44e2d`）"
+  },
+  "tool_count_per_turn": {
+    "expected": "查询命中部分工具时 < 全量 37；全量时=37",
+    "actual_case1": 9,
+    "actual_case2_4": 14
+  },
+  "tool_schema_hashes": {
+    "expected": "未持久化 per-tool schema hash",
+    "actual_snapshot_gap": "manifest 只有 agent_db_hash，缺 tool schema hashes → SNAPSHOT_FIDELITY = NOT QUALIFIED（Phase 1 正式标记）"
+  },
+  "tool_choice": {
+    "expected": "未显式设 → SDK 默认 auto",
+    "actual": "Omit（SDK 未下发，provider 侧默认）"
+  },
+  "temperature": {
+    "expected": "ModelSettings 未显式设 → SDK 默认",
+    "actual_confirmed_by_phase1": "Omit（SDK 未下发）→ **PROVIDER DEFAULT**，不猜具体值",
+    "note": "按 Phase 1 第二十二项，不下发即 PROVIDER DEFAULT"
+  },
+  "max_tokens": {
+    "expected": 4096,
+    "source": "agent.py ModelSettings(max_tokens=4096)",
+    "actual_confirmed_by_phase1": 4096
+  },
+  "key_decision": {
+    "question": "Agent.tools 是否等于 Provider received tools?",
+    "expected": "Router 开启时不等（Provider 收到裁剪子集）",
+    "actual_case1": "PASS（Router 选 9 = active_agent 9 = Provider 收 9，三处一致）",
+    "verdict": "IN_EQUIVALENT_BY_DESIGN（设计使然）；Phase 1 拦截坐实三处一致"
+  }
+}

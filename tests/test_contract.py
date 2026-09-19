@@ -16,6 +16,11 @@ ROOT = Path(__file__).resolve().parent.parent
 def test_mock_client_contract_fields():
     if shutil.which("node") is None:
         pytest.skip("node 不可用")
+    # 被测对象是老版 Web UI 的前端 API 适配层（web/runtime/{types,mock,client}.js）。
+    # 该 UI 已按「llama-ui 为唯一前端」下线（/runtime 现为 301 → /llama-ui/，
+    # web/runtime/ 已移除），契约探针失去了被测对象。
+    if not (ROOT / "web" / "runtime" / "types.js").exists():
+        pytest.skip("旧 Web UI 已下线（web/runtime/ 已移除），契约探针无被测对象")
     proc = subprocess.run(
         ["node", str(Path(__file__).parent / "contract_probe.js")],
         cwd=str(ROOT),

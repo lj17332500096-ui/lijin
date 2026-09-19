@@ -103,11 +103,19 @@ def _persist_load(run_id: str) -> list[dict[str, Any]]:
 
 
 def _persist_reset(run_id: str) -> None:
+    """删除该 run 的尝试记录文件（纯清理，任何失败都必须静默）。
+
+    注意：这里必须同时吞掉 SystemExit，而不只是 Exception。清理属于副作用，
+    但某些运行环境（沙箱 / 安全护栏 / 自定义 sitecustomize）在删除文件时会
+    直接抛 SystemExit；一旦冒泡，就会顺着 take_attempts -> _close_run ->
+    _succeed 一路终止整个 uvicorn 进程（表现为“服务跑一段时间后突然退出”）。
+    KeyboardInterrupt 不吞，保证 Ctrl+C 语义不受影响。
+    """
     try:
         path = _persist_path(run_id)
         if path is not None and path.exists():
             path.unlink(missing_ok=True)
-    except Exception:
+    except (Exception, SystemExit):
         pass
 
 

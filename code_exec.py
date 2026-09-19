@@ -300,7 +300,12 @@ def write_code_file(project: str, filename: str, content: str) -> str:
 
 @function_tool
 def read_code_file(project: str, filename: str, max_chars: int = 20000) -> str:
-    """读取沙箱项目里的某个代码文件（用于回看/定位问题）。"""
+    """读取【代码沙箱】项目里的某个文件（用于回看/定位问题）。
+
+作用域：只能读 工作区/code_sandbox/<project>/ 下的文件 —— 那是写代码、跑代码的临时目录，
+不是你的项目源码。读真实项目/工作区的文件请改用 read_workspace_file（只读，任意路径）；
+改真实项目请用 edit_project_file。
+project 是沙箱项目名；filename 是项目内相对路径（如 utils/math.py）。"""
     project = (project or "").strip()
     project_dir = _project_dir(project)
     target = _file_target(project_dir, (filename or "").strip()) if project_dir else None
@@ -321,7 +326,11 @@ def read_code_file(project: str, filename: str, max_chars: int = 20000) -> str:
 
 @function_tool
 def list_code_files(project: str) -> str:
-    """列出沙箱项目里的所有文件及大小（不含子目录层级限制）。"""
+    """列出【代码沙箱】某个项目里的全部文件与大小（含子目录）。
+
+作用域：只看 工作区/code_sandbox/<project>/，用于确认 write_code_file 写了哪些文件、
+run_python 该跑哪一个。列真实项目/工作区的目录请改用 list_workspace_files。
+project 是沙箱项目名。"""
     project = (project or "").strip()
     project_dir = _project_dir(project)
     if project_dir is None or not project_dir.exists():

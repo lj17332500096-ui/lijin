@@ -1,5 +1,6 @@
 def add(a, b):
-    return a + b
+    # BUG
+    return a - b
 
 
 def multiply(a, b):

@@ -334,12 +334,31 @@ def print_run_items(result: object) -> None:
 
 
 async def _auto_compact(session: SQLiteSession, auto_summary: bool) -> None:
-    """每轮结束后执行一次长会话自动摘要（默认开启，--no-auto-summary 关闭）。"""
+    """每轮结束后执行一次长会话自动摘要（默认开启，--no-auto-summary 关闭）。
+
+    修复 B：SQLiteSession 可能已被 SDK 内部 invalidate（_closed=True），
+    此时 close() 后调用 maybe_compact 会抛 RuntimeError("SQLiteSession is closed")。
+    对 closed 状态静默降级（记 debug 日志后跳过），不阻塞主流程。
+    """
     if not auto_summary:
         return
-    summary = await maybe_compact(session)
-    if summary:
-        print("\n🧹 长会话自动摘要：较早的对话已压缩保留（summaries/ 目录可查），最近几轮原文完整保留。")
+    # SQLiteSession 无公开 is_closed 属性；用 _check_not_closed 探测（它会抛 RuntimeError）。
+    try:
+        session._check_not_closed()
+    except RuntimeError:
+        import logging
+        logging.getLogger(__name__).debug("session already closed, skip auto_compact")
+        return
+    try:
+        summary = await maybe_compact(session)
+        if summary:
+            print("\n🧹 长会话自动摘要：较早的对话已压缩保留（summaries/ 目录可查），最近几轮原文完整保留。")
+    except RuntimeError as e:
+        if "closed" in str(e).lower():
+            import logging
+            logging.getLogger(__name__).debug("session closed during compact, skipping")
+        else:
+            raise
 
 
 def display_output(final_output: object) -> None:
@@ -410,14 +429,14 @@ async def _run_attempt(
                     else:
                         tool_name = getattr(raw, "name", "?")
                         args = getattr(raw, "arguments", "") or ""
-                    print(f"\n[调用工具: {tool_name}]", flush=True)
+                    _process_print(f"\n[调用工具: {tool_name}]")
                     # Execution wrapper owns public tool state; SDK observations are internal.
                 elif event.name == "tool_call_created":
                     raw = getattr(event.item, "raw_item", None)
                     tool_name = getattr(raw, "name", "?")
                     # A planned call is not evidence that execution started.
                 elif debug:
-                    print(f"[流事件] {event.name}", flush=True)
+                    _process_print(f"[流事件] {event.name}")
             elif event.type == "raw_response_event":
                 raw_data = getattr(event.data, "data", None) or event.data
                 raw_type = getattr(raw_data, "type", "") or getattr(event.data, "type", "")
@@ -429,10 +448,10 @@ async def _run_attempt(
                         _emit("final.content.delta", {"text": delta})
                 if debug:
                     if raw_type != last_raw_type:
-                        print(f"[流事件] LLM 原始事件: {raw_type}", flush=True)
+                        _process_print(f"[流事件] LLM 原始事件: {raw_type}")
                         last_raw_type = raw_type
             elif event.type == "agent_updated_stream_event" and debug:
-                print(f"[流事件] 切换 Agent: {event.new_agent.name}", flush=True)
+                _process_print(f"[流事件] 切换 Agent: {event.new_agent.name}")
         return result
     return await Runner.run(
         active_agent,
@@ -525,6 +544,30 @@ async def execute_turn(
                         pass
             raise
     raise OutputGuardrailTripwireTriggered("unreachable")  # pragma: no cover
+
+
+_PROCESS_PRINTS = True
+
+
+def set_process_prints(enabled: bool) -> None:
+    """允许调用方接管「过程输出」（工具调用行 / 流事件行）。
+
+    这些打印属于表现层，调用方（CLI 消息平台，将来的其它前端）应当自己决定怎么渲染。
+    默认保持旧行为（开启）；CLI 平台会在非 debug 模式下关闭，避免与自己的渲染层重复
+    输出、也避免破坏调用方的行状态。
+    """
+    global _PROCESS_PRINTS
+    _PROCESS_PRINTS = bool(enabled)
+
+
+def process_prints_enabled() -> bool:
+    return _PROCESS_PRINTS
+
+
+def _process_print(*parts: object) -> None:
+    if not _PROCESS_PRINTS:
+        return
+    print(*parts, flush=True)
 
 
 def _print_banner(mode: str, session_name: str, history_limit: int | None, max_turns: int) -> None:
@@ -924,6 +967,11 @@ def main() -> None:
         default="stream",
         help="执行方式：stream=流式实时（默认）；async=异步一次返回；sync=同步阻塞",
     )
+    parser.add_argument(
+        "--classic",
+        action="store_true",
+        help="使用旧版裸 REPL（无命令体系）。默认已换成 CLI 消息平台（cli/ 包）",
+    )
     parser.add_argument("--debug", action="store_true", help="打印每轮 agent 内部循环记录（理解运行原理）")
     parser.add_argument("--max-turns", type=int, default=20, help="单轮最多执行 LLM+工具的循环次数")
     parser.add_argument("--history", type=int, default=None, help="每轮最多回看多少条历史消息（不填=全部）")
@@ -959,6 +1007,7 @@ def main() -> None:
         help="语音输入时只显示文字、不朗读回复（与 --voice 一起用）",
     )
     parser.add_argument("--trace", action="store_true", help="开启本地追踪，把每一步 span 写入 traces/traces.jsonl")
+    parser.add_argument("--tui", action="store_true", help="使用 Textual TUI 界面（需安装 textual，默认仍走 CLI 消息平台）")
     args = parser.parse_args()
 
     if args.list_sessions:
@@ -1017,6 +1066,36 @@ def main() -> None:
         check_api_key()
         asyncio.run(daemon_loop(args.max_turns))
         return
+
+    # 默认入口：CLI 消息平台（进程内直连 Runtime，带命令体系/过程展示/诊断码）
+    if args.tui:
+        check_api_key()
+        from cli.tui.app import run_tui
+
+        raise SystemExit(
+            run_tui(
+                session_name=args.session,
+                mode=args.mode,
+                debug=args.debug,
+                max_turns=args.max_turns,
+                history_limit=args.history,
+                auto_summary=not args.no_auto_summary,
+            )
+        )
+    if not args.classic:
+        check_api_key()
+        from cli.app import run_cli
+
+        raise SystemExit(
+            run_cli(
+                session_name=args.session,
+                mode=args.mode,
+                debug=args.debug,
+                max_turns=args.max_turns,
+                history_limit=args.history,
+                auto_summary=not args.no_auto_summary,
+            )
+        )
 
     if args.mode == "sync":
         chat_sync(

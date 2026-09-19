@@ -399,21 +399,45 @@ class FinalContentStream:
         self.in_think = False
         self.complete = False
 
+    @staticmethod
+    def _strip_fence(raw: str):
+        """去掉模型可能自行加上的 markdown 代码围栏（```json … ```）。
+
+        返回 None 表示围栏声明行还没接收完整（例如只收到 "```" 或 "```json"），
+        调用方应等待后续分片，绝不能把围栏片段当正文推给用户。
+        """
+        if not raw.startswith("`"):
+            return raw
+        if len(raw) < 3:
+            return None  # 可能是 "```" 的前缀，等下一个分片
+        if not raw.startswith("```"):
+            return raw  # 行内反引号，按普通文本处理
+        newline = raw.find("\n")
+        if newline == -1:
+            return None  # 围栏声明行（```json）尚未结束
+        return raw[newline + 1:].lstrip()
+
     def feed(self, delta):
         self.raw += delta
         # Locate top-level keys with JSONDecoder, never regex-match nested content.
-        raw = self.raw.lstrip()
+        raw = self._strip_fence(self.raw.lstrip())
+        if raw is None:
+            return
         if not raw.startswith("{"):
             # Non-JSON fallback: the model is not emitting {"content":…}. Treat the
             # raw stream as a plain public answer, still filtered for reasoning/secret
             # lines by public_text so we never leak internal text. complete stays False
             # so stream_final can decide the final fallback (it has the full RunResult).
-            line = public_text(delta)
-            if line.startswith(self.sent):
-                emit = line[len(self.sent):]
+            #
+            # 必须按「累积文本」做前缀差分：分片是非累计的增量，若拿单个分片去和
+            # 累积的 sent 比 startswith，会把 "```"/"`json" 这类围栏分片误拼成
+            # 可见的 "json" 气泡（llama-ui 曾因此把正文显示成 json）。
+            text = public_text(raw)
+            if text.startswith(self.sent):
+                emit = text[len(self.sent):]
                 if emit:
                     self.emit(emit)
-                    self.sent = line
+                    self.sent = text
             return
         pos = 1
         decoder = json.JSONDecoder()

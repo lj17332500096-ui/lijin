@@ -1,0 +1,15 @@
+{
+  "name": "everything-openai-codex",
+  "displayName": "Codex智能体编排 工作流调度 任务执行",
+  "encoding_fallback": [
+    "utf-8",
+    "gbk",
+    "gb18030"
+  ],
+  "features": [
+    "cli",
+    "selftest",
+    "dry-run",
+    "error-handling"
+  ]
+}

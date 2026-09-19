@@ -128,7 +128,7 @@ def semantic_action_class(tool_name: str | None, normalized_args: Any = None) ->
         return "SEMANTIC_VERIFICATION"
     if tool_name == "run_python":
         return classify_run_python(normalized_args)
-    if tool_name in ("code_loop", "code_loop_tool"):
+    if tool_name == "code_loop":
         return classify_run_python(normalized_args)
     from runtime.spec import capability_of
 

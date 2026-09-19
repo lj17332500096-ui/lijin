@@ -172,6 +172,39 @@ def test_single_line_content_still_reaches_user_via_final_frame_not_lost():
     assert "".join(result) == single, "单行 content 必须完整可见，不允许因打字机改造而丢失"
 
 
+def test_fenced_json_streams_real_content_not_fence_noise():
+    """回归：模型用 ```json 围栏包裹最终 JSON 时，必须解析出 content，
+    且绝不能把围栏片段（"json"）当作正文推送给用户。
+
+    历史 bug：FinalContentStream 的非 JSON 兜底按「单分片 vs 累积 sent」比较，
+    围栏被拆成 "```"/"`json" 两个分片后会被拼成可见的 "json" 气泡
+    （llama-ui 界面上就是先显示 json、随后报 resume 失败）。
+    """
+    result = []
+    decoder = FinalContentStream(result.append)
+    raw = "```json\n" + json.dumps({"content": "这是最终答案。"}, ensure_ascii=True) + "\n```"
+    for chunk in ["```", "json", "\n", '{"content": "这是最', '终答案。"}', "\n```"]:
+        decoder.feed(chunk)
+    visible = "".join(result)
+    assert "这是最终答案" in visible, f"围栏 JSON 的 content 必须可见，实际={visible!r}"
+    assert "json" not in visible, f"围栏片段不得泄漏成正文，实际={visible!r}"
+
+
+def test_fenced_json_char_by_char_matches_unfenced():
+    """逐字符喂入的围栏 JSON 与无围栏 JSON 结果一致（解析路径被打通）。"""
+    plain, fenced = [], []
+    payload = {"content": "第一行结论。\n第二行说明。", "summary": "s"}
+    d1 = FinalContentStream(plain.append)
+    for char in json.dumps(payload, ensure_ascii=True):
+        d1.feed(char)
+    d2 = FinalContentStream(fenced.append)
+    for char in "```json\n" + json.dumps(payload, ensure_ascii=True) + "\n```":
+        d2.feed(char)
+    assert d1.complete and d2.complete
+    assert "".join(fenced) == "".join(plain)
+    assert "第一行结论" in "".join(fenced)
+
+
 def test_sse_boundary_default_deny():
     for kind in ["reply_delta", "thinking", "analysis", "tool", "tool.progress", "stream_reset"]:
         assert public_wire("r", kind, {"text": "PRIVATE"}) is None

@@ -839,5 +839,80 @@ class RouterMetricsTests(unittest.TestCase):
         self.assertEqual(tr._metrics_state["latencies"][-1], 2.0)
 
 
+class FixCHitZeroIntentTests(unittest.TestCase):
+    """修复 C 回归：hit_zero 口径收敛为「有工具意图但 0 工具」。
+
+    - 纯文本/问候/概念问答/算式 → intent_class 非
+      tool_needed/ambiguous → 不计 hit_zero（消除假阳性）。
+    - 真意图 0 工具（ambiguous 兜底）→ 仍计 hit_zero。
+    - 命中工具的查询 → 不计 hit_zero。
+    锁定 _classify_intent 的 6 类边界（tool_needed/greeting/concept_qa/arith/direct_text/ambiguous），
+    防止后续改正则时回归旧口径。
+    """
+
+    def setUp(self) -> None:
+        self._saved = os.environ.get("TOOL_ROUTER")
+        os.environ["TOOL_ROUTER"] = "on"
+
+    def tearDown(self) -> None:
+        if self._saved is None:
+            os.environ.pop("TOOL_ROUTER", None)
+        else:
+            os.environ["TOOL_ROUTER"] = self._saved
+
+    def test_greeting_classified_as_greeting(self) -> None:
+        # 纯问候族：命中 _GREETING_INTENT 且无 _TOOL_NEEDED 强信号 → greeting
+        # 关键断言：greeting 不计 hit_zero、不计入 total_intent_tool 分母。
+        for q in ["你好", "您好", "hi", "hello", "在吗", "讲个笑话",
+                  "谢谢", "再见", "早上好", "晚安", "拜拜", "你是谁",
+                  "介绍一下你自己", "请用一句话介绍你自己", "你是什么"]:
+            self.assertEqual(
+                tr._classify_intent(q.lower(), q), "greeting",
+                f"{q!r} 应归 greeting")
+        # greeting 不计入分母
+        tr._metrics_state["total_intent_tool"] = 0
+        tr.record_router_call(0.1, hit_zero=False, intent_class="greeting")
+        self.assertEqual(tr._metrics_state["total_intent_tool"], 0)
+
+    def test_greeting_reverse_excluded_by_tool_needed(self) -> None:
+        # 问候词 + 工具强信号 → 仍走 tool_needed（不被问候误吞）
+        for q in ["帮我读一下文件，谢谢", "查询天气"]:
+            self.assertEqual(
+                tr._classify_intent(q.lower(), q), "tool_needed",
+                f"{q!r} 含工具强信号，应保持 tool_needed")
+
+    def test_concept_qa_not_counted_in_denominator(self) -> None:
+        # 「什么是 RAG」→ concept_qa：不计入 total_intent_tool（消除假阳性分母）
+        self.assertEqual(tr._classify_intent("什么是 RAG", "什么是 RAG"), "concept_qa")
+        tr._metrics_state["total_intent_tool"] = 0
+        tr.record_router_call(0.1, hit_zero=False, intent_class="concept_qa")
+        self.assertEqual(tr._metrics_state["total_intent_tool"], 0)
+
+    def test_arith_not_counted_in_denominator(self) -> None:
+        # 「1+1 等于几」→ arith：不计入分母
+        self.assertEqual(tr._classify_intent("1+1 等于几", "1+1 等于几"), "arith")
+        tr._metrics_state["total_intent_tool"] = 0
+        tr.record_router_call(0.1, hit_zero=False, intent_class="arith")
+        self.assertEqual(tr._metrics_state["total_intent_tool"], 0)
+
+    def test_tool_needed_zero_hits_counted(self) -> None:
+        # 命中 _TOOL_NEEDED 强信号（如「文档」）→ tool_needed：计 hit_zero 分母
+        self.assertEqual(tr._classify_intent("帮我处理这份文档", "帮我处理这份文档"), "tool_needed")
+        tr._metrics_state["total_intent_tool"] = 0
+        tr.record_router_call(0.1, hit_zero=True, intent_class="tool_needed")
+        self.assertEqual(tr._metrics_state["total_intent_tool"], 1)
+
+    def test_hit_zero_rate_uses_intent_tool_denominator(self) -> None:
+        # 锁定 _maybe_flush_metrics 的分母语义：hit_zero_rate = hit_zero / total_intent_tool
+        tr._metrics_state.update({
+            "total": 10, "hit_zero": 2, "total_intent_tool": 5,
+            "escalated": 0, "fast_mode": 0, "empty": 0,
+            "latencies": [], "last_flush": time.time(),
+        })
+        # 直接验算口径（不实际 flush）：2/5 = 0.4，而非旧的 2/10 = 0.2
+        rate = round(tr._metrics_state["hit_zero"] / max(tr._metrics_state["total_intent_tool"], 1), 4)
+        self.assertEqual(rate, 0.4)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -63,15 +63,13 @@ async def _auto_approve(rt, task_id: str) -> int:
 
 
 async def _run_case(rt, case: dict, mode: str, rep: int) -> dict:
-    os.environ["FORGE_DECISION_HINT"] = "off"
-    os.environ["FORGE_REDUNDANT_GUARD"] = "off"
-    os.environ["FORGE_COMPLETION_READY"] = "off"  # Guard B 保持 OFF
-    # Phase 13：Completion Obligation Gate 始终保持 ON（防 false completion）
-    os.environ["FORGE_OBLIGATION_GATE"] = "on"
-    os.environ["FORGE_OBLIGATION_FEEDBACK"] = (
-        "on" if mode in ("feedback", "fact", "gate", "focus") else "off")
-    os.environ["FORGE_VERIFICATION_FOCUS"] = (
-        "on" if mode in ("focus",) else "off")
+    # Phase 11：本文件早期为了「固定 Guard B OFF」会硬置
+    # FORGE_COMPLETION_READY / FORGE_REDUNDANT_GUARD / FORGE_DECISION_HINT。
+    # 2026-09-19 Phase 1 审计纠正（FORGE-RUNTIME-TRUTH-AUDIT-PHASE1 §11/§14）：
+    # 这些偏移让评测口径 != 生产口径，是 BENCHMARK_NOT_PRODUCTION_PARITY 的主要来源。
+    # 现在一律**跟随生产 resolver 的默认值**（.env 没设就是 runner 里的默认），
+    # 不再硬置。OBLIGATION_GATE 仍显式保持 "on"（防 false completion 的底线，
+    # 与生产默认一致）。
     _reset_fixture()
     sid = f"p11-{case['id']}-{mode}-{rep}"
     try:
@@ -105,11 +103,17 @@ async def _run_case(rt, case: dict, mode: str, rep: int) -> dict:
                                         int(inv.get("mutation_revision") or 0))
         if cap == "VERIFICATION":
             verification_epochs.append(int(inv.get("workspace_epoch") or 0))
-    verified = any(inv.get("tool_capability") == "VERIFICATION"
-                   and not inv.get("blocked")
-                   and ("退出码: 0" in str(inv.get("result_summary") or "")
-                        or "passed" in str(inv.get("result_summary") or "").lower())
-                   for inv in invocations)
+    # Phase 1 审计纠正：验证权威来源必须是**真实执行证据**（public.verification.completed
+    # 事件由 Runner 在 verification 工具真正跑完后发出），而不是在 tool.invocation 的
+    # result_summary 字符串里重猜 "退出码:0"/"passed"。
+    # 字符串重猜 = BENCHMARK_VERIFICATION_HEURISTIC(INVALID AUTHORITY)。
+    verification_completed = [e["payload"] for e in events
+                              if e["type"] == "public.verification.completed"]
+    verification_passed_events = [e["payload"] for e in events
+                                  if e["type"] == "public.verification.failed"]
+    # verified = 至少一次真实的 verification.completed 事件（Runner 已判通过）
+    verified = len(verification_completed) > 0
+    verification_failed_count = len(verification_passed_events)
     latest_revision_covered = bool(verified and max_mutation_revision >= 0
                                    and any(e >= max_mutation_revision
                                            for e in verification_epochs))

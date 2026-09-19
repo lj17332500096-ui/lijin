@@ -90,7 +90,7 @@ _P9_MUTATION_TOOLS = frozenset({
     "write_project_file", "edit_project_file", "write_code_file",
     "save_note", "save_word_doc", "save_excel_workbook", "save_ppt_deck",
 })
-_P9_VERIFICATION_TOOLS = frozenset({"run_tests", "run_python", "code_loop", "code_loop_tool"})
+_P9_VERIFICATION_TOOLS = frozenset({"run_tests", "run_python", "code_loop"})
 _P9_READ_TOOLS = frozenset({
     "read_workspace_file", "read_code_file", "read_note", "recall_memory",
     "read_office_file", "read_spreadsheet",

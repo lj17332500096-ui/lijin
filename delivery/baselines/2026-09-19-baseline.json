@@ -1,0 +1,539 @@
+{
+  "label": "FORGE 50-case baseline",
+  "date": "2026-09-19",
+  "n_total": 49,
+  "state_summary": {
+    "completed": 18,
+    "failed": 22,
+    "waiting_user": 9
+  },
+  "terminal_kind_summary": {
+    "completed": 18,
+    "no_progress": 7,
+    "needs_user_input": 9,
+    "bounded_failure": 15
+  },
+  "rows": [
+    {
+      "id": "T001",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 17.97,
+      "model_turns": 0,
+      "tool_calls": 0,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T002",
+      "state": "failed",
+      "terminal_kind": "no_progress",
+      "duration_s": 8.08,
+      "model_turns": 0,
+      "tool_calls": 0,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T003",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 5.52,
+      "model_turns": 0,
+      "tool_calls": 2,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T004",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 102.22,
+      "model_turns": 0,
+      "tool_calls": 0,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T005",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 4.39,
+      "model_turns": 0,
+      "tool_calls": 0,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T006",
+      "state": "waiting_user",
+      "terminal_kind": "needs_user_input",
+      "duration_s": 4.75,
+      "model_turns": 0,
+      "tool_calls": 2,
+      "blocked_reasons": [
+        "tool.blocked_needs_user_input",
+        "tool.blocked_needs_user_input"
+      ]
+    },
+    {
+      "id": "T007",
+      "state": "waiting_user",
+      "terminal_kind": "needs_user_input",
+      "duration_s": 3.77,
+      "model_turns": 0,
+      "tool_calls": 2,
+      "blocked_reasons": [
+        "tool.blocked_needs_user_input",
+        "tool.blocked_needs_user_input"
+      ]
+    },
+    {
+      "id": "T008",
+      "state": "waiting_user",
+      "terminal_kind": "needs_user_input",
+      "duration_s": 3.48,
+      "model_turns": 0,
+      "tool_calls": 0,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T009",
+      "state": "waiting_user",
+      "terminal_kind": "needs_user_input",
+      "duration_s": 2.88,
+      "model_turns": 0,
+      "tool_calls": 2,
+      "blocked_reasons": [
+        "tool.blocked_needs_user_input",
+        "tool.blocked_needs_user_input"
+      ]
+    },
+    {
+      "id": "T010",
+      "state": "waiting_user",
+      "terminal_kind": "needs_user_input",
+      "duration_s": 4.05,
+      "model_turns": 0,
+      "tool_calls": 2,
+      "blocked_reasons": [
+        "tool.blocked_needs_user_input",
+        "tool.blocked_needs_user_input"
+      ]
+    },
+    {
+      "id": "T011",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 17.05,
+      "model_turns": 0,
+      "tool_calls": 4,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T012",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 30.03,
+      "model_turns": 0,
+      "tool_calls": 9,
+      "blocked_reasons": [
+        "tool.budget_exhausted",
+        "tool.budget_exhausted"
+      ]
+    },
+    {
+      "id": "T013",
+      "state": "failed",
+      "terminal_kind": "no_progress",
+      "duration_s": 48.62,
+      "model_turns": 0,
+      "tool_calls": 13,
+      "blocked_reasons": [
+        "tool.convergence",
+        "tool.convergence",
+        "tool.convergence"
+      ]
+    },
+    {
+      "id": "T014",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 13.25,
+      "model_turns": 0,
+      "tool_calls": 6,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T015",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 4.08,
+      "model_turns": 0,
+      "tool_calls": 1,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T016",
+      "state": "failed",
+      "terminal_kind": "no_progress",
+      "duration_s": 39.23,
+      "model_turns": 0,
+      "tool_calls": 11,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T017",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 10.23,
+      "model_turns": 0,
+      "tool_calls": 2,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T018",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 15.48,
+      "model_turns": 0,
+      "tool_calls": 10,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T019",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 15.56,
+      "model_turns": 0,
+      "tool_calls": 10,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T020",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 32.06,
+      "model_turns": 0,
+      "tool_calls": 8,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T021",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 10.44,
+      "model_turns": 0,
+      "tool_calls": 10,
+      "blocked_reasons": [
+        "tool.convergence",
+        "tool.convergence",
+        "tool.convergence"
+      ]
+    },
+    {
+      "id": "T022",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 2.45,
+      "model_turns": 0,
+      "tool_calls": 2,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T023",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 20.23,
+      "model_turns": 0,
+      "tool_calls": 10,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T024",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 3.36,
+      "model_turns": 0,
+      "tool_calls": 2,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T025",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 13.0,
+      "model_turns": 0,
+      "tool_calls": 7,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T026",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 19.3,
+      "model_turns": 0,
+      "tool_calls": 5,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T027",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 38.12,
+      "model_turns": 0,
+      "tool_calls": 21,
+      "blocked_reasons": [
+        "tool.convergence",
+        "tool.convergence",
+        "tool.convergence",
+        "tool.convergence",
+        "tool.budget_exhausted"
+      ]
+    },
+    {
+      "id": "T028",
+      "state": "waiting_user",
+      "terminal_kind": "needs_user_input",
+      "duration_s": 2.75,
+      "model_turns": 0,
+      "tool_calls": 3,
+      "blocked_reasons": [
+        "tool.blocked_needs_user_input",
+        "tool.blocked_needs_user_input",
+        "tool.blocked_needs_user_input"
+      ]
+    },
+    {
+      "id": "T029",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 15.73,
+      "model_turns": 0,
+      "tool_calls": 3,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T030",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 68.89,
+      "model_turns": 0,
+      "tool_calls": 19,
+      "blocked_reasons": [
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted"
+      ]
+    },
+    {
+      "id": "T031",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 30.05,
+      "model_turns": 0,
+      "tool_calls": 7,
+      "blocked_reasons": [
+        "tool.budget_exhausted"
+      ]
+    },
+    {
+      "id": "T032",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 3.88,
+      "model_turns": 0,
+      "tool_calls": 1,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T033",
+      "state": "failed",
+      "terminal_kind": "no_progress",
+      "duration_s": 20.3,
+      "model_turns": 0,
+      "tool_calls": 14,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T034",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 30.56,
+      "model_turns": 0,
+      "tool_calls": 8,
+      "blocked_reasons": [
+        "tool.budget_exhausted",
+        "tool.budget_exhausted"
+      ]
+    },
+    {
+      "id": "T035",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 2.97,
+      "model_turns": 0,
+      "tool_calls": 0,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T036",
+      "state": "waiting_user",
+      "terminal_kind": "needs_user_input",
+      "duration_s": 3.17,
+      "model_turns": 0,
+      "tool_calls": 2,
+      "blocked_reasons": [
+        "tool.blocked_needs_user_input",
+        "tool.blocked_needs_user_input"
+      ]
+    },
+    {
+      "id": "T037",
+      "state": "failed",
+      "terminal_kind": "no_progress",
+      "duration_s": 20.36,
+      "model_turns": 0,
+      "tool_calls": 13,
+      "blocked_reasons": [
+        "tool.convergence",
+        "tool.convergence",
+        "tool.convergence"
+      ]
+    },
+    {
+      "id": "T038",
+      "state": "failed",
+      "terminal_kind": "no_progress",
+      "duration_s": 16.28,
+      "model_turns": 0,
+      "tool_calls": 18,
+      "blocked_reasons": [
+        "tool.convergence",
+        "tool.convergence",
+        "tool.convergence",
+        "tool.convergence"
+      ]
+    },
+    {
+      "id": "T039",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 18.25,
+      "model_turns": 0,
+      "tool_calls": 8,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T040",
+      "state": "waiting_user",
+      "terminal_kind": "needs_user_input",
+      "duration_s": 4.14,
+      "model_turns": 0,
+      "tool_calls": 0,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T041",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 30.27,
+      "model_turns": 0,
+      "tool_calls": 9,
+      "blocked_reasons": [
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted"
+      ]
+    },
+    {
+      "id": "T042",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 4.83,
+      "model_turns": 0,
+      "tool_calls": 0,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T043",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 3.22,
+      "model_turns": 0,
+      "tool_calls": 1,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T044",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 13.81,
+      "model_turns": 0,
+      "tool_calls": 5,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T045",
+      "state": "failed",
+      "terminal_kind": "no_progress",
+      "duration_s": 26.92,
+      "model_turns": 0,
+      "tool_calls": 10,
+      "blocked_reasons": [
+        "tool.intent_gate",
+        "tool.intent_gate",
+        "tool.intent_gate"
+      ]
+    },
+    {
+      "id": "T046",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 43.36,
+      "model_turns": 0,
+      "tool_calls": 11,
+      "blocked_reasons": [
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted",
+        "tool.budget_exhausted"
+      ]
+    },
+    {
+      "id": "T047",
+      "state": "waiting_user",
+      "terminal_kind": "needs_user_input",
+      "duration_s": 4.42,
+      "model_turns": 0,
+      "tool_calls": 0,
+      "blocked_reasons": []
+    },
+    {
+      "id": "T048",
+      "state": "completed",
+      "terminal_kind": "completed",
+      "duration_s": 34.7,
+      "model_turns": 0,
+      "tool_calls": 8,
+      "blocked_reasons": [
+        "tool.budget_exhausted",
+        "tool.budget_exhausted"
+      ]
+    },
+    {
+      "id": "T049",
+      "state": "failed",
+      "terminal_kind": "bounded_failure",
+      "duration_s": 17.73,
+      "model_turns": 0,
+      "tool_calls": 15,
+      "blocked_reasons": []
+    }
+  ]
+}

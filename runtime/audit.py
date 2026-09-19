@@ -10,7 +10,9 @@
 
 import re
 import time
-from typing import Any
+from typing import Any, Callable
+
+from runtime.errors import BudgetExceeded
 
 #: 落库前统一脱敏的密钥/敏感模式（审计不等于保存 Secrets）
 _SECRET_PATTERNS = [
@@ -114,6 +116,10 @@ class AuditCollector:
         #: 本轮请求的模型（provider 未返回 model 时的兜底语义：requested model）
         self.requested_model = requested_model
         self.profile = profile
+        #: ④ 成本闸门钩子：runner 注入 per-call token 记账回调
+        #: (in_tokens, out_tokens) -> None；抛 BudgetExceeded 由 runner 收口。
+        self.on_token_note: Callable[[int, int], None] | None = None
+        self.task_id = task_id
 
     def ingest(self, result: Any) -> dict:
         """把一次 run 的明细写库；返回 {model_calls, tool_calls, input_tokens, output_tokens}。"""
@@ -133,6 +139,14 @@ class AuditCollector:
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
             )
+            # ④ 成本闸门：每次模型调用记账 token；超预算抛 BudgetExceeded
+            if self.on_token_note is not None:
+                try:
+                    self.on_token_note(input_tokens, output_tokens)
+                except BudgetExceeded:
+                    raise
+                except Exception:
+                    pass
             totals["model_calls"] += 1
             totals["input_tokens"] += input_tokens
             totals["output_tokens"] += output_tokens

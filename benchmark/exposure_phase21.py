@@ -32,7 +32,7 @@ import benchmark.decision_qualification as dq  # noqa: E402
 ROOT = Path(__file__).resolve().parent.parent
 
 # verification-focused / verification-only 名称集合（基于真实工具名，来自 snapshot 120）
-E2_VERIFY = ["run_tests", "run_python", "code_loop", "code_loop_tool"]
+E2_VERIFY = ["run_tests", "run_python", "code_loop"]
 E3_VERIFY = ["run_tests", "run_python"]
 E2_PREP_READ = ["read_code_file", "list_code_files", "read_workspace_file",
                 "list_workspace_files", "search_documents"]

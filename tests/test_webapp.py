@@ -6,6 +6,12 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
+# 前端 UI 已冻结（只优化后端阶段）：默认整模块跳过。
+# 恢复运行：set FORGE_ENABLE_UI=1；冻结范围见 ui_frozen.py。
+from tests._ui_freeze import skip_if_frozen
+
+skip_if_frozen()
+
 import webapp
 
 
