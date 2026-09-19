@@ -93,6 +93,13 @@
 - 交付物行尾/编码跟原文件保持一致（外部 skill 的 `scripts/main.py` 是 CRLF），否则 diff 全文件重写。
 - Bash 传 Python 时**反引号会被 shell 当命令替换执行**；含 backtick 的长文本一律走 Write 落盘。
 - `git status` 看不到 untracked 用 `--untracked-files=all`；**Git Bash 的 `find` 是 Windows find.exe**，结果不可信。
+- ⚠️ **脏工作区提交：绝不用 `git add -A`**（会把工作区删除一起暂存）。精确暂存 =
+  `git ls-files --others --exclude-standard`（新增）+ `git diff --name-only --diff-filter=M`（修改），
+  分批用 `git add --pathspec-from-file=- --pathspec-file-nul` 喂进去，
+  校验 `git diff --cached --diff-filter=D` 必须为空。回滚用 `git restore --staged --pathspec-from-file=-`。
+- ⚠️ **Git Bash 下 `awk`/`sed` 管道输出会被吞**（同一命令走 Python `subprocess` 正常）→ 分析类命令一律 Python。
+- ⚠️ `git ls-files/status` 默认给中文路径加引号 → 必须 `-c core.quotePath=false`，否则按 `/` 切分统计全错。
+- `sessions.sqlite-shm/-wal` 不被 `*.sqlite` 匹配、会冒充未跟踪；属易失状态，**不要入库**。
 - ⚠️ **`git rm -r` 删多个子目录会波及父目录**（2026-09-19 实测）：删 9 个技能目录后，父目录 `agent-skills/`
   被整体从工作区抹掉（连本该保留的 10 个目录 / 70 个文件一起），**而退出码是 0**。删完必须核对
   `git diff --name-only --diff-filter=D | wc -l` 的**未暂存**部分，非 0 就 `git checkout -- <父目录>` 复原。
@@ -187,3 +194,16 @@
   （docstring 里的正则示例，历史遗留，不影响结果）。
 - 待办：50 case 基线 `python -m benchmark.eval_runner --all`；`execute_resilient` 仍 opt-in，
   下一轮把 MCP 网络类工具切进去走自动重试。
+- ⚠️ **工作区挂着 1555 个未暂存删除**（2026-09-19 用户决定"暂不动"）：文件已不在磁盘。
+  **已核实：其中没有真实数据**（我一度误判为"910 个用户数据"，错了）——
+  `forge_data` 753 个被删源文件**只有 6 个不同文件名**（`输入.docx`×189/`P.xlsx`×187/`B.docx`×187/
+  `来源.md`×137/乱码 `4Դ.md`×52/`银行流水2021.xlsx`×1），是同一批文件反复导入 759 个测试沙箱的堆积；
+  `notes/` 133 个抽读全是 agent 测试生成的 demo（月度支出表/北京出行推荐/公众号欢迎语），同标题分钟级重复。
+  真用户资产（`materials/*.docx`、`.env`、`memory/`、`data/`）均完好。
+  → **可放心提交收敛**；恢复命令 `git checkout HEAD -- <路径>`。
+  ⚠️ **判"用户数据丢失"必须看去重基名 + 抽读内容**，只看目录名/数量会严重高估。
+- 体检固定跑：已跟踪文件正则扫 `sk-/cpk-/tvly-/AKIA`（2026-09-19 实测仅 8 处测试假值，`.env` 从未入库）。
+- `REPAIR_PLAN_2026-09-19.md`：4 级优先级修复计划。唯一实质风险是"1555 删除挂着 → `git add -A` 会误提交"。
+- ⚠️ **仓库曾缺一大块主干源码**（`cli/` 整包、`runtime/episode*`、`token_gate`、`resilience`、
+  `trace_export`、`ui_frozen`、`benchmark/eval_runner`、11 个测试文件）——2026-09-19 已补录
+  （`f322ec8` + `fd265fb`）。**迁移/clone 前先核对 `git ls-files` 与实际模块是否一致**。
