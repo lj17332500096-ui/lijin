@@ -1,0 +1,26 @@
+{
+  "id": "T001",
+  "final_state": "completed",
+  "deadline_s": 240.0,
+  "elapsed_s": 0.0,
+  "tool_calls": [],
+  "model_turns": 0,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": 0,
+  "blocked_reasons": [],
+  "duration_s": 25.03,
+  "finalText": "我能帮你做这些：\n\n1. 查资料与搜索——查找最新信息、新闻、天气等\n2. 读文档——分析工作区的文本/PDF/Office文件（Word/Excel/PPT），提取要点\n3. 看图问答——识别图片内容（图表、照片、截图、手写文字等）\n4. 数学计算——精确算数、公式计算\n5. 写产出物——备忘录、文章、方案、总结、清单、周报、邮件等\n6. 深度调研——对复杂主题做多轮联网调研，综合成报告\n7. 代码任务——在沙箱里写Python、调试、运行（需开启ALLOW_CODE_EXEC）\n8. 项目编辑——直接修改你工作区里的代码/文档文件（需开启ALLOW_PROJECT_EDIT）\n9. 抓GitHub仓库——读取公开开源项目源码\n10. 定时任务——设置每日/每周自动提醒或执行\n\n你有具体任务直接告诉我就行。",
+  "reply_kind": "answer",
+  "state": "completed",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0
+  },
+  "_exec": {},
+  "_blocked": {}
+}

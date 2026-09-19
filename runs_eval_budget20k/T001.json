@@ -1,0 +1,26 @@
+{
+  "id": "T001",
+  "final_state": "completed",
+  "deadline_s": 300.0,
+  "elapsed_s": 0.0,
+  "tool_calls": [],
+  "model_turns": 0,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": 0,
+  "blocked_reasons": [],
+  "duration_s": 18.16,
+  "finalText": "你好！我是全能助手，可以帮你做很多事情：\n\n**信息获取**\n- 搜索最新资讯、新闻、天气\n- 读取本地文档、笔记、代码文件\n- 查看 GitHub 仓库源码\n\n**内容创作**\n- 写备忘录、文章、方案、计划\n- 生成 Word/Excel/PPT 文档\n- 整理资料、做总结\n\n**数据处理**\n- 数学计算、单位换算\n- 分析表格数据\n- 看图表、做对比\n\n**项目管理**\n- 制定执行方案\n- 分步骤推进复杂任务\n- 记录长期偏好和记忆\n\n**定时任务**\n- 设置重复提醒（每天/每周等）\n- 自动执行例行工作\n\n有什么需要帮忙的？告诉我具体任务就好。",
+  "reply_kind": "answer",
+  "state": "completed",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0
+  },
+  "_exec": {},
+  "_blocked": {}
+}

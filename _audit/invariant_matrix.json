@@ -1,0 +1,263 @@
+{
+  "phase1-phase1-case1-1789778999": {
+    "run_id": "phase1-phase1-case1-1789778999",
+    "task_id": "task_a2305f7b",
+    "invariants": {
+      "INV-01": {
+        "pending_approval": false,
+        "note": "不适用（无 pending approval）",
+        "pass": true
+      },
+      "INV-02": {
+        "verification_tool_count": 0,
+        "names": [],
+        "pass": true
+      },
+      "INV-03": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "DB schema 无 verified_revision/current_revision 独立列，无法逐字段断言"
+      },
+      "INV-04": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "同上"
+      },
+      "INV-05": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "0 approval record(s); 若无重复 resume 则 execution_count<=1"
+      }
+    },
+    "tool_calls": [
+      "read_workspace_file",
+      "list_workspace_files"
+    ],
+    "verification_tools_executed": [],
+    "approval_count": 0
+  },
+  "phase1-phase1-case1-1789779246": {
+    "run_id": "phase1-phase1-case1-1789779246",
+    "task_id": "task_6694c340",
+    "invariants": {
+      "INV-01": {
+        "pending_approval": false,
+        "note": "不适用（无 pending approval）",
+        "pass": true
+      },
+      "INV-02": {
+        "verification_tool_count": 0,
+        "names": [],
+        "pass": true
+      },
+      "INV-03": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "DB schema 无 verified_revision/current_revision 独立列，无法逐字段断言"
+      },
+      "INV-04": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "同上"
+      },
+      "INV-05": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "0 approval record(s); 若无重复 resume 则 execution_count<=1"
+      }
+    },
+    "tool_calls": [
+      "read_workspace_file",
+      "list_workspace_files",
+      "list_workspace_files",
+      "list_workspace_files",
+      "list_workspace_files",
+      "read_workspace_file",
+      "read_workspace_file"
+    ],
+    "verification_tools_executed": [],
+    "approval_count": 0
+  },
+  "phase1-phase1-case1-1789779286": {
+    "run_id": "phase1-phase1-case1-1789779286",
+    "task_id": "task_53c4e028",
+    "invariants": {
+      "INV-01": {
+        "pending_approval": false,
+        "note": "不适用（无 pending approval）",
+        "pass": true
+      },
+      "INV-02": {
+        "verification_tool_count": 0,
+        "names": [],
+        "pass": true
+      },
+      "INV-03": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "DB schema 无 verified_revision/current_revision 独立列，无法逐字段断言"
+      },
+      "INV-04": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "同上"
+      },
+      "INV-05": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "0 approval record(s); 若无重复 resume 则 execution_count<=1"
+      }
+    },
+    "tool_calls": [
+      "read_workspace_file",
+      "list_workspace_files"
+    ],
+    "verification_tools_executed": [],
+    "approval_count": 0
+  },
+  "phase1-phase1-case1-1789779323": {
+    "run_id": "phase1-phase1-case1-1789779323",
+    "task_id": "task_0b1348c0",
+    "invariants": {
+      "INV-01": {
+        "pending_approval": false,
+        "note": "不适用（无 pending approval）",
+        "pass": true
+      },
+      "INV-02": {
+        "verification_tool_count": 0,
+        "names": [],
+        "pass": true
+      },
+      "INV-03": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "DB schema 无 verified_revision/current_revision 独立列，无法逐字段断言"
+      },
+      "INV-04": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "同上"
+      },
+      "INV-05": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "0 approval record(s); 若无重复 resume 则 execution_count<=1"
+      }
+    },
+    "tool_calls": [
+      "read_workspace_file",
+      "list_workspace_files",
+      "list_workspace_files",
+      "list_workspace_files",
+      "read_workspace_file",
+      "read_workspace_file",
+      "read_workspace_file",
+      "list_workspace_files",
+      "read_workspace_file",
+      "read_workspace_file"
+    ],
+    "verification_tools_executed": [],
+    "approval_count": 0
+  },
+  "phase1-phase1-case1-1789779472": {
+    "run_id": "phase1-phase1-case1-1789779472",
+    "task_id": "task_5e0a63bc",
+    "invariants": {
+      "INV-01": {
+        "pending_approval": false,
+        "note": "不适用（无 pending approval）",
+        "pass": true
+      },
+      "INV-02": {
+        "verification_tool_count": 0,
+        "names": [],
+        "pass": true
+      },
+      "INV-03": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "DB schema 无 verified_revision/current_revision 独立列，无法逐字段断言"
+      },
+      "INV-04": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "同上"
+      },
+      "INV-05": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "0 approval record(s); 若无重复 resume 则 execution_count<=1"
+      }
+    },
+    "tool_calls": [
+      "read_workspace_file",
+      "list_workspace_files",
+      "list_workspace_files",
+      "list_workspace_files",
+      "list_workspace_files",
+      "list_workspace_files",
+      "read_workspace_file"
+    ],
+    "verification_tools_executed": [],
+    "approval_count": 0
+  },
+  "phase1-phase1-case2-1789779990": {
+    "run_id": "phase1-phase1-case2-1789779990",
+    "task_id": "task_f16b2c1f",
+    "invariants": {
+      "INV-01": {
+        "pending_approval": false,
+        "note": "不适用（无 pending approval）",
+        "pass": true
+      },
+      "INV-02": {
+        "verification_tool_count": 1,
+        "names": [
+          "run_python"
+        ],
+        "pass": true
+      },
+      "INV-03": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "DB schema 无 verified_revision/current_revision 独立列，无法逐字段断言"
+      },
+      "INV-04": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "同上"
+      },
+      "INV-05": {
+        "pass": true,
+        "reason": "3 approval record(s); 若无重复 resume 则 execution_count<=1"
+      }
+    },
+    "tool_calls": [
+      "read_workspace_file",
+      "edit_project_file",
+      "write_project_file",
+      "run_python"
+    ],
+    "verification_tools_executed": [
+      "run_python"
+    ],
+    "approval_count": 3
+  },
+  "phase1-phase1-case4-1789780000": {
+    "run_id": "phase1-phase1-case4-1789780000",
+    "task_id": "task_9d318dc6",
+    "invariants": {
+      "INV-01": {
+        "pending_approval": false,
+        "note": "不适用（无 pending approval）",
+        "pass": true
+      },
+      "INV-02": {
+        "verification_tool_count": 0,
+        "names": [],
+        "pass": true
+      },
+      "INV-03": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "DB schema 无 verified_revision/current_revision 独立列，无法逐字段断言"
+      },
+      "INV-04": {
+        "pass": "NOT ESTABLISHED",
+        "reason": "同上"
+      },
+      "INV-05": {
+        "pass": true,
+        "reason": "2 approval record(s); 若无重复 resume 则 execution_count<=1"
+      }
+    },
+    "tool_calls": [
+      "write_code_file"
+    ],
+    "verification_tools_executed": [],
+    "approval_count": 2
+  }
+}

@@ -1,0 +1,43 @@
+{
+  "id": "T003",
+  "final_state": "completed",
+  "deadline_s": 300.0,
+  "elapsed_s": 0.0,
+  "tool_calls": [
+    {
+      "name": "calculate",
+      "status": "executed",
+      "reason": "",
+      "result_excerpt": "无法计算“2345 × 17”：invalid character '×' (U+00D7) (<unknown>, line 1)",
+      "invocation_id": "call_6cb0f7851a424e32b1fecca1"
+    },
+    {
+      "name": "calculate",
+      "status": "executed",
+      "reason": "",
+      "result_excerpt": "2345 * 17 = 39865",
+      "invocation_id": "call_41c6e5059abc44819409dc52"
+    }
+  ],
+  "model_turns": 0,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": 0,
+  "blocked_reasons": [],
+  "duration_s": 5.52,
+  "finalText": "2345 × 17 = 39865",
+  "reply_kind": "answer",
+  "state": "completed",
+  "tool_truth": {
+    "attempts": 2,
+    "blocked": 0,
+    "executions": 2,
+    "successes": 2,
+    "failures": 0,
+    "budget_consumed": 2
+  },
+  "_exec": {
+    "calculate": 2
+  },
+  "_blocked": {}
+}

@@ -1,0 +1,19 @@
+{
+  "status": "FIXED - P0 MCP_SERVERS JSON escape resolved",
+  "fix": ".env MCP_SERVERS 内所有裸单反斜杠（H://Byong-hermes//...）已转义为合法 JSON 双反斜杠",
+  "json_valid": true,
+  "connected_names": [
+    "gitee",
+    "chrome",
+    "youtube"
+  ],
+  "skip_reasons": [
+    "playwright: 连接失败(ExceptionGroup) 已跳过",
+    "sqlite: H://Byong-hermes//.mcp_envs//sqlite//Scripts//mcp-server-sqlite.exe 本机不存在(FileNotFoundError) 已跳过",
+    "fetch: H://Byong-hermes//.mcp_envs//fetch//Scripts//mcp-server-fetch.exe 本机不存在(FileNotFoundError) 已跳过"
+  ],
+  "config_errors": [],
+  "registered_tools": "35 allow / 21 approval / 0 deny (3 个已连接 server)",
+  "mcp_sqlite_runtime_impact": "DEGRADED (server 启动优雅降级，因 exe 路径在 H 盘不存在；这是 P2 配置错位，非 JSON 缺陷)",
+  "note": "P0 JSON 缺陷已修复；sqlite/fetch 的 H 盘路径错位是独立 P2，需另行把命令/DB 指回 F 盘或移除这两个 server。"
+}

@@ -1,0 +1,26 @@
+{
+  "id": "T002",
+  "final_state": "completed",
+  "deadline_s": 240.0,
+  "elapsed_s": 0.0,
+  "tool_calls": [],
+  "model_turns": 0,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": 0,
+  "blocked_reasons": [],
+  "duration_s": 3.12,
+  "finalText": "1. 普通聊天模型：本质是「对话生成器」，接收文本输入，输出文本回复。它本身不能联网搜索、读文件、执行代码、操作工具，也没有记忆（跨会话），每次对话都是「裸奔」。\n\n2. Agent：在模型之上叠加了一层「任务执行框架」，核心差异有三点——\n   • 工具调用：能根据需求自主选择并调用外部工具（搜索、读文件、计算、写文件、执行代码等），把模型从「只动嘴」变成「能动手」。\n   • 规划与循环：面对复杂任务会自动拆解、分步执行，执行失败时能自我修正，而不是只输出一次结果就结束。\n   • 记忆与持久化：可以记录用户偏好、历史决策，跨会话记住上下文，越用越贴合用户习惯。\n\n简言之：聊天模型是「发动机」，Agent 是「整车」——它决定什么时候用哪个工具、按什么顺序完成任务，并把结果整理给用户。",
+  "reply_kind": "answer",
+  "state": "completed",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0
+  },
+  "_exec": {},
+  "_blocked": {}
+}

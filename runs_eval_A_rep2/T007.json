@@ -1,0 +1,38 @@
+{
+  "id": "T007",
+  "final_state": "waiting_user",
+  "deadline_s": 240.0,
+  "elapsed_s": 0.0,
+  "tool_calls": [
+    {
+      "name": "list_workspace_files",
+      "status": "executed",
+      "reason": "BLOCKED_NEEDS_USER_INPUT",
+      "result_excerpt": "BLOCKED_NEEDS_USER_INPUT",
+      "invocation_id": null
+    }
+  ],
+  "model_turns": 0,
+  "provider_errors": 0,
+  "terminal_kind": "needs_user_input",
+  "convergence": 0,
+  "blocked_reasons": [
+    "tool.blocked_needs_user_input"
+  ],
+  "duration_s": 5.61,
+  "finalText": "需要澄清几个关键信息才能帮你发送报告",
+  "reply_kind": "questions",
+  "state": "waiting_user",
+  "tool_truth": {
+    "attempts": 1,
+    "blocked": 0,
+    "executions": 1,
+    "successes": 1,
+    "failures": 0,
+    "budget_consumed": 1
+  },
+  "_exec": {
+    "list_workspace_files": 1
+  },
+  "_blocked": {}
+}

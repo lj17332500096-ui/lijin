@@ -1,0 +1,13 @@
+{
+  "active_db": {
+    "absolute_path": "F:\\Byong-hermes\\Byong-hermes\\my_creative_agent\\agent.db",
+    "size_bytes": 32178176,
+    "mtime": "2026-09-19T08:58:06+0800",
+    "sha256": "89834c210f03dba92253887a6b1d1b5b96cbc697227a62eac7014670e10ffda9",
+    "latest_run_id": "task_5e0a63bc",
+    "latest_run_ts": "2026-09-19T00:58:04+00:00",
+    "new_run_present_in_same_db": true
+  },
+  "active_db_confirmed": true,
+  "historical_evidence_label": "HISTORICAL_DB_EVIDENCE -> PROMOTED (active DB confirmed, new run in same DB)"
+}

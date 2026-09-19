@@ -1,0 +1,12 @@
+{
+  "case": "CASE2 Mutation → verification → completion",
+  "run_id": "phase1-case2-1789779990",
+  "user_request": "在 F:/Byong-hermes/Byong-hermes/my_creative_agent/code_sandbox/phase1_fixture/calc.py 里修复 add 函数的 bug（应该返回 a + b），然后写一个最小测试验证 add(2,3)==5，并跑通它。修完报告 revision / 验证结果 / 完成判定。",
+  "fixture_file": "F:/Byong-hermes/Byong-hermes/my_creative_agent/code_sandbox/phase1_fixture/calc.py",
+  "terminal_state": "None",
+  "router_tool_count": 0,
+  "provider_model": "agnes-2.5-flash",
+  "provider_tool_count": 14,
+  "tools_blob_sha256": "2d2c900d9f28f917",
+  "provider_requests": 2
+}

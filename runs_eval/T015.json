@@ -1,0 +1,36 @@
+{
+  "id": "T015",
+  "final_state": "completed",
+  "deadline_s": 300.0,
+  "elapsed_s": 0.02,
+  "tool_calls": [
+    {
+      "name": "remember",
+      "status": "executed",
+      "reason": "",
+      "result_excerpt": "已记住到本项目记忆（id=pmem_d131bb5e）。当前为“仅此项目”模式，不会写入全局记忆。",
+      "invocation_id": "call_ee6541c25b7c4039bdc383e4"
+    }
+  ],
+  "model_turns": 0,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": 0,
+  "blocked_reasons": [],
+  "duration_s": 4.08,
+  "finalText": "已记录：正式环境数据库不能直接执行 destructive migration。",
+  "reply_kind": "done",
+  "state": "completed",
+  "tool_truth": {
+    "attempts": 1,
+    "blocked": 0,
+    "executions": 1,
+    "successes": 1,
+    "failures": 0,
+    "budget_consumed": 1
+  },
+  "_exec": {
+    "remember": 1
+  },
+  "_blocked": {}
+}

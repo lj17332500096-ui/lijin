@@ -1,0 +1,38 @@
+{
+  "mode": "baseline",
+  "n": 1,
+  "cases": [
+    {
+      "case": "M6",
+      "runs": [
+        {
+          "case": "M6",
+          "kind": "read_only",
+          "state": "failed",
+          "terminal_kind": "provider_error",
+          "behavior_pass": true,
+          "mutation": false,
+          "verification_pass": false,
+          "verification_attempted": false,
+          "first_after_mutation": null,
+          "first_decision_correct": null,
+          "latest_revision_covered": false,
+          "available_verification_tools": [
+            "run_tests"
+          ],
+          "verification_available": true,
+          "capability_counts": {
+            "DISCOVERY": 0,
+            "READ": 0,
+            "MUTATION": 0,
+            "VERIFICATION": 0
+          },
+          "executions": 0,
+          "invocations": 0,
+          "obligation_blocked": 0,
+          "completion_ready_forced": 0
+        }
+      ]
+    }
+  ]
+}

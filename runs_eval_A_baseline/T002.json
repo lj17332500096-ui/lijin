@@ -1,0 +1,26 @@
+{
+  "id": "T002",
+  "final_state": "completed",
+  "deadline_s": 240.0,
+  "elapsed_s": 0.0,
+  "tool_calls": [],
+  "model_turns": 0,
+  "provider_errors": 0,
+  "terminal_kind": "completed",
+  "convergence": 0,
+  "blocked_reasons": [],
+  "duration_s": 3.25,
+  "finalText": "Agent 与普通聊天模型的区别主要体现在以下几点：\n\n1. 工具调用能力：普通聊天模型只能回答问题，Agent 可以调用搜索、代码执行、文件读写、日程安排等工具，真正帮你做事。\n\n2. 自主决策：Agent 能够根据目标自主拆解任务、规划步骤、选择工具并执行，形成「感知→决策→行动」的闭环；聊天模型则只是被动响应单条输入。\n\n3. 持久记忆：Agent 可以记住用户偏好、长期目标和跨会话信息；普通聊天模型通常只维持当前对话上下文。\n\n4. 任务完成导向：Agent 以完成具体任务（查资料、写文档、安排计划等）为目标；聊天模型以生成文本来满足用户提问为目标。\n\n简单说：聊天模型是「知道答案」，Agent 是「能帮你把事办成」。",
+  "reply_kind": "answer",
+  "state": "completed",
+  "tool_truth": {
+    "attempts": 0,
+    "blocked": 0,
+    "executions": 0,
+    "successes": 0,
+    "failures": 0,
+    "budget_consumed": 0
+  },
+  "_exec": {},
+  "_blocked": {}
+}
