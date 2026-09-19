@@ -55,3 +55,16 @@ backups/
 
 # llama-ui 前端静态产物（9.3M 二进制，由 zip 解压生成，不入库）
 web/llama-ui/
+
+# 运行产物（2026-09-19 收敛）：这些目录由 Agent/评测在运行时写入，
+# 跟踪它们会让每次运行都污染 git status，并重新堆积出本轮那 1555 个删除。
+# 注意 materials/ 是用户输入资料，必须保持跟踪，不在此列。
+runs_eval*/
+forge_data/
+exports/
+notes/
+summaries/
+report_*.json
+runs_*.log
+*.sqlite-shm
+*.sqlite-wal
