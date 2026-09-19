@@ -771,3 +771,105 @@ def test_layout_survives_narrow_terminal():
             assert panel.bar.input.content_size.height >= 1
 
     asyncio.run(_run())
+
+
+# ════════════════════════════════════════════════════════════════
+#  Section 8: 上下文提示行（InputBar.hint）
+#
+#  第四个"界面显示不全"的成因（本次修复）：
+#   ForgeTuiApp._update_footer() 依赖 self._hint_label，但该属性**从未被创建**，
+#   函数被调用 14 次却全程 no-op（有 hasattr 护栏所以不崩，只是什么都不显示）。
+#   现在 _hint_label 在 on_mount 接上 InputBar.hint，下面三条锁定它。
+# ════════════════════════════════════════════════════════════════
+
+def _screen_rows(app) -> list[str]:
+    """把 headless 界面还原成字符行，直接断言"用户看得到什么"。"""
+    return [s.text.rstrip() for s in app.screen._compositor.render_strips()]
+
+
+def test_hint_label_is_wired_after_mount():
+    """_hint_label 必须在挂载后指向真实 widget —— 不是 None、不是个孤儿属性。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="hint")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            panel = app.query_one(TuiPanels)
+            assert panel.bar.hint is not None, "InputBar 没有 hint 提示行"
+            assert app._hint_label is panel.bar.hint, (
+                "_hint_label 未接上 InputBar.hint —— _update_footer 会退回 no-op"
+            )
+            # 提示行在输入框下方、Footer 上方
+            assert panel.bar.hint.region.y < panel.bar.footer.region.y
+
+    asyncio.run(_run())
+
+
+def test_hint_line_renders_in_screen():
+    """启动后 idle 提示必须真实出现在字符网格里（而非只是 widget 存在）。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="hint")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            rows = _screen_rows(app)
+            hit = [r for r in rows if "commands" in r and "↑↓" in r]
+            assert hit, f"屏幕上找不到 idle 提示行；底部 4 行={rows[-4:]}"
+            hint = app.query_one(TuiPanels).bar.hint
+            assert hint.region.width <= app.screen.region.width
+            assert hint.region.height == 1
+
+    asyncio.run(_run())
+
+
+def test_hint_line_switches_with_state():
+    """idle / running / approval / slash 四态提示必须真实切换。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="hint")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            panel = app.query_one(TuiPanels)
+            expected = {
+                "idle": "commands",
+                "running": "Esc interrupt",
+                "approval": "Y approve",
+                "slash": "Tab complete",
+            }
+            for mode, token in expected.items():
+                app._update_footer(mode)
+                await pilot.pause()
+                rows = _screen_rows(app)
+                assert any(token in r for r in rows), (
+                    f"{mode} 态屏幕上看不到 {token!r}；底部 4 行={rows[-4:]}"
+                )
+            # 回到 idle 要能收回去
+            app._update_footer("idle")
+            await pilot.pause()
+            rows = _screen_rows(app)
+            assert not any("Esc interrupt" in r for r in rows), (
+                "切回 idle 后仍残留 running 态提示"
+            )
+            assert any("commands" in r for r in rows)
+
+    asyncio.run(_run())
+
+
+def test_hint_line_does_not_break_layout_budget():
+    """加了提示行后，InputBar 仍须在 6 行预算内，且三段高度和仍等于屏幕行数。"""
+    async def _run():
+        for size in ((120, 30), (80, 24)):
+            app = ForgeTuiApp(session_name="hint")
+            async with app.run_test(size=size) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                panel = app.query_one(TuiPanels)
+                assert panel.bar.region.height <= 6, f"{size} 下 InputBar={panel.bar.region.height} 行"
+                total = (panel.header.region.height + panel.msglog.region.height
+                         + panel.bar.region.height)
+                assert total == app.screen.region.height, (
+                    f"{size} 下三段高度和 {total} != 屏幕 {app.screen.region.height}"
+                )
+                assert panel.bar.region.bottom == app.screen.region.height
+
+    asyncio.run(_run())

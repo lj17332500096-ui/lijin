@@ -374,6 +374,7 @@ class InputBar(Vertical, can_focus=False):
         super().__init__()
         self.input: Input | None = None
         self.footer: Footer | None = None
+        self.hint: Static | None = None
         self.popup: "SlashPopup" | None = None  # type: ignore[name-defined]
 
     def compose(self) -> ComposeResult:
@@ -383,9 +384,14 @@ class InputBar(Vertical, can_focus=False):
             placeholder="Enter 发送；/ 看命令；Ctrl+Q 退出",
             classes="forge-input",
         )
+        # 上下文提示行：idle / running / approval / slash 四态由 App 层
+        #（ForgeTuiApp._update_footer）驱动。放在输入框与 Footer 之间 ——
+        # 两者职责不同：Footer 是静态键位表，hint 是"此刻能做什么"。
+        self.hint = Static("", classes="forge-hint")
         self.footer = Footer()
         yield self.popup
         yield self.input
+        yield self.hint
         yield self.footer
 
     def focus_input(self) -> None:
@@ -403,6 +409,11 @@ class InputBar(Vertical, can_focus=False):
     def set_placeholder(self, text: str) -> None:
         if self.input:
             self.input.placeholder = text
+
+    def set_hint(self, text: str) -> None:
+        """更新上下文提示行（由 App 层按 idle/running/approval/slash 调用）。"""
+        if self.hint is not None:
+            self.hint.update(text)
 
 
 # ── SlashPopup（独立类，在 InputBar.compose 里 import）─────────────

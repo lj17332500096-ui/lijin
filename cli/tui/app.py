@@ -197,6 +197,13 @@ class ForgeTuiApp(App):
         margin: 0 1;
         color: {MUTED};
     }}
+    .forge-hint {{
+        /* 上下文提示行（idle/running/approval/slash）。显式 height: 1 ——
+           Static 默认 auto，空内容时高度不稳会把 Footer 顶出去。 */
+        height: 1;
+        margin: 0 1;
+        color: {MUTED};
+    }}
     SlashPopup {{
         /* 默认隐藏；show() 用 inline style 覆盖成 display: block。
            不隐藏的话启动时会常驻一个空的带边框方块。 */
@@ -235,6 +242,11 @@ class ForgeTuiApp(App):
         self.auto_summary = auto_summary
         self.turns = 0
         self._app_state: TuiPanels | None = None
+        # 上下文提示行（InputBar 内的 Static）。挂载前为 None，
+        # on_mount 里接上真实 widget —— 此前该属性从未被创建，
+        # 导致 _update_footer() 每次调用都是 no-op（被调用 14 次却什么都不显示）。
+        self._hint_label: object | None = None
+        self._footer_mode: str = "idle"
         self._chat_app = None
         self._pending_compact = None
 
@@ -293,6 +305,8 @@ class ForgeTuiApp(App):
 
     def on_mount(self) -> None:
         self._app_state = self.query_one(TuiPanels)
+        # 接上 InputBar 的上下文提示行（挂载后 widget 才存在）
+        self._hint_label = self._app_state.bar.hint
         # 同步 header 宽度（默认 120 列宽屏）；size 在挂载前可能为 (0, 0)，安全读取
         width = self._app_state.msglog.size[0] or 120
         self._header().set_width(width)
@@ -783,7 +797,12 @@ class ForgeTuiApp(App):
 
     # ── Footer（上下文感知）────────────────────────────────────
     def _update_footer(self, mode: str) -> None:
-        """mode: idle / running / approval / slash"""
+        """切换底部上下文提示：idle / running / approval / slash。
+
+        挂载前调用只记录 mode，挂载后会立刻补一次（见 on_mount），
+        保证任何时序下提示都不会停留在空串。
+        """
+        self._footer_mode = mode
         hints = {
             "idle": "/ commands   ↑↓ history   Ctrl+L clear   Ctrl+Q quit",
             "running": "Esc interrupt   Ctrl+Q quit",
@@ -791,10 +810,14 @@ class ForgeTuiApp(App):
             "slash": "↑↓ select   Tab complete   Enter run   Esc close",
         }
         hint = hints.get(mode, hints["idle"])
-        # 通过 InputBar 的 footer（Textual Footer 组件只显示 binding，
-        # 这里用 Static hint label 实现动态提示）
-        if hasattr(self, "_hint_label") and self._hint_label:
-            self._hint_label.update(hint)
+        label = self._hint_label
+        if label is None:
+            return
+        try:
+            label.update(hint)  # type: ignore[attr-defined]
+        except Exception:  # noqa: BLE001
+            # 界面可能正在卸载（NoScreen / NoActiveApp）；提示失败不该影响主流程
+            pass
 
     # ── Inspector ───────────────────────────────────────────────
     def action_show_inspector(self) -> None:
