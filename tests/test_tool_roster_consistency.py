@@ -27,8 +27,10 @@
 1. **规范名册必须等于权威集合** —— `runtime/completion.py:VERIFY_TOOLS` 定义了
    `{run_tests, run_python, code_loop}`；任何叫 `VERIFY` / `RUN_TOOLS` 之类的名册
    都必须与之一致（实验变体名册显式豁免，见 `_EXPERIMENT_VARIANTS`）。
-2. **不得出现已知错名** —— 任何生产文件的字符串字面量都不允许是 `code_loop_tool`
-   （实际注册名是 `code_loop`）。错名不会报错，只会让名册静默失效。
+2. **不得出现已知错名/死名** —— 任何生产文件的字符串字面量都不允许是 `code_loop_tool`
+   （实为 `code_loop`）、`web_search_v2`（实为 `web_search`）、`delete_task`（无此工具，
+   删除语义已由 forget_memory / schedule_remove / sandbox_rollback 三个真实工具承担）。
+   它们不会报错，只会让名册静默失效或误导读者。
 3. **名册引用的名字必须可解释** —— 不在注册表里的名字要么是未启用技能的工具，
    要么在 `KNOWN_NON_REGISTERED` 里逐条登记理由。新增未知名字会红灯。
 
@@ -87,10 +89,8 @@ KNOWN_NON_REGISTERED = {
     "scan_dependencies": "技能 dep_doctor（默认未启用）",
     # —— harness 合成的动作名，不是工具 ——
     "questions": "澄清动作的合成名（来自 final JSON 的 kind），非注册工具",
-    # —— ⚠️ 以下三条是**尚未定论的遗留引用**，登记在此是为了"不装作已解决" ——
-    "web_search_v2": "⚠️ 未决：该工具从未存在，无改名/计划记录；疑为遗留",
-    "delete_task": "⚠️ 未决：无此工具，被用作'禁止删任务'的语义占位",
-    "ask_user": "⚠️ 未决：仅见于 behavior 标签表，疑为误入",
+    # —— 期望行为标签，不是工具引用 ——
+    "ask_user": "behavior 标签（benchmark 的 ORACLE / ExpectedBehavior 用的键），非注册工具",
 }
 
 #: filescope 未登记但**有意**如此的工具（由 authorize_tool 的前置分支显式处理）
@@ -98,8 +98,13 @@ FILESCOPE_UNCOVERED_EXCEPTIONS = {
     "fetch_github_repo": "authorize_tool 有专门分支显式 DENY（会把仓库写到工作区根）",
 }
 
-#: 已知错名 → 正确名。出现即为回归。
-WRONG_NAMES = {"code_loop_tool": "code_loop"}
+#: 已知死名/错名 → 正确名（无对应工具时写明替代）。生产文件出现任一即为回归。
+#: 这几条都曾在多个模块间被反复拷贝，且**不会报错** —— 只会让名册静默失效或误导读者。
+WRONG_NAMES = {
+    "code_loop_tool": "code_loop",
+    "web_search_v2": "web_search",
+    "delete_task": "（无此工具；删除语义由 forget_memory / schedule_remove / sandbox_rollback 承担）",
+}
 
 
 def _literal_collection(node: ast.AST) -> set[str] | None:

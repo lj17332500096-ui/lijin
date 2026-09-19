@@ -219,7 +219,7 @@ BENCHMARK_CASES: list[BenchmarkCase] = [
         # 运行测试可能需要写临时测试脚本（沙箱 write_code_file），属任务内正常操作；
         # 仍禁止项目文件 mutation（write_project_file/edit_project_file）。
         tools_allowed=(SEARCH_READ | RUN_TOOLS | {"questions", "write_code_file"}),
-        tools_forbidden=frozenset({"write_project_file", "edit_project_file", "delete_task"}),
+        tools_forbidden=frozenset({"write_project_file", "edit_project_file"}),
         mutation_allowed=True, min_tool_calls=1, max_tool_calls=14,
         max_tool_calls_hard=18, answer_required=True,
     )),
@@ -230,7 +230,7 @@ BENCHMARK_CASES: list[BenchmarkCase] = [
         outcome=("completed", "failed"), behavior="run_tests",
         # 运行测试可能需要写临时测试脚本（沙箱 write_code_file）；禁止项目文件 mutation。
         tools_allowed=(CODING_TOOLS | {"questions"}),
-        tools_forbidden=frozenset({"write_project_file", "edit_project_file", "delete_task"}),
+        tools_forbidden=frozenset({"write_project_file", "edit_project_file"}),
         mutation_allowed=True,
         min_tool_calls=1, max_tool_calls=10, max_tool_calls_hard=14,
         answer_required=True, verification_required=True,

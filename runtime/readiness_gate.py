@@ -78,10 +78,10 @@ CONVERGENCE_TERMINALIZE_TEXT = (
 #: 被视为“discovery 扩散”的工具（收敛时禁止继续发起）。
 _DISCOVERY_CLASS_TOOLS = frozenset({
     "web_search", "search_documents", "search_sources", "deep_research",
-    "web_search_v2", "read_workspace_file", "list_workspace_files",
+    "read_workspace_file", "list_workspace_files",
     "read_code_file", "list_code_files", "read_note", "list_notes",
     "index_workspace", "read_office_file", "read_spreadsheet",
-    "list_sandbox_snapshots", "recall_memory", "search_sources",
+    "list_sandbox_snapshots", "recall_memory",
 })
 
 
@@ -402,7 +402,7 @@ _CITY_MAP = {
 
 
 #: 语义意图收敛只对搜索类工具生效（换措辞归并）；列目录/读文件仍走精确签名。
-_SEARCH_TOOLS = {"web_search", "search_documents", "deep_research", "search_sources", "web_search_v2"}
+_SEARCH_TOOLS = {"web_search", "search_documents", "deep_research", "search_sources"}
 
 #: 时间范围（轻量 canonical time scope；不建复杂时间 NLP）
 _TIME_SCOPE_TOKENS = (

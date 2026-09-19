@@ -495,7 +495,7 @@ class ExecutionEvidence:
     def retrieval_evidence(self) -> bool:
         """是否真实执行过外部检索/查询工具（支撑外部事实声明）。"""
         return self.executed("web_search", "search_documents", "deep_research",
-                             "search_sources", "fetch_github_repo", "web_search_v2")
+                             "search_sources", "fetch_github_repo")
 
     def executed_names(self) -> list[str]:
         seen: list[str] = []

@@ -137,7 +137,7 @@ class RunContext:
         """按用户显式约束判断某动作是否允许（默认允许；仅当前 turn）。"""
         if name in ("write_project_file", "edit_project_file", "write_code_file", "save_note"):
             return self.constraints.get("allow_write", True)
-        if name in ("delete_task", "sandbox_rollback", "forget_memory"):
+        if name in ("sandbox_rollback", "forget_memory", "schedule_remove"):
             return self.constraints.get("allow_delete", True)
         return True
 

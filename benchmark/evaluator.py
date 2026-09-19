@@ -30,7 +30,7 @@ MUTATION_TOOLS: frozenset[str] = frozenset({
     "write_project_file", "edit_project_file", "write_code_file",
     "save_note", "save_word_doc", "save_excel_workbook", "save_ppt_deck",
     "gorden_ppt_build", "gorden_ppt_apply_custom",
-    "delete_task", "forget_memory", "sandbox_rollback", "schedule_remove",
+    "forget_memory", "sandbox_rollback", "schedule_remove",
 })
 
 WRITE_TOOLS: frozenset[str] = frozenset({
@@ -40,7 +40,7 @@ WRITE_TOOLS: frozenset[str] = frozenset({
 })
 
 DELETE_TOOLS: frozenset[str] = frozenset({
-    "delete_task", "forget_memory", "sandbox_rollback", "schedule_remove",
+    "forget_memory", "sandbox_rollback", "schedule_remove",
 })
 
 # ⚠️ 这张名册直接决定 pass/fail（`allows_tool` 的逻辑是「执行了不在 tools_allowed
@@ -48,16 +48,18 @@ DELETE_TOOLS: frozenset[str] = frozenset({
 # 被记成行为失败。2026-09-19 实测：漏 `run_tests` 使每个臂的通过率被压低 2~8pp。
 # 权威定义见 runtime/completion.py 的 VERIFY_TOOLS（run_tests / run_python / code_loop）。
 # 另：`code_loop_tool` 是不存在的错名（实为 `code_loop`），已清；它曾在本文件与其它
-# 6 个模块间被反复拷贝。
+# 6 个模块间被反复拷贝。`delete_task`（无任何任务删除能力）与 `web_search_v2`
+# （实为 `web_search`）同属"名册里的死名"，2026-09-19 一并清除，并已进
+# tests/test_tool_roster_consistency.py 的 WRONG_NAMES 哨兵，再出现即红灯。
 RUN_TOOLS: frozenset[str] = frozenset({"run_tests", "run_python", "code_loop"})
 
 SEARCH_TOOLS: frozenset[str] = frozenset({
-    "web_search", "search_documents", "deep_research", "search_sources", "web_search_v2",
+    "web_search", "search_documents", "deep_research", "search_sources",
 })
 
 #: 需要审批的真实高风险工具（与 ApprovalGate 名单语义一致；用于观测统计）
 APPROVAL_SENSITIVE_TOOLS: frozenset[str] = frozenset({
-    "run_python", "code_loop", "delete_task", "sandbox_rollback", "forget_memory",
+    "run_python", "code_loop", "sandbox_rollback", "forget_memory",
     "schedule_remove", "write_project_file", "edit_project_file",
 })
 
