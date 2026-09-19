@@ -220,9 +220,74 @@
   而是**尾部过度探索**：中位 10 次调用、均值 15、**最大 70**，23/50 超上限。
   死循环集中在 `list_workspace_files`（19/15/12 次，**无任何重复护栏**）与
   `web_search`（17/16 次，有 `_too_repetitive` 却疑似因措辞微变未拦住）。
-  → **下一轮最高杠杆的改动是给查询类工具加"同工具同参数重复"抑制**，
-  而不是调阈值/改判据。T017 因 provider_error 不进分母、T020 直接 pass，
-  **改这两条判据不会提升这一轮的数字**。
+  → ~~下一轮最高杠杆的改动是给查询类工具加"同工具同参数重复"抑制~~
+  **⚠️ 该结论已被 2026-09-20 实测推翻**：用评测库真实 `arguments_json` 重放生产
+  `repeat_target_key`，全 374 次调用里**同工具同目标同参数最多只出现 3 次**（cap=3 的第 4 次才拦）
+  → "同参数重复"根本不存在，这个修法修的是不存在的问题。真实形态是
+  **空参数**（`T038` 传 `{}` → `args.get("directory")` 空 → `repeat_target_key` 返回 `None`
+  → 连计数都不进）与**参数漂移**（`T014` 15 次 list，`directory` 一路换写法 → key 每次都不同）。
+  → 正解是「**工具级**调用预算 + 低新颖度」（不依赖参数），外加"默认目标规范化"。
+  详见 `REPAIR_PLAN_2026-09-20.md` 与 `delivery/probe_repeat_guard_db.py`。
+  （口径不变：T017 因 provider_error 不进分母、T020 直接 pass，
+  **改这两条判据不会提升这一轮的数字** → 已拍板不动。）
+- **⚠️ 勘误（2026-09-20 当天自我推翻）**：上一版记的"重复抑制四层防线层层有洞、护栏 0 触发"
+  **是错的**。真相：护栏**一直在拦** —— 审计表 `tool_calls` 有 **43 条真实拦截**
+  （权限审批 13 / `web_search` 5 次上限 12 / 收敛 10 / 单 Run 20 次上限 5 / TERMINALIZE 3）。
+  基线 `tool_truth.blocked=0` 也是真的，但它数的是 `task_events.tool.invocation`
+  —— **被拦的调用不产生该事件**（根本没进入执行）。两条记录链各自正确，结论却相反。
+  ⚠️ **铁律**：核对"某个机制有没有生效"必须用**两条独立记录链**交叉验证，
+  并先确认**每条链收录的是什么集合**；单链 `count=0` 可能是"没发生"，
+  也可能是"发生了但这条链不收录"。探针 `delivery/probe_audit_gap.py`。
+- **重复抑制的真实缺口（2026-09-20 已修）**：
+  ① **拦得晚**：拦截主要在 20 次总上限与 `web_search` 5 次上限之后才落下，
+     而 `list_workspace_files` 当时**没有任何独立上限**（T038 单 run 35 次里它独占 19 次）
+     → 已把 web_search 特例泛化为 **per-tool 预算**
+     （`runtime/runctx.py::per_tool_budget()`，可用 `TOOL_BUDGET_PER_TOOL` 覆盖）。
+  ② **空参数/参数漂移对目标解析隐形**：`list_workspace_files(directory=".")` 传 `{}` → key 为 `None`
+     → 连计数都不进（T038）；T014 的 `directory` 一路漂移 → key 每次不同。
+     → 已加**默认目标回落**（`_DEFAULT_TARGET_IDENTITY`），并补上遗漏的 **`project` 参数名**
+     （`list_code_files` / `read_code_file` 此前恒为 `None`）；三份互不一致的目标解析
+     收敛为 `resolve_target` / `logical_target` **单一实现**。
+  ③ 收敛硬闸 `blocked_repeat_count >= terminalize_after + 1` **已改为 `>=`**（T014 曾差 1 次不终止）。
+  ④ Guard A（`FORGE_REDUNDANT_GUARD`）仍为 **off**；但 `.env` 现已**显式声明全部护栏开关**
+     （`FORGE_REPEAT_GUARD=on` / `REDUNDANT_GUARD=off` / `COMPLETION_READY=off` + 三项预算），
+     并由 `tests/test_tool_roster_consistency.py::GuardLeverConsistencyTests` 守住
+     "同一件事有了两份默认值"这一新风险（含负向验证）。
+- **审计缺口（2026-09-20 查清，与初判不同）**：50 case 里 **10 个本就无工具调用**（纯回答/提问，非缺口），
+  **7 个**有执行但审计零记录（多为 `waiting_user`）。
+  **最大断点 = 100/374（27%）的执行调用连 `invocation_id` 都没有** → 无法关联审计/审批/artifact。
+  ⚠️ `runner.py:2207` 兜底回填把参数写成 `{"ledger": "<args字符串>"}`，**读库须再解一层**。
+- ⚠️⚠️ **评测器双倍计数 bug（2026-09-20 已修，基线 +18pp）**：
+  `benchmark/evaluator.py::observation_from_raw` 同时累加 `tool_calls` 明细与 `_exec` 聚合计数表
+  —— **二者是同一批调用的两种表示**，相加使每个调用被计两次
+  （实测全 50 case 精确 **2.00 倍**，总和 748 vs 374；T040 = 24 vs 12）。
+  → `tool_count` 判据 `[1,12]` 被污染成事实上的 `[1,6]`，"实际只调 7 次"被判超限失败。
+  修复后**同一批数据**重算（确定性，不重跑）：**基线 Behavior 50.0% → 68.0%**、
+  护栏组 46.0% → 72.0%。**这才是本轮最高杠杆项。**
+  ⚠️ **铁律：同一事实的多种表示（明细 vs 聚合、原始 vs 派生）只能取其一，相加必错。**
+- **护栏机制改动的 A/B：未证明有效（2026-09-20）**。修正口径后配对：
+  fail→pass 9（T013 T017 T024 T027 T029 T033 T040 T044 T048）/
+  pass→fail 7（T006 T008 T010 T015 T018 T025 T046），净 **+2**（68%→72%，+4pp，
+  **在 n=50 的 ±28pp 噪声带内**）。
+  正向：改善的几乎全是基线最空转的（T027 26→12、T024 20→9、T013 16→10），与离线反事实吻合。
+  负向：T025 **3→16**、T046 **9→33**、T018 8→13（原本正常反而严重空转）
+  + 2 次新 `forbidden_tool_usage`（工具不在改动范围，疑噪声但不可默认）。
+  → **不予采纳为已验证改进，需第二轮对照**；若复现"小调用数 case 反而变长"，
+  把 per-tool 预算放宽（8→12）或改为"仅对失败/低新颖度调用计数"。
+  配对分析工具：`delivery/probe_guard_fix_ab.py`。
+- **提交状态（2026-09-20）——判断 HEAD 里到底有什么，以本条为准**：
+  ✅ 已入库 `2e5e22a`：评测器双倍计数修复（+2 条回归用例，负向验证通过）、
+  目标解析收敛为 `resolve_target` 单一实现 + 补 `project`（**不含**默认目标回落/阈值对齐）、
+  `GuardLeverConsistencyTests` 的**开关那一半**、`.env.example` 补声明、
+  `CONFIG_PRECEDENCE_TRUTH.md` 修正 3 行过期「`.env` 未设」；第二笔 docs 提交 = 计划 + 4 探针 + 记忆。
+  ⏳ **留在工作区未提交（等第二轮 A/B）**：`runctx.py::per_tool_budget()`、
+  `readiness_gate.py` 的 `_DEFAULT_TARGET_IDENTITY` / `logical_target` / `>= terminalize_after`、
+  `test_budget_values_match_code_defaults`。
+  → 上面 ①③ 两条写的"已修"**仅指工作区**，clone 出的 HEAD 里没有，别按记忆当成已入库。
+  ⚠️ **两条拆提交铁律**：① 测试若 `import` 了被押后的符号，就**不能先于实现提交**（提交态 ImportError）
+  ——拆之前先问"待提交的测试 import 了哪些将被押后的符号"，并**在只含待提交改动的中间态上跑测试**；
+  ② **被 gitignore 的配置文件（`.env`），"把它写显式"这个改动提交后等于没提交** —— 真正载体是
+  `.env.example`，而陈述它的文档（`CONFIG_PRECEDENCE_TRUTH.md`）会在同一刻变成假话（记录层漂移）。
 - `execute_resilient`（`runtime/broker.py`）**是死代码**：broker 在 `runner.py:287` 建了却从不
   `execute`，真实调用走 SDK 的 `on_invoke_tool`。MCP 的网络重试在 `mcp_bridge` 内，
   2026-09-19 已去重到 `resilience.run_with_retries`（`NETWORK_RETRYABLE_EXCEPTIONS` 为唯一来源）。
