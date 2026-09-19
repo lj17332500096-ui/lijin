@@ -195,15 +195,37 @@
   均真实渲染。测试 `tests/test_tui.py` 47 → 51 条（含接线/渲染/切换/高度预算 4 条）。
 
 ## 8. 验证与待办
-- 全量 pytest：2026-09-19 单进程 `tests/` = **1152 passed / 6 skipped / 0 failed / 0 errors**（~121s）。
-  ⚠️ 收集数会在 1133/1145/1152 间小幅漂移；沙箱内可能被「批量删除护栏」掐断且失败集合每次漂移 ——
-  **失败集合漂移 = 环境干扰，不是项目回归**；批内自查用 `-x --tb=short`。
+- 全量 pytest：2026-09-19 **1189 passed / 6 skipped / 0 failed**（94s，**沙箱外**）；
+  收集数会在 1133~1191 间随新增测试漂移。
+- 🔴 **血泪：`pytest tests/` 的通过与否取决于「跑在不在沙箱里」**。实测同一天同一套代码：
+  - **沙箱内** → **11 个确定性失败**（同样 11 个，连跑两次完全一致）：
+    `test_approval::test_code_loop_cannot_bypass_approval`、`test_cleanup_resilience`×3、
+    `test_codex_loop`×4、`test_concurrency_stress::test_mixed_parallel_runs_...`、
+    `test_project_model::test_04_05_...`、`test_skill_gorden_ppt::test_build_strict_...`
+  - **沙箱外** → **0 failed**，且这 11 个**单独跑也都通过**。
+  - 判据：**"全量失败 + 单独通过 + 跨文件共现" ⇒ 先怀疑沙箱，不要改代码**。
+    确认手法：`pytest tests/ -x --tb=short -q`（在沙箱外跑，`-x` 能让汇总正常打印；
+    不加 `-x` 时进程会在收尾清理临时目录时被「批量删除护栏」杀掉，**断言段根本不写出**，
+    于是你只能看到进度条上的一串 F 而拿不到任何 traceback）。
+  - ⚠️ 旧记录写的"失败集合每次漂移"**不准确**：实测是**沙箱内确定性失败同一批**。
+    别拿"漂移"当借口跳过归因。
 - 唯一已知 warning：`tests/test_markdown_js.py:171` 的 `DeprecationWarning: invalid escape sequence '\s'`
   （docstring 里的正则示例，历史遗留，不影响结果）。
-- 待办：router-on 50 case 基线 2026-09-19 已跑（`runs_eval_baseline_router_on/`），结果见当日日志。
-  `execute_resilient`（`runtime/broker.py`）**是死代码**：broker 在 `runner.py:287` 建了却从不
+- **router-on 50-case 基线（2026-09-19，首个真实配置数字）**：`runs_eval_baseline_router_on/`
+  + `report_baseline_router_on.json`，21m13s。**Behavior Pass 50.0%**（25/24/0/1 not_evaluable），
+  E2E 58.0%，**Safety 6 项全 0（50/50 verified_safe）**。
+  ⚠️ n=50 只可检出 ≈±28pp，**这不是"提升/退步"结论**。
+  分析探针 `delivery/probe_baseline_router_on.py`（失败归因 + 调用数分布 + 死循环画像）。
+  **失败主因不是判据口径**（24 fail 里只有 2 个涉及工具名单，且都是真实越权 T038/T044）
+  而是**尾部过度探索**：中位 10 次调用、均值 15、**最大 70**，23/50 超上限。
+  死循环集中在 `list_workspace_files`（19/15/12 次，**无任何重复护栏**）与
+  `web_search`（17/16 次，有 `_too_repetitive` 却疑似因措辞微变未拦住）。
+  → **下一轮最高杠杆的改动是给查询类工具加"同工具同参数重复"抑制**，
+  而不是调阈值/改判据。T017 因 provider_error 不进分母、T020 直接 pass，
+  **改这两条判据不会提升这一轮的数字**。
+- `execute_resilient`（`runtime/broker.py`）**是死代码**：broker 在 `runner.py:287` 建了却从不
   `execute`，真实调用走 SDK 的 `on_invoke_tool`。MCP 的网络重试在 `mcp_bridge` 内，
-  2026-09-19 已去重到 `resilience.run_with_retries`。
+  2026-09-19 已去重到 `resilience.run_with_retries`（`NETWORK_RETRYABLE_EXCEPTIONS` 为唯一来源）。
 - ✅ **1555 个删除已提交收敛**（`eed19c8`，−213768 行），**已核实无真实数据**（我一度误判为
   "910 个用户数据"，错了）——`forge_data` 753 个被删源文件**只有 6 个不同文件名**，
   是同一批文件反复导入 840 个测试沙箱的堆积；`notes/` 133 个抽读全是 agent 测试生成的 demo。
