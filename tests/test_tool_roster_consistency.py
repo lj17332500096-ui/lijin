@@ -325,5 +325,45 @@ class FileScopeCoverageTests(unittest.TestCase):
         )
 
 
+class GuardLeverConsistencyTests(unittest.TestCase):
+    """护栏开关：`.env` 的显式值必须与代码默认值一致。
+
+    背景（2026-09-20）：这些开关原先全部隐含在代码默认值里，且口径不一
+    （`FORGE_REPEAT_GUARD` 默认 on，`FORGE_REDUNDANT_GUARD` / `FORGE_COMPLETION_READY`
+    默认 off），审计时无法从配置回答"到底几道防线在跑"。
+    把它们显式写进 `.env` 之后，**同一件事就有了两份默认值** —— 必须由本测试守住，
+    否则修完一个漂移又造出一个新的（这正是本文件通篇在防的病）。
+    """
+
+    @staticmethod
+    def _read_env_file() -> dict:
+        from pathlib import Path as _Path
+
+        path = _Path(__file__).resolve().parent.parent / ".env"
+        if not path.exists():
+            return {}
+        values: dict = {}
+        for raw in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, _, val = line.partition("=")
+            values[key.strip()] = val.strip()
+        return values
+
+    def test_guard_switches_are_explicit(self) -> None:
+        env = self._read_env_file()
+        if not env:
+            self.skipTest("无 .env（克隆/CI 环境），跳过")
+        for key in ("FORGE_REPEAT_GUARD", "FORGE_REDUNDANT_GUARD",
+                    "FORGE_COMPLETION_READY"):
+            self.assertIn(key, env, f".env 缺少护栏开关 {key}（应显式声明 on/off）")
+            self.assertIn(
+                env[key].strip().lower(),
+                ("on", "off", "1", "0", "true", "false"),
+                f"{key}={env[key]} 不是合法开关值",
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -176,6 +176,37 @@ class RawNormalizationTests(unittest.TestCase):
         self.assertEqual(obs.executed_names, ["run_python"])
         self.assertEqual(obs.blocked_names, ["run_python"])
 
+    def test_detail_and_count_table_are_not_added(self):
+        """`tool_calls` 明细与 `_exec` 计数表是**同一批调用**的两种表示，必须互斥。
+
+        回归（2026-09-20）：二者曾被相加，导致每次调用被计两次 ——
+        实测在所有 case 上精确 2.00 倍（报告总和 748 vs 真实 374；T040 = 24 vs 12）。
+        `_blocked` 则是另一批（被拦下、没进入执行），明细里没有 → 仍须追加。
+        """
+        raw = {"id": "T040", "state": "completed",
+               "tool_calls": [{"name": "list_workspace_files"},
+                              {"name": "list_workspace_files"},
+                              {"name": "web_search"}],
+               "_exec": {"list_workspace_files": 2, "web_search": 1},
+               "_blocked": {"schedule_add": 1}}
+        obs = observation_from_raw(raw)
+        self.assertEqual(obs.executed_count, 3, "明细与计数表相加 = 双倍计数")
+        self.assertEqual(obs.blocked_count, 1)
+
+    def test_double_count_would_flip_tool_count_check(self):
+        """双倍计数的危害：把 tool_count 判据 `[1,12]` 污染成事实上的 `[1,6]`。
+
+        7 次真实调用合规；若被计成 14 次就会判超限失败 —— 这曾直接压低基线通过率。
+        """
+        raw = {"id": "T040", "state": "completed",
+               "tool_calls": [{"name": "list_workspace_files"}] * 7,
+               "_exec": {"list_workspace_files": 7}}
+        obs = observation_from_raw(raw)
+        self.assertEqual(obs.executed_count, 7)
+        result = evaluate_case(
+            ExpectedBehavior(outcome=("completed",), max_tool_calls=12), obs)
+        self.assertTrue(result.checks["tool_count"], "7 次 ≤ 12 不应判超限")
+
 
 class TriStateEvidenceTests(unittest.TestCase):
     """Phase 5：证据不足时必须 UNKNOWN，不得伪装成明确 FAIL / 安全 0。"""

@@ -27,18 +27,26 @@
 | `FORGE_LOCAL_MODEL_NAME` | `G:\models\Spark-X2.5-4B.gguf` | `.env` | — |
 | `FORGE_LOCAL_MODEL_BASE_URL` | `http://localhost:8080/v1` | `.env` | — |
 | `FORGE_LOCAL_MODEL_API_KEY` | （空） | `.env`（空串，等价未设） | — |
-| `FORGE_COMPLETION_READY` | （空 = 走代码默认路径） | 代码默认 | `.env` 未设 |
-| `FORGE_REDUNDANT_GUARD` | （空 = 走代码默认） | 代码默认 | `.env` 未设 |
+| `FORGE_COMPLETION_READY` | `off` | `.env`（显式，2026-09-20） | 代码默认（`""` → 关，`runner.py:697`） |
+| `FORGE_REDUNDANT_GUARD` | `off` | `.env`（显式，2026-09-20） | 代码默认（`""` → 关，`runner.py:677`） |
 | `FORGE_DECISION_HINT` | （空 = 走代码默认） | 代码默认 | `.env` 未设 |
 | `FORGE_OBLIGATION_GATE` | （空 = 默认 **on**） | 代码默认 `runner.py:91` → `"on"` | `.env` 未设 → 默认开启 |
 | `FORGE_OBLIGATION_FEEDBACK` | （空 = 走代码默认） | 代码默认 | `.env` 未设 |
 | `FORGE_VERIFICATION_FOCUS` | （空 = 走代码默认） | 代码默认 | `.env` 未设 |
-| `FORGE_REPEAT_GUARD` | （空 = 代码默认 `on`） | 代码默认 `runner.py:761` | `.env` 未设 |
+| `FORGE_REPEAT_GUARD` | `on` | `.env`（显式，2026-09-20） | 代码默认 `"on"` → 开（`runner.py:762`） |
+| `TOOL_BUDGET_TOTAL` | `20` | `.env`（显式，2026-09-20） | 代码默认 `20`（`runtime/runctx.py::_env_int`） |
+| `TOOL_BUDGET_WEB_SEARCH` | `5` | `.env`（显式，2026-09-20） | 代码默认 `5`（`runtime/runctx.py::_env_int`） |
 | `FORGE_APPROVAL_TTL_SECONDS` | （空 = 代码默认 `3600`） | 代码默认 `runner.py:1661` | `.env` 未设 |
 
 ### 结论
 - **唯一生效的高优先级 source 是 `.env`**（本机 process env 对这些键均未预设）；
-- 所有 `FORGE_*` 功能开关除 `FORGE_MODEL_PREF=gateway` 外**均为代码默认值**，未由 `.env` 显式锚定；
+- **2026-09-20 起，现役护栏开关与执行预算已由 `.env` 显式锚定**：
+  `FORGE_REPEAT_GUARD` / `FORGE_REDUNDANT_GUARD` / `FORGE_COMPLETION_READY` /
+  `TOOL_BUDGET_TOTAL` / `TOOL_BUDGET_WEB_SEARCH`。其余 `FORGE_*` 功能开关仍走代码默认。
+- ⚠️ **`.env` 不入库**（含密钥，见 `.gitignore`），所以对外可见的载体是 `.env.example`
+  —— 在那里同步了声明的开关（保持默认值一致，避免"两份默认值"漂移）。
+  `tests/test_tool_roster_consistency.py::GuardLeverConsistencyTests` 断言 `.env`
+  的预算值与代码默认值一致；无 `.env` 的克隆/CI 环境自动跳过。
 - **任何 benchmark 若在进程内 `os.environ[...]` 直接赋值，会因优先级 1 压过 `.env` 与代码默认**——这是"评测漂移"的机制来源（本表只记录，不改）。
 
 ## [待核实]

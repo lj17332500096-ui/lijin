@@ -101,18 +101,52 @@ _P9_DISCOVERY_TOOLS = frozenset({
     "list_sandbox_snapshots",
 })
 
+#: 目标参数名（顺序即优先级）。
+#: ⚠️ `project` 必须在内：`list_code_files(project)` / `read_code_file(project, filename)`
+#: 的目标就是 project。早期遗漏它，导致这两个工具的目标恒为 None → 完全不受护栏管。
+_PATH_KEYS = ("path", "file", "filename", "directory", "project")
+_QUERY_KEYS = ("query", "keyword", "q")
+
+
+def _first_token(args: dict[str, Any], keys: tuple[str, ...]) -> str:
+    for k in keys:
+        v = args.get(k)
+        if v:
+            return str(v).strip().lower()
+    return ""
+
+
+def resolve_target(name: str, arguments: dict[str, Any] | None) -> str:
+    """该工具本次调用的逻辑目标原始串；无法解析时返回空串。
+
+    这是**唯一**的目标解析实现（此前 canonical_target_of / repeat_target_key /
+    exact_identity 各写了一份，参数白名单互不一致 —— 典型漂移）。
+    """
+    args = dict(arguments or {})
+    if name in _P9_READ_TOOLS:
+        # code 类工具的 project 是身份的一部分（read_code_file(project, filename)）：
+        # 只取 filename 会让"A 项目/a.py"与"B 项目/a.py"被判成同一目标 → 提前误拦。
+        project = _first_token(args, ("project",))
+        token = _first_token(args, _PATH_KEYS + _QUERY_KEYS)
+        if project and token and token != project:
+            return f"{project}/{token}"
+        return token or project
+    if name in _P9_DISCOVERY_TOOLS:
+        return _first_token(args, _QUERY_KEYS + _PATH_KEYS)
+    if name in _P9_VERIFICATION_TOOLS:
+        return _first_token(args, ("filename", "file", "code"))[:400]
+    return ""
+
 
 def canonical_target_of(name: str, arguments: dict[str, Any] | None) -> str | None:
     """规范化目标身份；无法解析时返回 None（禁止静默空字符串）。"""
     args = dict(arguments or {})
-    for k in ("path", "file", "filename", "directory", "project"):
-        v = args.get(k)
-        if v:
-            return str(v).replace("\\", "/").strip().lower() or None
-    for k in ("query", "keyword", "q"):
-        v = args.get(k)
-        if v:
-            return ("query:" + str(v).strip().lower()) or None
+    path_token = _first_token(args, _PATH_KEYS)
+    if path_token:
+        return path_token.replace("\\", "/") or None
+    query_token = _first_token(args, _QUERY_KEYS)
+    if query_token:
+        return "query:" + query_token
     return None
 
 
@@ -576,19 +610,18 @@ class DiscoveryTracker:
 
     def repeat_target_key(self, name: str, arguments: dict[str, Any] | None) -> str | None:
         """逻辑目标键（比 exact_identity 更宽松：不含 evidence epoch，容忍参数微调）。
-        无目标可解析时返回 None（不拦截，避免误杀）。"""
-        args = dict(arguments or {})
+
+        目标解析统一走 resolve_target（单一实现，见模块级注释）。
+        目标不可解析时返回 None（保守放行，避免误杀）。
+        """
         if name in _P9_READ_TOOLS:
-            tgt = str(args.get("path") or args.get("file") or args.get("filename")
-                      or args.get("directory") or args.get("query") or "").strip().lower()
+            tgt = resolve_target(name, arguments)
             return f"read|{tgt}" if tgt else None
         if name in _P9_DISCOVERY_TOOLS:
-            q = str(args.get("query") or args.get("keyword") or args.get("q")
-                    or args.get("directory") or "").strip().lower()
-            return f"search|{q}" if q else None
+            tgt = resolve_target(name, arguments)
+            return f"search|{tgt}" if tgt else None
         if name in _P9_VERIFICATION_TOOLS:
-            cmd = str(args.get("filename") or args.get("file") or args.get("code")
-                      or "").strip().lower()
+            cmd = resolve_target(name, arguments)
             return f"verify|{cmd[:160]}" if cmd else None
         return None
 
@@ -618,20 +651,21 @@ class DiscoveryTracker:
         self._exact_seen.clear()
 
     def exact_identity(self, name: str, arguments: dict[str, Any] | None):
-        """精确执行身份（比 analysis fingerprint 严格；不含 result_excerpt）。"""
-        args = dict(arguments or {})
+        """精确执行身份（比 analysis fingerprint 严格；不含 result_excerpt）。
+
+        目标解析统一走 resolve_target（补上早期遗漏的 `project` 参数名）。
+        仍保持"不可解析 → 绝不 suppression"的保守设计：这里**不做**默认目标回落，
+        以免把"不同文件"误判成同一身份。
+        """
         if name in _P9_READ_TOOLS:
-            target = str(args.get("path") or args.get("file") or args.get("filename")
-                         or args.get("directory") or "").strip().lower()
+            target = resolve_target(name, arguments)
             # 目标不可解析 → 绝不 suppression（否则不同文件会被误判相同）
             return ("read", target, self.evidence_epoch) if target else None
         if name in _P9_DISCOVERY_TOOLS:
-            q = str(args.get("query") or args.get("keyword") or args.get("q")
-                    or args.get("directory") or "").strip().lower()
+            q = resolve_target(name, arguments)
             return ("search", q, self.evidence_epoch) if q else None
         if name in _P9_VERIFICATION_TOOLS:
-            cmd = str(args.get("filename") or args.get("file") or args.get("code")
-                      or "").strip()
+            cmd = resolve_target(name, arguments)
             # 验证命令不可解析 → 不 suppression（避免误杀不同验证）
             return ("verify", cmd[:400], self.evidence_epoch) if cmd else None
         return None  # mutation / 其它 → 绝不 suppression

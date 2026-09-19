@@ -686,19 +686,27 @@ def observation_from_raw(raw: dict[str, Any]) -> Observation:
                      or raw.get("answer") or raw.get("content") or "")
 
     calls: list[dict[str, Any]] = []
-    # 1) 显式 tool_calls 列表
+    # 1) 显式 tool_calls 明细（本项目 = task_events 的 tool.invocation，只含真正执行的调用）
     for item in raw.get("tool_calls") or []:
         if isinstance(item, dict):
             norm = _norm_tool_call(item)
             if norm:
                 calls.append(norm)
-    # 2) bench_runner 的 _exec / _blocked 计数表
-    for name, count in (raw.get("_exec") or raw.get("exec") or {}).items():
-        for _ in range(int(count)):
-            calls.append({"name": name, "status": "executed", "reason": "", "output_head": ""})
+    # 2) 仅当**明细缺失**时，才退回按工具的计数表。
+    #    ⚠️ `_exec` 与 `tool_calls` 是**同一批调用**的两种表示（`_exec` 就是明细的聚合），
+    #    必须互斥、绝不能相加 —— 相加会让每个调用被计两次（实测在所有 case 上
+    #    精确 2.00 倍），进而把 tool_count 判据（如 `[1,12]`）污染成事实上的 `[1,6]`，
+    #    使"实际只调了 7 次"的 case 被判超限失败。
+    if not calls:
+        for name, count in (raw.get("_exec") or raw.get("exec") or {}).items():
+            for _ in range(int(count)):
+                calls.append({"name": name, "status": "executed",
+                              "reason": "", "output_head": ""})
+    # 3) `_blocked` 是**另一批**（被拦下、没进入执行），明细里并不包含它们 → 始终追加。
     for name, count in (raw.get("_blocked") or raw.get("blocked") or {}).items():
         for _ in range(int(count)):
-            calls.append({"name": name, "status": "blocked", "reason": "", "output_head": ""})
+            calls.append({"name": name, "status": "blocked",
+                          "reason": "", "output_head": ""})
 
     model_turns = int(raw.get("model_turns") or len(raw.get("model_calls") or []) or 0)
     provider_errors = int(raw.get("provider_errors") or 0)
