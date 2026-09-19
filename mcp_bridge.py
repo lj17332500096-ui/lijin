@@ -187,16 +187,7 @@ def format_mcp_result(display_name: str, result: Any, max_len: int = 6000) -> st
 
 
 def _make_mcp_invoke(server: MCPServerStdio, remote_name: str, display_name: str):
-    import asyncio as _asyncio
     import json as _json
-
-    # 网络类异常（幂等）适合退避重试；非网络类直接返回错误文本，不重试。
-    _MCP_RETRYABLE: tuple[type[BaseException], ...] = (
-        _asyncio.TimeoutError,
-        ConnectionError,
-        TimeoutError,
-        OSError,
-    )
 
     async def invoke(_ctx: Any, args_json: str) -> str:
         try:
@@ -206,42 +197,39 @@ def _make_mcp_invoke(server: MCPServerStdio, remote_name: str, display_name: str
         except _json.JSONDecodeError:
             return f"{display_name} 参数不是合法 JSON，已拒绝调用。"
 
+        import logging as _logging
         import os as _os
-        import random as _random
+
+        import resilience
 
         attempts = int(_os.getenv("FORGE_MCP_ATTEMPTS", "3") or 3)
         base_delay = float(_os.getenv("FORGE_MCP_BASE_DELAY", "0.5") or 0.5)
         cap = float(_os.getenv("FORGE_MCP_RETRY_CAP", "8.0") or 8.0)
 
-        last_network_exc: BaseException | None = None
-        result: Any = None
-        got_result = False
-        for attempt in range(1, max(1, attempts) + 1):
-            try:
-                result = await server.call_tool(remote_name, arguments)
-                got_result = True
-                break
-            except _MCP_RETRYABLE as exc:
-                last_network_exc = exc
-                if attempt >= attempts:
-                    break
-                backoff = min(cap, base_delay * (2 ** (attempt - 1)))
-                sleep_s = _random.uniform(0.0, backoff)
-                import logging as _logging
-                _logging.getLogger("mcp_bridge").info(
-                    "%s attempt %d/%d failed (%s), retry in %.2fs",
-                    display_name, attempt, attempts,
-                    type(exc).__name__, sleep_s,
-                )
-                await _asyncio.sleep(sleep_s)
-            except Exception as exc:  # 非网络类：参数/认证等错误，不重试
-                return f"{display_name} 执行出错：{type(exc).__name__}: {str(exc)[:300]}"
+        def _on_attempt(n: int, exc: BaseException) -> None:
+            _logging.getLogger("mcp_bridge").info(
+                "%s attempt %d/%d failed (%s)，退避后重试",
+                display_name, n, attempts, type(exc).__name__,
+            )
 
-        if got_result:
-            return format_mcp_result(display_name, result)
-        # 网络异常耗尽
-        return (f"{display_name} 执行出错（已重试 {attempts} 次）："
-                f"{type(last_network_exc).__name__}: {str(last_network_exc)[:300]}")
+        try:
+            # 复用 resilience.run_with_retries（指数退避 + full jitter）。
+            # 这里曾经自带一份等价实现，两份策略会各自漂移 —— 现统一到一处。
+            result = await resilience.run_with_retries(
+                lambda: server.call_tool(remote_name, arguments),
+                attempts=attempts,
+                base_delay=base_delay,
+                cap=cap,
+                retryable=resilience.NETWORK_RETRYABLE_EXCEPTIONS,
+                on_attempt=_on_attempt,
+            )
+        except resilience.NETWORK_RETRYABLE_EXCEPTIONS as exc:
+            return (f"{display_name} 执行出错（已重试 {attempts} 次）："
+                    f"{type(exc).__name__}: {str(exc)[:300]}")
+        except Exception as exc:  # 非网络类（参数/认证等）：不重试，原样报错
+            return f"{display_name} 执行出错：{type(exc).__name__}: {str(exc)[:300]}"
+
+        return format_mcp_result(display_name, result)
 
     return invoke
 

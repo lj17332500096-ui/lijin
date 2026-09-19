@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
@@ -61,6 +62,41 @@ class ProjectEditTests(unittest.TestCase):
         self.assertIn("覆盖", second)
         backups = (self._tmp / "logs" / "backups").glob("*.py")
         self.assertEqual(len(list(backups)), 1)
+
+    def test_receipt_does_not_claim_backup_for_new_file(self) -> None:
+        """新建文件不得声称"已备份"。
+
+        2026-09-19 定论：历史有 111 条回执写着"原文件已备份到 logs/backups/"，
+        但该目录从来不存在 —— 根因就是回执文案无条件拼接，而 _backup() 对
+        不存在的文件直接 return，新建场景根本没东西可备。
+        """
+        out = call_tool(pe.write_project_file, path="fresh.py", content="x = 1\n")
+        self.assertIn("新建", out)
+        self.assertIn("无原文件可备份", out)
+        self.assertNotIn("已备份到", out)
+        self.assertFalse((self._tmp / "logs" / "backups").exists(),
+                         "新建文件不该凭空造出备份目录")
+
+    def test_receipt_names_the_actual_backup_file(self) -> None:
+        """覆盖时回执必须给出真实存在的备份文件名，可据此逐条核对。"""
+        call_tool(pe.write_project_file, path="demo.py", content="x = 1\n")
+        out = call_tool(pe.write_project_file, path="demo.py", content="x = 2\n")
+        self.assertIn("覆盖", out)
+        self.assertIn("已备份到 logs/backups/", out)
+        m = re.search(r"logs/backups/([^\s。）]+)", out)
+        self.assertIsNotNone(m, f"回执未给出备份文件名：{out}")
+        self.assertTrue((self._tmp / "logs" / "backups" / m.group(1)).exists(),
+                        f"回执点名的备份文件不存在：{m.group(1)}")
+
+    def test_edit_receipt_names_backup(self) -> None:
+        """edit 必然覆盖已有文件，回执应当给出备份文件名。"""
+        call_tool(pe.write_project_file, path="e.py", content="a\n")
+        out = call_tool(pe.edit_project_file, path="e.py", old_string="a", new_string="b")
+        self.assertIn("替换 1 处", out)
+        self.assertIn("已备份到 logs/backups/", out)
+        m = re.search(r"logs/backups/([^\s。）]+)", out)
+        self.assertIsNotNone(m, f"回执未给出备份文件名：{out}")
+        self.assertTrue((self._tmp / "logs" / "backups" / m.group(1)).exists())
 
     def test_protected_and_escape_rejected(self) -> None:
         for path in (".env", "logs/x.py", "../outside.py", "C:/Windows/x.py", ".venv/lib/x.py"):

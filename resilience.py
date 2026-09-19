@@ -45,6 +45,11 @@ _RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
     OSError,
 )
 
+#: 公开别名：网络类可重试异常。调用方（如 mcp_bridge）应当复用**这一份**定义，
+#: 而不是各自再抄一遍元组 —— 抄第二遍就会漂移（2026-09-19：MCP 曾自带一套
+#: 与 run_with_retries 完全相同的退避重试实现，属同类漂移）。
+NETWORK_RETRYABLE_EXCEPTIONS = _RETRYABLE_EXCEPTIONS
+
 
 async def run_with_retries(
     attempt_factory: Callable[[], Any],

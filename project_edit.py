@@ -8,7 +8,9 @@
   .venv / __pycache__ / .git / logs / traces / data / models 等目录；
 - 后缀白名单（.py/.md/.txt/.json/.yaml/.yml/.html/.js/.css/.bat 等），单文件 ≤600KB，拒绝二进制；
 - 内容里出现 API Key/密钥格式 → 拒绝写入（防把凭据写进文件）；
-- 覆盖/改写前自动备份到 logs/backups/，便于回滚；
+- 覆盖/改写已有文件前自动备份到 logs/backups/，便于回滚；新建文件无物可备，
+  回执会明说"新建文件，无原文件可备份"，不装作备份过；
+- edit 默认要求 old 唯一匹配，出现多次须显式 replace_all，杜绝误改。
 - edit 默认要求 old 唯一匹配，出现多次须显式 replace_all，杜绝误改。
 """
 
@@ -98,15 +100,33 @@ def _validate_content(content: str) -> str | None:
     return None
 
 
-def _backup(path: Path) -> None:
+def _backup(path: Path) -> Path | None:
+    """覆盖前把原文件备份进 logs/backups/，返回备份文件路径。
+
+    文件不存在（=新建）时无物可备，返回 None —— 调用方必须据此如实回报，
+    否则会出现"回执声称已备份、目录里却什么都没有"的假记录
+    （2026-09-19 实测定论：历史 111 条此类回执全部来自新建场景）。
+    """
     if not path.exists():
-        return
+        return None
     backup_dir = _backup_dir()
     backup_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     # uuid 后缀防同一秒内多次备份同文件导致覆盖
     backup = backup_dir / f"{stamp}_{uuid.uuid4().hex[:6]}_{path.name}"
     backup.write_bytes(path.read_bytes())
+    return backup
+
+
+def _backup_note(backup: Path | None) -> str:
+    """把 _backup() 的真实结果转成一句可核对的话（不猜、不无条件声称）。"""
+    if backup is None:
+        return "新建文件，无原文件可备份"
+    try:
+        rel = backup.relative_to(BASE_DIR).as_posix()
+    except ValueError:
+        rel = backup.as_posix()
+    return f"原文件已备份到 {rel}"
 
 
 def _denied_message(why: str) -> str:
@@ -149,12 +169,12 @@ def write_project_file(path: str, content: str) -> str:
     if error:
         return f"错误：{error}"
     existed = target.exists()
-    _backup(target)
+    backup = _backup(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
     action = "覆盖" if existed else "新建"
     rel = _rel_display(target)
-    return f"已{action}项目文件 {rel}（{len(content)} 字符，原文件已备份到 logs/backups/）。"
+    return f"已{action}项目文件 {rel}（{len(content)} 字符）。{_backup_note(backup)}。"
 
 
 @function_tool
@@ -193,12 +213,12 @@ def edit_project_file(
     error = _validate_content(new_text)
     if error:
         return f"错误：{error}"
-    _backup(target)
+    backup = _backup(target)
     target.write_text(new_text, encoding="utf-8")
     rel = _rel_display(target)
     verb = "替换全部" if replace_all and count > 1 else "替换"
     summary = (
-        f"已在 {rel} 里{verb} {count} 处匹配（原文件已备份到 logs/backups/）。"
+        f"已在 {rel} 里{verb} {count} 处匹配。{_backup_note(backup)}。"
         f"如需验证可运行：pytest / ruff check 相关文件"
     )
     if diff:
