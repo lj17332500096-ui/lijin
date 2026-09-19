@@ -7,7 +7,9 @@
 - 在 `.env` 的 `SKILLS=技能1,技能2` 增删技能名（仅 `字母/数字/_/-`），改后**重启 webapp** 生效。
 - 技能目录保留在 `skills/` 即不删除；停用 = 只是不在 `SKILLS=` 里。
 
-## 当前启用（16 个）—— 均在 agnes 上真实验证过
+## 实机验证记录（16 个）—— ⚠️ 非当前启用状态
+> 2026-09-19 核实：`.env` 里**没有 `SKILLS=` 赋值行**，因此当前 **0 个技能处于启用状态**；
+> `skills/` 下 27 个目录全部保留、随时可在 `SKILLS=` 里点名启用。下表是历史上曾启用并通过实机验证的 16 个，保留作启用时的选型参考。
 验证方式：真实模型运行示例提示，确认按各自技能结构输出（✅ = completed 且结构正确；⚠️ = 触发正确，但需确认关键信息或走审批门后再执行）。
 
 | 组 | 技能 | 状态 | 验证要点 |
@@ -55,5 +57,13 @@
 - API Key 前缀 `cpk-` 已纳入脱敏（`guardrails/tools/project_edit/runtime.audit`），不会出现在日志/产物；请勿外泄、勿提交到仓库。
 
 ## 归档（已删除，仅记录）
-- 旧设计系：`design-taste-frontend(-v1)、brandkit、image-to-code、imagegen-frontend-mobile/web、minimalist-ui、industrial-brutalist-ui、stitch-design-taste、high-end-visual-design、full-output-enforcement`
-- 运行依赖缺失/与内置重复：`docx、pptx、xlsx、webapp-testing、canvas-design、algorithmic-art`
+
+### 2026-09-19：从 `agent-skills/` 落地删除 9 个（本次）
+判据：编译产出但**从未被安装进 `skills/`**，即项目已判定不可用；删除前已确认这 9 个目录与 git `HEAD` 完全一致。
+- **Claude 平台专属**（与本项目 agnes 网关链路无关）：`academy-guide`、`claude-api`、`web-artifacts-builder`
+- **与运行时原生工具重复 / 运行依赖缺失**：`docx`、`pptx`、`xlsx`、`webapp-testing`、`canvas-design`、`algorithmic-art`
+- 连带清理：`tools/install_compiled_skills.py` 的 `ZH` 字典由 16 条收敛为 10 条，与 `agent-skills/` 现存 10 个目录**一一对应**（无死条目）。
+- 恢复方式：`git checkout b0d1c49 -- <路径>`；完整文件清单见 `delivery/removed_skills_manifest.txt`。
+
+### 更早批次（旧设计系）
+`design-taste-frontend(-v1)、brandkit、image-to-code、imagegen-frontend-mobile/web、minimalist-ui、industrial-brutalist-ui、stitch-design-taste、high-end-visual-design、full-output-enforcement`

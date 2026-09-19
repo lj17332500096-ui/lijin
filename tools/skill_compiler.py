@@ -11,8 +11,8 @@
 并在 .env SKILLS 追加名字即可使用。
 
 用法：
-  python tools/skill_compiler.py --src H:\\skills-main.zip --skills academy-guide,brand-guidelines
-  python tools/skill_compiler.py --src skills/academy-guide
+  python tools/skill_compiler.py --src H:\\skills-main.zip --skills brand-guidelines,pdf
+  python tools/skill_compiler.py --src skills/brand-guidelines
 """
 from __future__ import annotations
 

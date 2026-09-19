@@ -1,7 +1,13 @@
 """install_compiled_skills.py — 把 compiler 产出的非 Claude 技能，翻译成真正中文可执行
 skill.md，并安装到 此刻/NOW（拷到 skills/<slug>/，同名覆盖=用最新；追加到 .env SKILLS）。
 
-运行后需重启 webapp。Claude 专属技能已在编译时排除（academy-guide / claude-api / web-artifacts-builder）。
+运行后需重启 webapp。
+
+2026-09-19 清理：9 个从未采纳的技能已从 agent-skills/ 删除（内容见 git 历史 +
+delivery/removed_skills_manifest.txt）：
+  - Claude 平台专属（与本项目模型链路无关）：academy-guide / claude-api / web-artifacts-builder
+  - 与运行时原生工具重复或运行依赖缺失：docx / pptx / xlsx / webapp-testing / canvas-design / algorithmic-art
+因此 ZH 由 16 条收敛为 10 条，与 agent-skills/ 现存目录一一对应（INCLUDE = ZH.keys()）。
 """
 from __future__ import annotations
 
@@ -16,47 +22,6 @@ ENV = ROOT / ".env"
 
 # 中文可执行指令（用途/触发/核心做法/约束），已去 Claude 产品词，保留核心步骤
 ZH: dict[str, list[str]] = {
-    "docx": [
-        '# docx（Word 文档处理）',
-        '## 用途',
-        '创建 / 读取 / 编辑 Word 文档（.docx/.dotx）：目录、标题、页码、图片、批注、查找替换、合并文档。',
-        '## 触发',
-        '用户提到 Word 文档、.docx/.dotx，或要产出 报告/备忘录/信函/模板 等 Word 交付物时使用。',
-        '## 核心做法',
-        '- **新建**：写一个 Node 脚本用 `docx`（已预装，勿先 `npm install`），`require("docx")` 直接构建并导出。',
-        '- **编辑已有**：`unzip x.docx` -> 修改 `word/document.xml` -> 再 `zip` 回（docx-js 不能打开已有文件）。',
-        '- **读取内容**：`pandoc -t markdown file.docx` 转纯净文本/Markdown。',
-        '- 详细示例/注意事项见资产 `assets/references/*.md`，脚本在 `assets/scripts/`。',
-        '## 约束',
-        '不要用于 PDF/电子表格/Google Docs/与文档生成无关的编码任务。',
-    ],
-    "pptx": [
-        '# pptx（PowerPoint 演示文稿）',
-        '## 用途',
-        '创建/读取/编辑 .pptx/.potx：生成演讲 Deck、提取文本、模板(.potx)、备注与批注、拆分/合并幻灯片。',
-        '## 触发',
-        '用户提到 deck/幻灯片/presentation 或 .pptx/.potx 文件即使用。',
-        '## 核心做法',
-        '- **新建**：写 `pptxgenjs` 脚本（依赖已就绪，勿先装）。',
-        '- **编辑/从模板构建**：`unzip` -> 改 `ppt/slides/slideN.xml` -> 再 `zip`。',
-        '- **读取**：`markitdown deck.pptx`（每页一个块）；可视化网格 `python scripts/thumbnail.py deck.pptx`。',
-        '- 脚本路径相对技能目录；其余为普通 Python/node/shell。详见 `assets/references/`。',
-    ],
-    "xlsx": [
-        '# xlsx（电子表格）',
-        '## 用途',
-        '打开/读取/编辑/修复 .xlsx/.xlsm/.xltx/.csv/.tsv（加列、公式、格式化、图表、清洗脏数据），或新建/互转表格。',
-        '## 触发',
-        '用户以电子表格为主要输入/输出，或引用某表格文件并要对它做处理时使用。',
-        '## 核心做法',
-        '- **生成/编辑 + 公式/格式**：`openpyxl`（已预装，勿 `pip install`）。',
-        '- **批量进出**：`pandas`（`read_excel`/`to_excel`）。',
-        '- **快速查看**：`markitdown file.xlsx`（每表一格，无坐标，别用它规划编辑）。',
-        '- **读公式+值**：两次 `load_workbook`（一次 data_only 取计算值，一次取公式）。',
-        '- 详见 `assets/references/`。',
-        '## 约束',
-        '交付物必须是表格文件；若主要交付是 Word/HTML/脚本/数据库管道，即使涉及表格也不要用。',
-    ],
     "pdf": [
         '# pdf（PDF 处理）',
         '## 用途',
@@ -66,26 +31,6 @@ ZH: dict[str, list[str]] = {
         '## 核心做法',
         '用 Python 库（pypdf/PyMuPDF 等）+ 命令行工具组合完成上述操作；高级功能与示例看 `assets/REFERENCE.md`；'
         '填表单看 `assets/FORMS.md`。先 `python <脚本> --help` 再调用（大脚本当黑盒）。',
-    ],
-    "canvas-design": [
-        '# canvas-design（视觉设计 · PNG/PDF）',
-        '## 用途',
-        '用设计理念生成 .png/.pdf 视觉作品（海报、艺术、设计、静态画面）。',
-        '## 触发',
-        '用户要创作海报/艺术/设计/静态视觉物时使用。',
-        '## 核心做法',
-        '两步走：1) 先产出「设计理念」(.md)；2) 再到 canvas 上落地为 .pdf/.png。围绕 形态/空间/色彩/构图/图形/纹理/少量文字 设定理念；'
-        '只输出 .md/.pdf/.png 三种文件。务必输出**原创**作品，不要复制现有艺术家作品以避免侵权；模板/参考见 `assets/`。',
-    ],
-    "algorithmic-art": [
-        '# algorithmic-art（生成式算法艺术）',
-        '## 用途',
-        '用 p5.js + 种子随机数生成算法艺术：流动场、粒子系统等。',
-        '## 触发',
-        '用户要用代码/生成式/算法艺术/流动场/粒子做创作时使用。',
-        '## 核心做法',
-        '两步：1) 产出「算法理念」(.md)；2) 用 p5.js 表达（.html 交互 + .js 算法）。突出 计算过程/涌现行为/数学之美/种子随机。'
-        '输出原创算法艺术，勿复制现有艺术家作品。可参考 `assets/templates/` 的生成器。',
     ],
     "frontend-design": [
         '# frontend-design（前端视觉设计）',
@@ -124,16 +69,6 @@ ZH: dict[str, list[str]] = {
         '用户要做一个 GIF/动图给 Slack/聊天时使用。',
         '## 核心做法',
         '读 `assets/references/` 的说明与脚本；按目标限制调优 帧率/尺寸/颜色数；`python <脚本> --help` 后黑盒调用。',
-    ],
-    "webapp-testing": [
-        '# webapp-testing（本地 web 应用测试）',
-        '## 用途',
-        '用 Playwright 本地测试脚本：验证前端功能、调试 UI、截图、看浏览器日志。',
-        '## 触发',
-        '用户要测试/调试本地 web 应用/前端时使用。',
-        '## 核心做法',
-        '写原生 Python Playwright 脚本；`assets/scripts/with_server.py` 管理服务器生命周期（支持多服务器）。'
-        '**总是先 `python <脚本> --help`** 看用法；除非确需定制，否则不要先读源码（脚本很大，会污染上下文，当黑盒调用）。',
     ],
     "skill-creator": [
         '# skill-creator（技能创建与改进）',
