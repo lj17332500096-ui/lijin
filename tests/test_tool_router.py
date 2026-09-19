@@ -105,7 +105,7 @@ class ToolRouterSelectionTests(unittest.TestCase):
 
 _MUTATION = {"write_project_file", "edit_project_file", "write_code_file",
              "save_note", "save_word_doc", "save_excel_workbook", "save_ppt_deck",
-             "delete_task", "forget_memory", "schedule_add", "schedule_remove"}
+             "forget_memory", "schedule_add", "schedule_remove"}
 
 
 class Phase7IntentScopeTests(unittest.TestCase):

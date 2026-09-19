@@ -32,10 +32,15 @@
   （`code_exec.SANDBOX_ROOT = WORKSPACE_ROOT / "code_sandbox"`；实测有 24 个真实项目）。
   项目内那个同名 `code_sandbox/` 是 `tools_phase1_case2_4.py:141` 硬编码
   `BASE/"code_sandbox"` 的残留 —— **统计沙箱使用情况时会看错地方**，别踩。
-- ⚠️ **待查（安全）**：`edit_project_file`/`write_project_file` 的 111 条返回记录声称
-  "原文件已备份到 `logs/backups/`"，但该目录不存在、`F:\Byong-hermes` 全盘也搜不到。
-  单独实测 `_backup()` 本身正常（调用即落盘、内容一致）。
-  **在下次真实编辑后确认 `logs/backups` 出现之前，不要把"写前自动备份"当作已验证生效的能力。**
+- ✅ **已定论（2026-09-19 晚，真实写入实测）**：111 条"原文件已备份到 `logs/backups/`"里
+  **没有一条撒谎的备份能力，全是文案在撒谎**。
+  - 覆盖已有文件 → `logs/backups/<stamp>_<uuid>_<name>` 真的落盘，内容一致 ✓
+  - 新建文件 → 目录根本不出现，而回执**照样**声称已备份 ✗
+  - 根因：`_backup()` 对不存在的文件直接 `return`，而回执文案是无条件拼接的。
+    所以"目录从不存在"只说明**历史上所有写都是新建**，不说明备份坏了。
+  - 已修：`_backup()` 返回真实路径或 `None`，回执写明具体备份文件名 / 或明说"无原文件可备份"。
+  - **教训**：回执文案必须由真实结果生成。否则事后无法从记录区分"功能坏了"和"记录在撒谎"，
+    这个疑点因此挂了一天。测试 `tests/test_project_edit.py` 已锁 3 条。
 - `search_sources` 的库当前为空（`source_chunks`/向量/FTS 均 0 行，`project_sources` 仅 1 条
   `parse_status=ok` 却无切片）→ 已从 `_WEB_SUPPORT` 移出（否则纯联网题白捎带，实测 11/50 题）。
   `search_documents` 有 2MB 索引且被调用 355 次，**必须留在族里**（已加对照组测试）。
@@ -184,7 +189,10 @@
   运行时逻辑（`chat.dispatch`/`run_turn`/`_resolve_approvals`）保留 `Exception` 渲染给用户。
 - 测试 `tests/test_tui.py` 47 条（含 7 条布局回归：MessageLog 吃满高度 / 三段高度和 == 屏幕行数 /
   Input 内容行 ≥1 / popup 默认隐藏 / popup 展开收起还原 / Footer 不溢出 / 80x24 窄屏）。
-- 未做（非显示缺陷）：`_update_footer()` 依赖的 `self._hint_label` 从未创建，该函数目前是 no-op。
+- ✅ **已修（2026-09-19）**：`_update_footer()` 曾因 `self._hint_label` 从未创建而全程 no-op
+  （被调 14 次什么都不显示）。现 `InputBar.hint`（`.forge-hint`，height:1，位于输入框与
+  Footer 之间）+ `on_mount` 接线 + `_footer_mode` 记录，四态 idle/running/approval/slash
+  均真实渲染。测试 `tests/test_tui.py` 47 → 51 条（含接线/渲染/切换/高度预算 4 条）。
 
 ## 8. 验证与待办
 - 全量 pytest：2026-09-19 单进程 `tests/` = **1152 passed / 6 skipped / 0 failed / 0 errors**（~121s）。
@@ -192,18 +200,27 @@
   **失败集合漂移 = 环境干扰，不是项目回归**；批内自查用 `-x --tb=short`。
 - 唯一已知 warning：`tests/test_markdown_js.py:171` 的 `DeprecationWarning: invalid escape sequence '\s'`
   （docstring 里的正则示例，历史遗留，不影响结果）。
-- 待办：50 case 基线 `python -m benchmark.eval_runner --all`；`execute_resilient` 仍 opt-in，
-  下一轮把 MCP 网络类工具切进去走自动重试。
-- ⚠️ **工作区挂着 1555 个未暂存删除**（2026-09-19 用户决定"暂不动"）：文件已不在磁盘。
-  **已核实：其中没有真实数据**（我一度误判为"910 个用户数据"，错了）——
-  `forge_data` 753 个被删源文件**只有 6 个不同文件名**（`输入.docx`×189/`P.xlsx`×187/`B.docx`×187/
-  `来源.md`×137/乱码 `4Դ.md`×52/`银行流水2021.xlsx`×1），是同一批文件反复导入 759 个测试沙箱的堆积；
-  `notes/` 133 个抽读全是 agent 测试生成的 demo（月度支出表/北京出行推荐/公众号欢迎语），同标题分钟级重复。
+- 待办：router-on 50 case 基线 2026-09-19 已跑（`runs_eval_baseline_router_on/`），结果见当日日志。
+  `execute_resilient`（`runtime/broker.py`）**是死代码**：broker 在 `runner.py:287` 建了却从不
+  `execute`，真实调用走 SDK 的 `on_invoke_tool`。MCP 的网络重试在 `mcp_bridge` 内，
+  2026-09-19 已去重到 `resilience.run_with_retries`。
+- ✅ **1555 个删除已提交收敛**（`eed19c8`，−213768 行），**已核实无真实数据**（我一度误判为
+  "910 个用户数据"，错了）——`forge_data` 753 个被删源文件**只有 6 个不同文件名**，
+  是同一批文件反复导入 840 个测试沙箱的堆积；`notes/` 133 个抽读全是 agent 测试生成的 demo。
   真用户资产（`materials/*.docx`、`.env`、`memory/`、`data/`）均完好。
-  → **可放心提交收敛**；恢复命令 `git checkout HEAD -- <路径>`。
   ⚠️ **判"用户数据丢失"必须看去重基名 + 抽读内容**，只看目录名/数量会严重高估。
+- ✅ **运行产物已摘除跟踪 + 补齐 .gitignore**（`b549327`）：`runs_eval*/`、`forge_data/`、
+  `exports/`、`notes/`、`summaries/`、`report_*.json`、`runs_*.log`、`*.sqlite-shm`、`*.sqlite-wal`。
+  `materials/` 是用户输入资料，**必须保持跟踪**。摘除用 `git rm --cached -r`（磁盘不动）。
+  **这是"1555 删除"的根因**：运行产物被跟踪 → 每次跑都堆积 → 必然再次索引/磁盘脱节。
 - 体检固定跑：已跟踪文件正则扫 `sk-/cpk-/tvly-/AKIA`（2026-09-19 实测仅 8 处测试假值，`.env` 从未入库）。
-- `REPAIR_PLAN_2026-09-19.md`：4 级优先级修复计划。唯一实质风险是"1555 删除挂着 → `git add -A` 会误提交"。
+- ✅ **名册死名已清并升级为哨兵**（`4c58cb5`）：生产代码里的 `web_search_v2`（实为 `web_search`）
+  与 `delete_task`（**全项目无任何任务删除能力**）已从 7 个文件的名册中移除，并连同 `code_loop_tool`
+  一起并入 `tests/test_tool_roster_consistency.py` 的 `WRONG_NAMES` → 生产文件再出现即红灯（负向验证过）。
+  ⚠️ **`delete_task` 曾把测试带偏**：`tests/test_benchmark_evaluator.py` 拿它当"被执行的禁止工具"样本，
+  它能触发 mutation 判定**只是因为该死名被列在 `MUTATION_TOOLS` 里** —— 夹具已换成真实的 `forget_memory`。
+  `forget_memory`/`schedule_remove`/`sandbox_rollback` 是**真实工具**（此前登记为"未决"是误判）。
+- `REPAIR_PLAN_2026-09-19.md`：4 级优先级修复计划；6 步已于 2026-09-19 执行（见当日日志）。
 - ⚠️ **仓库曾缺一大块主干源码**（`cli/` 整包、`runtime/episode*`、`token_gate`、`resilience`、
   `trace_export`、`ui_frozen`、`benchmark/eval_runner`、11 个测试文件）——2026-09-19 已补录
   （`f322ec8` + `fd265fb`）。**迁移/clone 前先核对 `git ls-files` 与实际模块是否一致**。
