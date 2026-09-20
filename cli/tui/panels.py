@@ -25,19 +25,35 @@ from textual.widgets import Footer, Input, Static
 from textual.widget import MountError
 
 
-# ── 设计令牌 ─────────────────────────────────────────────────────
-BG       = "#0B0E14"
-SURFACE  = "#10141C"
-PANEL    = "#161B25"
-BORDER   = "#293142"
-TEXT_C   = "#DCE4F2"
-MUTED    = "#778196"
-PRIMARY  = "#5CC8FF"
-AGENT    = "#A78BFA"
-SUCCESS  = "#6EE7A8"
-WARNING  = "#F6C177"
-ERROR_C  = "#FF7185"
-ARTIFACT = "#7DD3FC"
+# ── 设计令牌（对齐 dsh-TUI design-system）────────────────────────
+# dsh-TUI 的 design-system 目录定义了 Pane / Divider / HintLine / StatusIcon /
+# ProgressBar 五个原语。FORGE TUI 已有等价的 CSS 类（.model-popup-body /
+# .forge-hint 等），这里把设计令牌统一收敛到模块级常量，供所有组件引用。
+#
+# 色彩体系（沿用 FORGE 既有暗色主题）：
+#   背景层：BG → SURFACE → PANEL → BORDER（由深到浅 4 级）
+#   文字层：TEXT_C（正文）→ MUTED（弱化）→ 各状态色
+#   状态色：SUCCESS / WARNING / ERROR_C / PRIMARY / AGENT / ARTIFACT
+#
+# 对齐 dsh-TUI 的语义命名：
+#   dsh "permission"   → FORGE PRIMARY（权限/选中/焦点）
+#   dsh "suggestion"   → FORGE AGENT（建议/助手消息）
+#   dsh "remember"     → FORGE SUCCESS（记忆/完成/固定）
+#   dsh "error"        → FORGE ERROR_C（错误/危险）
+#   dsh "warning"      → FORGE WARNING（警告/运行中）
+
+BG       = "#0B0E14"  # 最底层背景
+SURFACE  = "#10141C"  # 卡片/面板底
+PANEL    = "#161B25"  # 弹出层/浮层底
+BORDER   = "#293142"  # 边框
+TEXT_C   = "#DCE4F2"  # 正文
+MUTED    = "#778196"  # 弱化文字/提示
+PRIMARY  = "#5CC8FF"  # 焦点/选中/主要交互
+AGENT    = "#A78BFA"  # 助手消息/建议
+SUCCESS  = "#6EE7A8"  # 成功/完成
+WARNING  = "#F6C177"  # 警告/运行中
+ERROR_C  = "#FF7185"  # 错误/危险
+ARTIFACT = "#7DD3FC"  # 产出物/链接
 
 
 def _tool_symbol(status: str) -> str:
@@ -271,8 +287,15 @@ class MessageItem(Static):
             if self._title:
                 t.append(f" · {_escape(self._title)}", style=MUTED)
             t.append("\n")
-            for line in (self._content or "").splitlines() or [""]:
-                t.append(f"  {_escape(line)}\n")
+            # 流式 Markdown 渲染（参照 dsh-TUI StreamingMarkdown）：
+            # 不等全部到齐，每个 chunk 到达就实时解析为富文本
+            md_content = self._content or ""
+            if md_content:
+                md_lines = md_content.splitlines() or [""]
+                for line in md_lines:
+                    t.append(f"  {self._render_markdown_line(line)}\n")
+            else:
+                t.append("\n")
 
         elif k == "tool":
             symbol = _tool_symbol(self._status)
@@ -335,6 +358,26 @@ class MessageItem(Static):
         if detail:
             self._detail = detail
         self._refresh()
+
+    # ── 流式 Markdown 行内渲染（参照 dsh-TUI StreamingMarkdown）──
+    @staticmethod
+    def _render_markdown_line(line: str) -> str:
+        """轻量 Markdown 行内渲染：**加粗** / `代码` / 列表 / 代码块 标记。
+
+        返回转义后的安全字符串（仍用 _escape 防止 markup 注入）。
+        流式渲染时每个 chunk 都走这里，不等全文到齐。
+        """
+        # 行内代码 `...`
+        line = _re.sub(r"`([^`]+)`", r"『\1』", line)
+        # 加粗 **...**
+        line = _re.sub(r"\*\*(.+?)\*\*", r"【\1】", line)
+        # 斜体 *...*（非 **）
+        line = _re.sub(r"(?<!\*)\*([^*]+)\*(?!\*)", r"⟨\1⟩", line)
+        # 列表标记
+        line = _re.sub(r"^(\s*)-\s", r"\1· ", line)
+        line = _re.sub(r"^(\s*)\*\s", r"\1· ", line)
+        # 转义剩余 Rich markup 特殊字符
+        return _escape(line)
 
 
 # ── 面板：消息流 ──────────────────────────────────────────────────
