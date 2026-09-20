@@ -450,6 +450,9 @@ class ForgeTuiApp(App):
         self._stream_item: MessageItem | None = None
         self._stream_buf: str = ""
         self._last_tool_item: MessageItem | None = None
+        # 标记本轮 run 中 assistant_delta 是否已渲染过流式内容；
+        # 若为 True，_render_result 不再重复 add_assistant（避免同一回答出现两次）
+        self._streamed_this_turn: bool = False
         # 工具分组：每轮 turn 开始时清零，run 过程中按 activity 累积
         self._tool_group: "ToolGroup" | None = None
         # 后端 activity 行 → 显示状态（tool.started 时建，tool.completed/failed 时定终态）
@@ -749,6 +752,7 @@ class ForgeTuiApp(App):
         self._stream_buf = ""
         self._stream_item = None
         self._last_tool_item = None
+        self._streamed_this_turn = False
         # 新一轮 turn 开始：重置工具分组状态
         self._tool_group = None
         self._tool_rows.clear()
@@ -957,6 +961,7 @@ class ForgeTuiApp(App):
                     if self._stream_item is None:
                         self._stream_item = msglog.stream_start()
                     msglog.stream_chunk(delta)
+                    self._streamed_this_turn = True
 
             elif channel == "activity":
                 etype = str(payload.get("type") or "")
@@ -1054,7 +1059,8 @@ class ForgeTuiApp(App):
                 elif etype == "assistant.reply":
                     content = str(meta.get("content") or "")
                     kind = str(meta.get("kind") or "")
-                    if content and self._stream_item is None:
+                    # 若本轮已流式渲染过，跳过（_render_result 会处理）
+                    if content and self._stream_item is None and not self._streamed_this_turn:
                         msglog.add_assistant(content, title=kind)
 
         except (NoScreen, NoActiveAppError, MountError):
@@ -1082,7 +1088,15 @@ class ForgeTuiApp(App):
             content = _clean_display_text(reply.content or "")
             kind_label = _KIND_LABELS.get(reply.kind, reply.kind)
             if content:
-                msglog.add_assistant(content, title=kind_label)
+                # 若本轮已流式渲染过内容，跳过重复的 add_assistant
+                # （stream_end 已经把完整内容写进 _stream_item，
+                #  再 add 一次会导致同一回答显示两次）
+                if not self._streamed_this_turn:
+                    msglog.add_assistant(content, title=kind_label)
+                else:
+                    # 流式渲染过但没有 title 元数据时，补一条标注
+                    if kind_label:
+                        msglog.add_meta(f"FORGE · {kind_label}")
             else:
                 msglog.add_meta(f"✓ 完成 · {kind_label}")
             if reply.summary:
@@ -1094,7 +1108,8 @@ class ForgeTuiApp(App):
         elif reply:
             text = str(reply)
             if text.strip():
-                msglog.add_assistant(text)
+                if not self._streamed_this_turn:
+                    msglog.add_assistant(text)
 
         error_text = str(getattr(result, "error", "") or "").strip()
         if getattr(result, "ok", True) is False or error_text:

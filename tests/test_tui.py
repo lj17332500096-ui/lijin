@@ -1049,3 +1049,55 @@ def test_model_picker_toggle_action():
             assert app._model_picker_visible is False
 
     asyncio.run(_run())
+
+
+def test_streamed_content_not_duplicated_in_render_result():
+    """同一轮 run 中流式渲染过的内容不应在 _render_result 里重复追加。
+
+    场景：
+    1. assistant_delta 事件把 "hello world" 流式渲染进 _stream_item
+    2. run.completed 事件调用 stream_end()，_stream_item = None
+    3. _render_result 里 coerce_reply 返回同样的 content
+    4. 修复前：add_assistant 再追加一条 → 同一回答显示两次
+    5. 修复后：_streamed_this_turn=True → 跳过 add_assistant
+
+    验证：_streamed_this_turn 在 assistant_delta 后为 True，
+    在 _submit_text 重置后为 False。
+    """
+    async def _run():
+        app = ForgeTuiApp(session_name="stream_dedup")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            panels = app.query_one(TuiPanels)
+            msglog = panels.msglog
+
+            # 重置（模拟新 turn 开始）
+            app._streamed_this_turn = False
+
+            # 模拟 assistant_delta 事件（通过 _on_tui_event）
+            app._on_tui_event("assistant_delta", {"metadata": {"delta": "hello world"}})
+            assert app._streamed_this_turn is True
+            # 确认流式 item 确实被创建
+            assert app._stream_item is not None
+
+            # 模拟 run.completed（强制 flush + 清 stream_item）
+            app._on_tui_event("activity", {"type": "run.completed", "activity_id": "x", "metadata": {}})
+            assert app._stream_item is None
+            # _streamed_this_turn 保持 True（标记本轮已流式渲染）
+
+            # 验证：streamed item 在 msglog 里
+            items = msglog._items
+            assistant_items = [
+                it for it in items
+                if isinstance(it, MessageItem) and it._kind == "assistant"
+            ]
+            # 流式渲染产生一条 assistant item（stream_start 创建的）
+            assert len(assistant_items) == 1, f"期望 1 条流式 assistant item，实际 {len(assistant_items)}"
+
+            # 模拟下一轮 _submit_text 重置标记
+            app._stream_buf = ""
+            app._stream_item = None
+            app._streamed_this_turn = False
+            assert app._streamed_this_turn is False
+
+    asyncio.run(_run())
