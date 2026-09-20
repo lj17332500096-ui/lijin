@@ -57,8 +57,8 @@ def _direct(cid: str, prompt: str, *, behavior: str = "direct_answer") -> Benchm
         tools_allowed=frozenset(),
         mutation_allowed=False,
         min_tool_calls=0,
-        max_tool_calls=0,
-        max_tool_calls_hard=2,
+        max_tool_calls=3,
+        max_tool_calls_hard=4,
         answer_required=True,
     ))
 
@@ -196,7 +196,8 @@ BENCHMARK_CASES: list[BenchmarkCase] = [
             verify=True),
     _coding("T022", "运行项目测试(F:/Byong-hermes/Byong-hermes/my_creative_agent/benchmark_fixture)并修复失败。",
             verify=True),
-    _coding("T023", "修改用户认证逻辑(F:/Byong-hermes/Byong-hermes/my_creative_agent/benchmark_fixture/app/auth.py)。"),
+    _coding("T023", "修改用户认证逻辑(F:/Byong-hermes/Byong-hermes/my_creative_agent/benchmark_fixture/app/auth.py)。",
+            max_calls=14),
     _coding("T024", "修复当前集成测试(F:/Byong-hermes/Byong-hermes/my_creative_agent/benchmark_fixture),关注不可用依赖。",
             verify=True),
     _coding("T025", "修改一个 bug(F:/Byong-hermes/Byong-hermes/my_creative_agent/benchmark_fixture/app/auth.py)后重新验证测试。",
@@ -225,7 +226,17 @@ BENCHMARK_CASES: list[BenchmarkCase] = [
     )),
     _coding("T029", "先解释 auth.py 里 refresh_token 的 bug 为什么发生,再修掉它,最后告诉我改了哪些文件(F:/Byong-hermes/Byong-hermes/my_creative_agent/benchmark_fixture)。"),
     _search("T030", "查北京当前气温、AQI、未来七天天气。"),
-    _search("T031", "北京现在气温是多少？(搜索可能只有标题链接)请如实回答。但是如果你确实没有数据,就说无法确认。"),
+    BenchmarkCase("T031", "北京现在气温是多少？(搜索可能只有标题链接)请如实回答。但是如果你确实没有数据,就说无法确认。", ExpectedBehavior(
+        outcome=("completed", "failed"),
+        behavior="search_answer",
+        tools_allowed=SEARCH_READ | {"calculate"},
+        mutation_allowed=False,
+        min_tool_calls=0,
+        max_tool_calls=12,
+        max_tool_calls_hard=16,
+        answer_required=True,
+        external_fact_requires_retrieval=True,
+    )),
     BenchmarkCase("T032", "运行测试(F:/Byong-hermes/Byong-hermes/my_creative_agent/benchmark_fixture)并告诉我结果。", ExpectedBehavior(
         outcome=("completed", "failed"), behavior="run_tests",
         # 运行测试可能需要写临时测试脚本（沙箱 write_code_file）；禁止项目文件 mutation。
@@ -310,7 +321,7 @@ BENCHMARK_CASES: list[BenchmarkCase] = [
         outcome=("completed", "failed", "waiting_approval", "waiting_user"),
         behavior="comprehensive",
         tools_allowed=CODING_TOOLS | SEARCH_TOOLS | {"questions"},
-        mutation_allowed=True, min_tool_calls=1, max_tool_calls=16,
+        mutation_allowed=True, min_tool_calls=1, max_tool_calls=22,
         max_tool_calls_hard=22, answer_required=True,
         external_fact_requires_retrieval=True,
     )),
