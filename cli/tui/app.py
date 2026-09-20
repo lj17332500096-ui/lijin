@@ -40,12 +40,14 @@ from cli.tui.panels import (
     BG,
     BORDER,
     ERROR_C,
+    HistorySearchDialog,
     MessageItem,
     MessageLog,
     MUTED,
     PANEL,
     PRIMARY,
     SlashPopup,
+    Spinner,
     StatusHeader,
     SUCCESS,
     SURFACE,
@@ -53,6 +55,9 @@ from cli.tui.panels import (
     TuiPanels,
     TEXT_C,
     WARNING,
+    QuestionPanel,
+    ApprovalPanel,
+    SessionListPopup,
 )
 
 
@@ -243,6 +248,97 @@ class ForgeTuiApp(App):
         margin: 0 1;
         padding: 0 1;
     }}
+    /* ── Spinner（工具执行中动画）── */
+    Spinner {{
+        height: 1;
+        margin: 0 1;
+        padding: 0 1;
+        color: {MUTED};
+    }}
+    /* ── F1 历史搜索对话框 ── */
+    HistorySearchDialog {{
+        display: none;
+        height: auto;
+        background: {PANEL};
+        border: solid {BORDER};
+        margin: 0 1;
+        padding: 0 1;
+        max-height: 14;
+    }}
+    .hist-search-header {{
+        height: 1;
+        color: {MUTED};
+        padding: 0 1;
+    }}
+    .hist-search-input {{
+        height: 1;
+        margin: 0 1;
+    }}
+    .hist-search-body {{
+        padding: 0 1;
+        color: {TEXT_C};
+    }}
+    /* ── 提问面板 ── */
+    QuestionPanel {{
+        display: none;
+        height: auto;
+        background: {PANEL};
+        border: solid {BORDER};
+        margin: 0 1;
+        padding: 0 1;
+        max-height: 16;
+    }}
+    .question-header {{
+        height: 1;
+        color: {WARNING};
+        padding: 0 1;
+    }}
+    .question-body {{
+        padding: 0 1;
+        color: {TEXT_C};
+    }}
+    .question-input {{
+        height: 1;
+        margin: 0 1;
+    }}
+    /* ── 审批面板 ── */
+    ApprovalPanel {{
+        display: none;
+        height: auto;
+        background: {PANEL};
+        border: solid {BORDER};
+        margin: 0 1;
+        padding: 0 1;
+        max-height: 14;
+    }}
+    .approval-header {{
+        height: 1;
+        color: {ERROR_C};
+        padding: 0 1;
+    }}
+    .approval-body {{
+        padding: 0 1;
+        color: {TEXT_C};
+    }}
+    /* ── 会话列表 ── */
+    SessionListPopup {{
+        display: none;
+        height: auto;
+        background: {PANEL};
+        border: solid {BORDER};
+        margin: 0 1;
+        padding: 0 1;
+        max-height: 16;
+    }}
+    .session-list-header {{
+        height: 1;
+        color: {MUTED};
+        padding: 0 1;
+    }}
+    .session-list-body {{
+        padding: 0 1;
+        color: {TEXT_C};
+    }}
     """
 
     BINDINGS = [
@@ -250,12 +346,57 @@ class ForgeTuiApp(App):
         Binding("ctrl+l", "clear_log", "Clear"),
         Binding("ctrl+o", "show_inspector", "Inspector"),
         Binding("m", "toggle_model_picker", "Models", priority=True),
-        # F1 遍历历史（设计稿：按 f1 遍历历史）；Ctrl+F1 回退
-        Binding("f1", "history_prev", "History ↑"),
+        # F1 历史搜索对话框（可搜索，替代线性回看）
+        Binding("f1", "toggle_history_search", "Search History"),
+        # Ctrl+F1 保留为回退（向下）
         Binding("ctrl+f1", "history_next", "History ↓"),
+        # 会话列表
+        Binding("ctrl+s", "toggle_session_list", "Sessions"),
         # priority=True 覆盖 Screen 默认的 tab → app.focus_next
         Binding("tab", "complete_slash", "Tab complete", priority=True),
     ]
+
+    # ── F1 历史搜索对话框 ──────────────────────────────────────────
+    def action_toggle_history_search(self) -> None:
+        """F1：打开/关闭可搜索历史对话框。"""
+        hs = self._app_state.hist_search if self._app_state else None
+        if hs is None:
+            return
+        if hs.is_visible():
+            hs.hide()
+            self._bar().focus_input()
+            self._update_footer("idle")
+            return
+        # 构建带时间戳的历史（从 _history 提取，最近 50 条）
+        import time as _t
+        now = _t.time()
+        # _history 是纯字符串列表，没有时间戳，用近似：第 i 条 ≈ now - i*60s
+        entries = [
+            (self._history[i], now - (len(self._history) - 1 - i) * 60.0)
+            for i in range(len(self._history))
+        ]
+        hs.show(entries)
+        self._update_footer("hist_search")
+
+    def _on_hist_search_confirm(self) -> None:
+        """F1 搜索对话框确认：把选中的文本填入输入框。"""
+        hs = self._app_state.hist_search if self._app_state else None
+        if hs is None or not hs.is_visible():
+            return
+        text = hs.selected_text()
+        if text:
+            self._bar().input.value = text
+        hs.hide()
+        self._bar().focus_input()
+        self._update_footer("idle")
+
+    def _on_hist_search_cancel(self) -> None:
+        """F1 搜索对话框取消。"""
+        hs = self._app_state.hist_search if self._app_state else None
+        if hs is not None:
+            hs.hide()
+        self._bar().focus_input()
+        self._update_footer("idle")
 
     # F1 历史专用键：单独 action，不走 _on_key_press 的 slash/approval 优先级
     def action_history_prev(self) -> None:
@@ -383,8 +524,16 @@ class ForgeTuiApp(App):
         # 同步 header 宽度（默认 120 列宽屏）；size 在挂载前可能为 (0, 0)，安全读取
         width = self._app_state.msglog.size[0] or 120
         self._header().set_width(width)
+        # Spinner 80ms 动画定时器（参照 dsh-TUI SpinnerAnimationRow）
+        self._spinner_timer = self.set_interval(0.08, self._tick_spinner)
         self._banner()
         self._update_footer("idle")
+
+    def _tick_spinner(self) -> None:
+        """每 80ms 驱动 Spinner 动画帧推进。"""
+        spinner = self._app_state.spinner if self._app_state else None
+        if spinner is not None:
+            spinner.tick()
 
     def _banner(self) -> None:
         msglog = self._msglog()
@@ -534,7 +683,58 @@ class ForgeTuiApp(App):
     # ── 斜杠命令 ───────────────────────────────────────────────
     def _handle_command(self, text: str) -> None:
         self._msglog().add_user(f"/{text.lstrip('/')}")
+        # /sessions 命令 → 弹出会话列表 popup
+        if text.strip() in ("/sessions", "/session"):
+            self._show_session_list()
+            return
         self._run_async(self._dispatch_cmd(text))
+
+    def _show_session_list(self) -> None:
+        """/sessions 命令：拉取会话列表并弹出 SessionListPopup。"""
+        import time as _t
+        now = _t.time()
+        sl = self._app_state.session_list if self._app_state else None
+        if sl is None:
+            return
+        # 从 ChatApp 的 store 里取会话摘要（如果可用）
+        sessions: list[dict] = []
+        try:
+            chat = self._get_chat_app()
+            if hasattr(chat, "store") and hasattr(chat.store, "list_sessions"):
+                raw = chat.store.list_sessions()
+                for s in raw[:15]:
+                    sessions.append({
+                        "title": str(s.get("title") or s.get("name") or "会话"),
+                        "updated_at": str(s.get("updated_at") or "")[:16],
+                        "model": str(s.get("model") or ""),
+                        "status": "stopped",
+                        "current": (s.get("name") or s.get("title")) == self.session_name,
+                        "pinned": False,
+                    })
+        except Exception:
+            pass
+        # 兜底：至少把当前会话列进去
+        if not sessions:
+            sessions = [{
+                "title": self.session_name,
+                "updated_at": "",
+                "model": "",
+                "status": "idle",
+                "current": True,
+                "pinned": False,
+            }]
+        sl.show(sessions)
+        self._update_footer("idle")
+
+    def _on_session_select(self) -> None:
+        """会话列表选中后回调（当前最小版：只记录，不做切换）。"""
+        sl = self._app_state.session_list if self._app_state else None
+        if sl is not None and sl.is_visible():
+            sel = sl.selected_session()
+            if sel:
+                self._msglog().add_meta(f"→ 选中会话: {sel.get('title', '?')}")
+            sl.hide()
+            self._bar().focus_input()
 
     async def _dispatch_cmd(self, text: str) -> None:
         chat = self._get_chat_app()
@@ -772,6 +972,11 @@ class ForgeTuiApp(App):
                     self._tool_rows[aid] = (label, label, "running", None)
                     self._tool_started_at[aid] = _time.monotonic()
                     self._tool_group.add_tool(label, detail="", status="running")
+                    # Spinner：工具开始执行时点亮动画
+                    spinner = self._app_state.spinner if self._app_state else None
+                    if spinner is not None:
+                        spinner.start(f"正在执行 {label}…")
+                        spinner.display = True
 
                 elif etype in ("tool.completed", "tool.failed"):
                     if not aid:
@@ -790,6 +995,12 @@ class ForgeTuiApp(App):
                         self._tool_group.add_tool(
                             label, detail="", status=status, elapsed=elapsed,
                         )
+                    # 没有更多 running 工具时熄灭 Spinner
+                    if not any(r[2] == "running" for r in self._tool_rows.values()):
+                        spinner = self._app_state.spinner if self._app_state else None
+                        if spinner is not None:
+                            spinner.stop()
+                            spinner.display = False
 
                 elif etype in ("run.completed", "run.failed", "run.cancelled"):
                     # 强制 flush 流式 buffer，把当前工具分组折叠成一行
@@ -800,6 +1011,11 @@ class ForgeTuiApp(App):
                         self._tool_group.collapse()
                         self._tool_group = None
                     self._tool_rows.clear()
+                    # 熄灭 Spinner
+                    spinner = self._app_state.spinner if self._app_state else None
+                    if spinner is not None:
+                        spinner.stop()
+                        spinner.display = False
 
             elif channel == "control":
                 etype = str(payload.get("type") or "")
@@ -962,11 +1178,7 @@ class ForgeTuiApp(App):
         self.action_toggle_model_picker()
 
     def key_f1(self) -> None:
-        """F1：设计稿"遍历历史"——把当前会话里所有历史输入快速翻一遍。
-
-        实现：从最后一条历史开始，按 F1 每次往前一条；按 Ctrl+F1 回退（往下）。
-        语义与 ↑↓ 一致，但 F1 是设计稿指定的专用键（终端里 ↑↓ 被系统抢键）。
-        """
+        """F1：打开可搜索历史对话框（参照 dsh-TUI HistorySearchDialog）。"""
         self._on_key_press("f1")
 
     def key_ctrl_f1(self) -> None:
@@ -974,12 +1186,29 @@ class ForgeTuiApp(App):
         self._on_key_press("ctrl_f1")
 
     def _on_key_press(self, key: str) -> None:
-        """按键处理，优先级：model popup > slash popup > approval > history > running。"""
+        """按键处理，优先级：hist search > model popup > slash popup > approval > history > running。"""
         input_focused = (
             self._bar().input is not None
             and self._bar().input.has_focus
         )
         popup = self._popup()
+        hs = self._app_state.hist_search if self._app_state else None
+
+        # -1. 历史搜索对话框打开时：↑↓/Enter/Esc 全部交给对话框
+        if hs is not None and hs.is_visible():
+            if key == "f1":
+                hs.hide()
+                self._bar().focus_input()
+                self._update_footer("idle")
+            elif key == "down":
+                hs.select_next()
+            elif key == "up":
+                hs.select_prev()
+            elif key == "enter":
+                self._on_hist_search_confirm()
+            elif key == "escape":
+                self._on_hist_search_cancel()
+            return
 
         # 0. Model popup 打开时：↑↓/Esc 全部交给 popup
         model_popup = self._model_popup()
@@ -991,6 +1220,20 @@ class ForgeTuiApp(App):
             elif key == "escape":
                 model_popup.hide()
                 self._model_picker_visible = False
+                self._bar().focus_input()
+            return
+
+        # 0.5 会话列表打开时：↑↓/Enter/Esc 全部交给会话列表
+        sl = self._app_state.session_list if self._app_state else None
+        if sl is not None and sl.is_visible():
+            if key == "down":
+                sl.select_next()
+            elif key == "up":
+                sl.select_prev()
+            elif key == "enter":
+                self._on_session_select()
+            elif key == "escape":
+                sl.hide()
                 self._bar().focus_input()
             return
 
@@ -1073,17 +1316,18 @@ class ForgeTuiApp(App):
 
     # ── Footer（上下文感知）────────────────────────────────────
     def _update_footer(self, mode: str) -> None:
-        """切换底部上下文提示：idle / running / approval / slash。
+        """切换底部上下文提示：idle / running / approval / slash / hist_search。
 
         挂载前调用只记录 mode，挂载后会立刻补一次（见 on_mount），
         保证任何时序下提示都不会停留在空串。
         """
         self._footer_mode = mode
         hints = {
-            "idle": "/ commands   ↑↓ history   Ctrl+L clear   Ctrl+Q quit",
+            "idle": "/ commands   F1 search   Ctrl+S sessions   m model   Ctrl+Q quit",
             "running": "Esc interrupt   Ctrl+Q quit",
             "approval": "Y approve   N reject   D details",
             "slash": "↑↓ select   Tab complete   Enter run   Esc close",
+            "hist_search": "↑↓ select   Enter fill   F1/Esc close",
         }
         hint = hints.get(mode, hints["idle"])
         label = self._hint_label

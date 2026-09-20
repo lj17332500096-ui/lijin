@@ -826,7 +826,7 @@ def test_hint_line_renders_in_screen():
             await pilot.pause()
             await pilot.pause()
             rows = _screen_rows(app)
-            hit = [r for r in rows if "commands" in r and "↑↓" in r]
+            hit = [r for r in rows if "commands" in r and "F1" in r]
             assert hit, f"屏幕上找不到 idle 提示行；底部 4 行={rows[-4:]}"
             hint = app.query_one(TuiPanels).bar.hint
             assert hint.region.width <= app.screen.region.width

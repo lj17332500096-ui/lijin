@@ -13,9 +13,11 @@ Textual 8.2.8 已知约束（设计基准）：
 
 from __future__ import annotations
 
+import re as _re
 import time as _time
 
 from rich.text import Text
+from rich.markdown import Markdown as _RichMarkdown
 from textual._context import NoActiveAppError
 from textual.app import ComposeResult, NoScreen
 from textual.containers import Vertical, VerticalScroll
@@ -590,15 +592,25 @@ class ModelPicker(Static):
 
 
 class ModelPopup(Vertical, can_focus=False):
-    """模型选择 popup：列可用模型，选中后回调。
+    """模型选择 popup（两级下钻，参照 dsh-TUI modelGroups.ts）。
 
-    键盘：↑↓ 切换、Enter 确认、Esc 取消。
+    两级设计（参照 dsh-TUI ModelPicker）：
+    - 顶层：列 provider 组（gateway / local），每组显示模型数
+    - 第二层：钻入该 provider 的模型列表，Enter 切换
+    - 单 provider 时跳过顶层（快路径，showBack=False）
+
+    键盘：↑↓ 切换、Enter 确认/钻入、Esc 取消/返回、Backspace 返回。
     """
 
     def __init__(self, on_select: "callable | None" = None) -> None:
         super().__init__()
         self._on_select = on_select
+        # 全量模型：(model_id, source)
         self._models: list[tuple[str, str]] = []
+        # 两级状态
+        self._level: int = 0  # 0=顶层(provider组), 1=第二层(模型列表)
+        self._groups: list[tuple[str, int]] = []  # (source, count) 顶层行
+        self._current_group: str = ""  # 钻入的 provider
         self._selected: int = 0
         self._body = Static(self._build_text(), classes="model-popup-body")
         self._body.display = True
@@ -610,10 +622,25 @@ class ModelPopup(Vertical, can_focus=False):
         yield self._body
 
     def show(self, models: list[tuple[str, str]], current: str) -> None:
-        self._models = models
-        self._selected = next(
-            (i for i, (mid, _) in enumerate(models) if mid == current), 0
-        )
+        self._models = list(models)
+        # 构建 provider 组（首现顺序，参照 dsh-TUI deriveModelGroups）
+        order: list[str] = []
+        counts: dict[str, int] = {}
+        for mid, source in self._models:
+            if source not in counts:
+                order.append(source)
+                counts[source] = 0
+            counts[source] += 1
+        self._groups = [(s, counts[s]) for s in order]
+        self._level = 0
+        self._current_group = ""
+        self._selected = 0
+        # 单 provider 快路径：跳过顶层直接进第二层
+        if len(self._groups) <= 1:
+            self._level = 1
+            self._current_group = self._groups[0][0] if self._groups else "unknown"
+        # 定位当前模型
+        self._locate_current(current)
         # 用 CSS 类覆盖默认 display:none；Textual 的 inline style 优先级低
         try:
             self.styles.display = "block"
@@ -621,10 +648,32 @@ class ModelPopup(Vertical, can_focus=False):
         except (NoScreen, NoActiveAppError):
             pass
         self._body.update(self._build_text())
+        self._header.update(self._build_header())
         self._body.focus()
+
+    def _locate_current(self, current: str) -> None:
+        """根据当前模型定位选区。"""
+        if self._level == 0:
+            # 顶层：选中当前模型所属的 provider 组
+            for i, (mid, source) in enumerate(self._models):
+                if mid == current:
+                    for j, (gs, _) in enumerate(self._groups):
+                        if gs == source:
+                            self._selected = j
+                            break
+                    break
+        else:
+            # 第二层：选中当前模型
+            for i, (mid, source) in enumerate(self._models):
+                if mid == current:
+                    self._selected = i
+                    break
 
     def hide(self) -> None:
         self._models = []
+        self._groups = []
+        self._level = 0
+        self._current_group = ""
         try:
             self.styles.display = "none"
             self.refresh()
@@ -637,40 +686,103 @@ class ModelPopup(Vertical, can_focus=False):
         except (NoScreen, NoActiveAppError):
             return False
 
+    # ── 键盘操作 ────────────────────────────────────────────
     def select_next(self) -> None:
-        if self._models:
-            self._selected = (self._selected + 1) % len(self._models)
-            self._body.update(self._build_text())
+        if self._level == 0:
+            if self._groups:
+                self._selected = (self._selected + 1) % len(self._groups)
+                self._body.update(self._build_text())
+        else:
+            models = self._group_models()
+            if models:
+                self._selected = (self._selected + 1) % len(models)
+                self._body.update(self._build_text())
 
     def select_prev(self) -> None:
-        if self._models:
-            self._selected = (self._selected - 1) % len(self._models)
-            self._body.update(self._build_text())
+        if self._level == 0:
+            if self._groups:
+                self._selected = (self._selected - 1) % len(self._groups)
+                self._body.update(self._build_text())
+        else:
+            models = self._group_models()
+            if models:
+                self._selected = (self._selected - 1) % len(models)
+                self._body.update(self._build_text())
 
     def confirm(self) -> None:
-        if not self._models:
-            return
-        mid, source = self._models[self._selected]
-        self.hide()
-        if self._on_select is not None:
-            self._on_select(mid, source)
+        if self._level == 0:
+            # 顶层：钻入选中的 provider 组
+            if self._groups:
+                self._current_group = self._groups[self._selected][0]
+                self._level = 1
+                self._selected = 0
+                models = self._group_models()
+                # 定位当前模型（若有）
+                cur = next((m for m, s in self._models if s == self._current_group), None)
+                if cur:
+                    self._selected = next(
+                        (i for i, (mid, s) in enumerate(self._models)
+                         if mid == cur and s == self._current_group), 0
+                    )
+                self._body.update(self._build_text())
+                self._header.update(self._build_header())
+        else:
+            # 第二层：选中模型，回调
+            models = self._group_models()
+            if models:
+                mid, source = models[self._selected]
+                self.hide()
+                if self._on_select is not None:
+                    self._on_select(mid, source)
+
+    def go_back(self) -> None:
+        """从第二层返回顶层（Backspace）。"""
+        if self._level == 1 and len(self._groups) > 1:
+            self._level = 0
+            self._current_group = ""
+            self._selected = 0
+            self._body.update(self._build_text())
+            self._header.update(self._build_header())
 
     def cancel(self) -> None:
         self.hide()
+
+    def _group_models(self) -> list[tuple[str, str]]:
+        """当前 provider 组的模型列表。"""
+        return [(mid, src) for mid, src in self._models if src == self._current_group]
+
+    def _build_header(self) -> str:
+        if self._level == 0:
+            return "选择模型  （↑↓ 选组 / Enter 钻入 / Esc 取消）"
+        multi = "  ·  Backspace 返回" if len(self._groups) > 1 else ""
+        return f"模型 [{self._current_group}]{multi}  （↑↓ 选 / Enter 切换）"
 
     def _build_text(self) -> Text:
         if not self._models:
             return Text("(未加载模型，按 m 重新拉取)", style=MUTED)
         t = Text()
-        for i, (mid, source) in enumerate(self._models):
-            marker = "●" if i == self._selected else " "
-            color = PRIMARY if i == self._selected else TEXT_C
-            tag = {"gateway": "[网关]", "local": "[本地]"}.get(source, "")
-            t.append(f"{marker} {mid:<32} ", style=f"bold {color}")
-            if tag:
-                t.append(tag, style=MUTED)
-            if i < len(self._models) - 1:
-                t.append("\n")
+        if self._level == 0:
+            # 顶层：provider 组
+            for i, (source, count) in enumerate(self._groups):
+                marker = "●" if i == self._selected else " "
+                color = PRIMARY if i == self._selected else TEXT_C
+                label = {"gateway": "网关", "local": "本地"}.get(source, source)
+                t.append(f"{marker} {label}", style=f"bold {color}")
+                t.append(f"  · {count} 个模型", style=MUTED)
+                if i < len(self._groups) - 1:
+                    t.append("\n")
+        else:
+            # 第二层：模型列表
+            models = self._group_models()
+            for i, (mid, source) in enumerate(models):
+                marker = "●" if i == self._selected else " "
+                color = PRIMARY if i == self._selected else TEXT_C
+                tag = {"gateway": "[网关]", "local": "[本地]"}.get(source, "")
+                t.append(f"{marker} {mid:<32} ", style=f"bold {color}")
+                if tag:
+                    t.append(tag, style=MUTED)
+                if i < len(models) - 1:
+                    t.append("\n")
         return t
 
 
@@ -752,13 +864,548 @@ class SlashPopup(Static):
         return self._text
 
 
+# ── 面板：F1 历史搜索对话框（参照 dsh-TUI HistorySearchDialog）────
+class HistorySearchDialog(Vertical, can_focus=False):
+    """F1 可搜索历史对话框。
+
+    参照 dsh-TUI 的 HistorySearchDialog：
+    - 搜索框（Input）实时过滤历史
+    - 列表行：● 选中 / 相对时间标签
+    - 键盘：↑↓ 选择、Enter 填入、Esc 关闭
+    - 默认显示最近 20 条；输入关键词后过滤
+    """
+
+    _MAX_VISIBLE = 20
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._history: list[tuple[str, float]] = []  # (text, timestamp)
+        self._query: str = ""
+        self._selected: int = 0
+        self._input: Input | None = None
+        self._body = Static(self._build_text(), classes="hist-search-body")
+        self._header = Static("⌕ 搜索历史  （↑↓ 选 / Enter 填入 / Esc 关闭）",
+                               classes="hist-search-header")
+        self.display = False  # 默认隐藏
+
+    def compose(self) -> ComposeResult:
+        yield self._header
+        self._input = Input(
+            placeholder="输入关键词过滤…",
+            classes="hist-search-input",
+        )
+        yield self._input
+        yield self._body
+
+    def set_history(self, history: list[tuple[str, float]]) -> None:
+        """注入历史条目（text, timestamp）。timestamp 为 epoch 秒。"""
+        self._history = list(history)
+        self._query = ""
+        self._selected = 0
+        self._refresh()
+
+    def show(self, history: list[tuple[str, float]]) -> None:
+        self.set_history(history)
+        self._query = ""
+        self._selected = 0
+        if self._input:
+            self._input.value = ""
+        self.display = True
+        self._refresh()
+        if self._input:
+            self._input.focus()
+
+    def hide(self) -> None:
+        self.display = False
+        self._query = ""
+
+    def is_visible(self) -> bool:
+        return self.display
+
+    def on_input_changed(self, event) -> None:
+        """搜索框输入变化时实时过滤。"""
+        self._query = (event.value or "").lower().strip()
+        self._selected = 0
+        self._refresh()
+
+    def select_next(self) -> None:
+        n = len(self._filtered())
+        if n:
+            self._selected = (self._selected + 1) % n
+            self._refresh()
+
+    def select_prev(self) -> None:
+        n = len(self._filtered())
+        if n:
+            self._selected = (self._selected - 1) % n
+            self._refresh()
+
+    def selected_text(self) -> str:
+        """当前选中条目的文本。"""
+        matches = self._filtered()
+        if not matches:
+            return ""
+        return matches[min(self._selected, len(matches) - 1)]
+
+    def _filtered(self) -> list[str]:
+        if not self._query:
+            return [text for text, _ in self._history[-self._MAX_VISIBLE:]]
+        return [text for text, _ in self._history if self._query in text.lower()]
+
+    @staticmethod
+    def _relative_age(ts: float) -> str:
+        """参照 dsh-TUI formatRelativeAge：now / Xm ago / Xh ago / Xd ago。"""
+        elapsed = _time.time() - ts
+        if elapsed < 60:
+            return "just now"
+        if elapsed < 3600:
+            return f"{int(elapsed // 60)}m ago"
+        if elapsed < 86400:
+            return f"{int(elapsed // 3600)}h ago"
+        return f"{int(elapsed // 86400)}d ago"
+
+    def _build_text(self) -> Text:
+        matches = self._filtered()
+        if not matches:
+            return Text("(无匹配)", style=MUTED)
+        # 新→旧排列
+        matches = list(reversed(matches))
+        t = Text()
+        for i, text in enumerate(matches):
+            marker = "●" if i == self._selected else " "
+            color = PRIMARY if i == self._selected else TEXT_C
+            # 取匹配文本（新→旧后，原始索引需映射）
+            ts = self._history[-1 - i][1] if (self._history and i < len(self._history)) else 0
+            age = self._relative_age(ts) if ts else ""
+            display = text if len(text) <= 50 else text[:47] + "…"
+            t.append(f"{marker} {_escape(display)}", style=color)
+            if age:
+                t.append(f"  {age}", style=MUTED)
+            t.append("\n")
+        return t
+
+    def _refresh(self) -> None:
+        try:
+            self._body.update(self._build_text())
+        except (NoScreen, NoActiveAppError):
+            pass
+
+
+# ── 面板：Spinner 动画（参照 dsh-TUI SpinnerAnimationRow）─────────
+class Spinner(Static):
+    """工具执行中的动画 spinner + 状态文案。
+
+    参照 dsh-TUI SpinnerAnimationRow：
+    - 动画字符序列：⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏（braille spinner）
+    - 每 80ms 换一帧
+    - 状态文案由 App 层驱动（"正在搜索…" / "正在读取…"）
+    - 固定 2 列槽位（保持文案对齐）
+    """
+
+    _FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
+
+    def __init__(self) -> None:
+        self._frame: int = 0
+        self._message: str = ""
+        self._active: bool = False
+        self._text = self._build_text()
+        super().__init__(self._text)
+
+    def set_message(self, msg: str) -> None:
+        self._message = msg
+        self._refresh()
+
+    def start(self, msg: str = "") -> None:
+        self._active = True
+        self._frame = 0
+        self._message = msg
+        self._refresh()
+
+    def stop(self) -> None:
+        self._active = False
+        self._refresh()
+
+    def tick(self) -> None:
+        """每帧调用（由 App 层 80ms 定时器驱动）。"""
+        if self._active:
+            self._frame += 1
+            self._refresh()
+
+    def _build_text(self) -> Text:
+        t = Text()
+        if self._active:
+            glyph = self._FRAMES[self._frame % len(self._FRAMES)]
+            t.append(f"{glyph} ", style=f"bold {PRIMARY}")
+            if self._message:
+                t.append(self._message, style=MUTED)
+        else:
+            t.append("● ", style=MUTED)
+            if self._message:
+                t.append(self._message, style=MUTED)
+        return t
+
+    def _refresh(self) -> None:
+        self._text = self._build_text()
+        try:
+            self.update(self._text)
+        except (NoScreen, NoActiveAppError):
+            pass
+
+    def render(self) -> Text:
+        return self._text
+
+
+# ── 面板：提问面板（参照 dsh-TUI AskUserQuestionPanel）───────────
+class QuestionPanel(Vertical, can_focus=False):
+    """模型通过 ask_user 工具弹出结构化提问面板。
+
+    参照 dsh-TUI AskUserQuestionPanel：
+    - 单选/多选选项列表 + 自由文本输入
+    - 键盘：↑↓ 选择、Enter 确认、输入文本补充
+    - 批量提问（多题顺序推进）
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._questions: list[dict] = []  # 每题: {question, options, multi_select, header}
+        self._current_q: int = 0
+        self._selected: list[str] = []  # 当前题选中的选项
+        self._custom_input: str = ""
+        self._input_widget: Input | None = None
+        self._body = Static("", classes="question-body")
+        self._header = Static("", classes="question-header")
+        self.display = False
+
+    def compose(self) -> ComposeResult:
+        yield self._header
+        yield self._body
+        self._input_widget = Input(placeholder="补充说明（可选）", classes="question-input")
+        yield self._input_widget
+
+    def show(self, questions: list[dict]) -> None:
+        """显示提问面板。questions: [{question, options, multi_select, header}]"""
+        self._questions = questions
+        self._current_q = 0
+        self._selected = []
+        self._custom_input = ""
+        if self._input_widget:
+            self._input_widget.value = ""
+        self.display = True
+        self._render_current()
+
+    def hide(self) -> None:
+        self.display = False
+        self._questions = []
+
+    def is_visible(self) -> bool:
+        return self.display
+
+    def _current_question(self) -> dict | None:
+        if 0 <= self._current_q < len(self._questions):
+            return self._questions[self._current_q]
+        return None
+
+    def _render_current(self) -> None:
+        q = self._current_question()
+        if q is None:
+            return
+        total = len(self._questions)
+        pos = self._current_q + 1
+        title = q.get("header", "问题")
+        self._header.update(f"◆ {title}  （{pos}/{total}）")
+
+        t = Text()
+        t.append(_escape(q.get("question", "")), style=TEXT_C)
+        t.append("\n\n")
+
+        options = q.get("options", [])
+        multi = q.get("multi_select", False)
+        if options:
+            for i, opt in enumerate(options):
+                label = str(opt.get("label", f"选项 {i+1}"))
+                desc = str(opt.get("description", ""))
+                checked = label in self._selected
+                symbol = "◉" if checked else "○"
+                color = SUCCESS if checked else TEXT_C
+                t.append(f"  {symbol} {label}", style=color)
+                if desc:
+                    t.append(f"  {_escape(desc)}", style=MUTED)
+                t.append("\n")
+            if multi:
+                t.append(f"  （多选：↑↓ 切换选中，Enter 确认）", style=MUTED)
+            else:
+                t.append(f"  （↑↓ 选择，Enter 确认）", style=MUTED)
+        else:
+            t.append("  （直接输入回答，Enter 确认）", style=MUTED)
+
+        try:
+            self._body.update(t)
+        except (NoScreen, NoActiveAppError):
+            pass
+
+    def select_next(self) -> None:
+        q = self._current_question()
+        if q and q.get("options"):
+            opts = [str(o.get("label", f"选项 {i+1}")) for i, o in enumerate(q["options"])]
+            if not q.get("multi_select"):
+                if self._selected:
+                    idx = opts.index(self._selected[0])
+                    self._selected = [opts[(idx + 1) % len(opts)]]
+                else:
+                    self._selected = [opts[0]]
+            else:
+                if self._selected:
+                    idx = opts.index(self._selected[0])
+                else:
+                    idx = -1
+                next_idx = (idx + 1) % len(opts)
+                self._selected = [opts[next_idx]]
+            self._render_current()
+
+    def select_prev(self) -> None:
+        q = self._current_question()
+        if q and q.get("options"):
+            opts = [str(o.get("label", f"选项 {i+1}")) for i, o in enumerate(q["options"])]
+            if self._selected:
+                idx = opts.index(self._selected[0])
+            else:
+                idx = 0
+            self._selected = [opts[(idx - 1) % len(opts)]]
+            self._render_current()
+
+    def confirm(self) -> list[str]:
+        """确认当前题，返回所有答案。多题时推进到下一题。"""
+        q = self._current_question()
+        if q is None:
+            return []
+        answer = self._selected[0] if self._selected else self._custom_input
+        if self._current_q < len(self._questions) - 1:
+            self._current_q += 1
+            self._selected = []
+            self._custom_input = ""
+            if self._input_widget:
+                self._input_widget.value = ""
+            self._render_current()
+        return [answer]
+
+    def get_all_answers(self) -> list[str]:
+        return [self._selected[0] if self._selected else self._custom_input
+                for _ in self._questions]
+
+
+# ── 面板：审批面板（参照 dsh-TUI ApprovalPanel）─────────────────
+class ApprovalPanel(Vertical, can_focus=False):
+    """审批面板：多条审批时显示为面板，支持批量操作。
+
+    参照 dsh-TUI ApprovalPanel：
+    - 单条审批：Yes/No 两行
+    - 多条审批：列出所有 + "全部批准" / "全部拒绝" 批量操作
+    - 键盘：↑↓ 选择、1/2 快捷、Enter 确认、Esc 拒绝
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._approvals: list[dict] = []
+        self._selected: int = 0
+        self._body = Static(self._build_text(), classes="approval-body")
+        self._header = Static("◆ APPROVAL REQUIRED", classes="approval-header")
+        self.display = False
+
+    def compose(self) -> ComposeResult:
+        yield self._header
+        yield self._body
+
+    def show(self, approvals: list[dict]) -> None:
+        """显示审批面板。approvals: [{label, description, tool}]"""
+        self._approvals = approvals
+        self._selected = 0
+        self.display = True
+        self._refresh()
+
+    def hide(self) -> None:
+        self.display = False
+        self._approvals = []
+
+    def is_visible(self) -> bool:
+        return self.display
+
+    def _refresh(self) -> None:
+        try:
+            self._body.update(self._build_text())
+        except (NoScreen, NoActiveAppError):
+            pass
+
+    def _build_text(self) -> Text:
+        t = Text()
+        if not self._approvals:
+            return Text("（无待审批项）", style=MUTED)
+
+        n = len(self._approvals)
+        for i, ap in enumerate(self._approvals):
+            label = str(ap.get("label") or ap.get("description") or f"item {i+1}")
+            desc = str(ap.get("description") or "")
+            tool = str(ap.get("tool") or "")
+            marker = "●" if i == self._selected else " "
+            color = PRIMARY if i == self._selected else TEXT_C
+            t.append(f"{marker} {i+1}. ", style=f"bold {color}")
+            t.append(_escape(label), style=f"bold {color}")
+            if tool:
+                t.append(f"  [{_escape(tool)}]", style=MUTED)
+            t.append("\n")
+            if desc:
+                t.append(f"    {_escape(desc)}\n", style=MUTED)
+
+        t.append("\n", style=MUTED)
+        if n > 1:
+            t.append("  ↑↓ 选择  ·  Y 批准选中  ·  N 拒绝选中  ·  A 全部批准  ·  R 全部拒绝\n", style=MUTED)
+        else:
+            t.append("  Y 批准  ·  N 拒绝  ·  Esc 取消\n", style=MUTED)
+        return t
+
+    def select_next(self) -> None:
+        if self._approvals:
+            self._selected = (self._selected + 1) % len(self._approvals)
+            self._refresh()
+
+    def select_prev(self) -> None:
+        if self._approvals:
+            self._selected = (self._selected - 1) % len(self._approvals)
+            self._refresh()
+
+    def selected_index(self) -> int:
+        return self._selected
+
+    def approve_selected(self) -> None:
+        """批准当前选中的审批项。"""
+        pass  # 由 App 层处理
+
+    def reject_selected(self) -> None:
+        """拒绝当前选中的审批项。"""
+        pass  # 由 App 层处理
+
+    def approve_all(self) -> None:
+        """批准所有审批项。"""
+        pass  # 由 App 层处理
+
+    def reject_all(self) -> None:
+        """拒绝所有审批项。"""
+        pass  # 由 App 层处理
+
+
+# ── 面板：会话列表（参照 dsh-TUI SessionListRow）────────────────
+class SessionListPopup(Vertical, can_focus=False):
+    """/session list 弹出的会话列表。
+
+    参照 dsh-TUI SessionListRow：
+    - 两行布局：标题行 + 元数据行
+    - 固定列宽：pin 2 列 + 状态 2 列 + 标题自适应
+    - 键盘：↑↓ 选择、Enter 恢复会话、Esc 关闭
+    """
+
+    _MAX_VISIBLE = 15
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._sessions: list[dict] = []
+        self._selected: int = 0
+        self._body = Static(self._build_text(), classes="session-list-body")
+        self._header = Static("◆ 会话列表  （↑↓ 选 / Enter 恢复 / Esc 关闭）",
+                               classes="session-list-header")
+        self.display = False
+
+    def compose(self) -> ComposeResult:
+        yield self._header
+        yield self._body
+
+    def show(self, sessions: list[dict]) -> None:
+        """显示会话列表。sessions: [{title, updated_at, model, status, current}]"""
+        self._sessions = sessions[:self._MAX_VISIBLE]
+        self._selected = 0
+        self.display = True
+        self._refresh()
+
+    def hide(self) -> None:
+        self.display = False
+
+    def is_visible(self) -> bool:
+        return self.display
+
+    def select_next(self) -> None:
+        if self._sessions:
+            self._selected = (self._selected + 1) % len(self._sessions)
+            self._refresh()
+
+    def select_prev(self) -> None:
+        if self._sessions:
+            self._selected = (self._selected - 1) % len(self._sessions)
+            self._refresh()
+
+    def selected_session(self) -> dict | None:
+        if 0 <= self._selected < len(self._sessions):
+            return self._sessions[self._selected]
+        return None
+
+    @staticmethod
+    def _status_glyph(status: str) -> tuple[str, str]:
+        return {
+            "working": ("✽", WARNING),
+            "completed": ("✓", SUCCESS),
+            "failed": ("✕", ERROR_C),
+            "idle": ("∙", MUTED),
+            "stopped": ("∙", MUTED),
+        }.get(status, ("∙", MUTED))
+
+    def _build_text(self) -> Text:
+        if not self._sessions:
+            return Text("（无会话）", style=MUTED)
+        t = Text()
+        for i, s in enumerate(self._sessions):
+            title = s.get("title", "")[:40]
+            updated = s.get("updated_at", "")
+            model = s.get("model", "")
+            status = s.get("status", "stopped")
+            current = s.get("current", False)
+            pinned = s.get("pinned", False)
+
+            pin_mark = "★" if pinned else "☆"
+            glyph, color = self._status_glyph(status)
+
+            marker = "●" if i == self._selected else " "
+            sel_color = PRIMARY if i == self._selected else TEXT_C
+
+            # 行 1：pin + 状态 + 标题
+            t.append(f"  {marker} {pin_mark} {glyph} ", style=color)
+            t.append(_escape(title), style=f"bold {sel_color}")
+            if current:
+                t.append("  [当前]", style=SUCCESS)
+            t.append("\n")
+            # 行 2：元数据
+            facts = []
+            if updated:
+                facts.append(updated)
+            if model:
+                facts.append(model)
+            if facts:
+                t.append(f"  {'  ·  '.join(_escape(f) for f in facts)}\n", style=MUTED)
+        return t
+
+    def _refresh(self) -> None:
+        try:
+            self._body.update(self._build_text())
+        except (NoScreen, NoActiveAppError):
+            pass
+
+
 # ── 主 App 容器 ───────────────────────────────────────────────────
 class TuiPanels(Vertical, can_focus=False):
-    """四行布局：StatusHeader / MessageLog / ModelPicker 行 / InputBar。
+    """五层布局：StatusHeader / MessageLog / Spinner / ModelPicker+Popup / InputBar。
 
-    ModelPicker 行把 `agnes-2.5-flash ▾` 放在 MessageLog 和 InputBar 之间，
-    设计稿把它画在输入栏右侧 —— 终端里独立占一行更易点选，布局不冲突。
-    隐藏时 display:none，不占高度（由 App 层控制显隐）。
+    新增：
+    - Spinner：工具执行中动画状态行（默认隐藏）
+    - HistorySearchDialog：F1 可搜索历史对话框（默认隐藏）
+    - QuestionPanel：ask_user 提问面板（默认隐藏）
+    - ApprovalPanel：批量审批面板（默认隐藏）
+    - SessionListPopup：/session list 会话列表（默认隐藏）
     """
 
     def __init__(self, session_name: str = "personal",
@@ -766,16 +1413,31 @@ class TuiPanels(Vertical, can_focus=False):
         super().__init__()
         self.header = StatusHeader(session_name)
         self.msglog = MessageLog()
+        self.spinner = Spinner()
         self.model_picker = ModelPicker(current_model)
         self.model_popup = ModelPopup()
+        self.hist_search = HistorySearchDialog()
+        self.question_panel = QuestionPanel()
+        self.approval_panel = ApprovalPanel()
+        self.session_list = SessionListPopup()
         self.bar = InputBar()
         self.model_picker.attach_popup(self.model_popup)
-        # 模型 popup 默认隐藏；App 层按 "m" 键显示
+        # 所有 popup 默认隐藏
         self.model_popup.display = False
+        self.spinner.display = False
+        self.hist_search.display = False
+        self.question_panel.display = False
+        self.approval_panel.display = False
+        self.session_list.display = False
 
     def compose(self) -> ComposeResult:
         yield self.header
         yield self.msglog
+        yield self.spinner
         yield self.model_picker
         yield self.model_popup
+        yield self.hist_search
+        yield self.question_panel
+        yield self.approval_panel
+        yield self.session_list
         yield self.bar
