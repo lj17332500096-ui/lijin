@@ -159,6 +159,22 @@ class RunContext:
         self.tool_execution_counts[name] = self.tool_execution_counts.get(name, 0) + 1
         return True, None
 
+    def budget_block_key(self, name: str) -> str | None:
+        """预算拒发（can_execute_tool 返回 False 的场景）对应的"同因拦截"计数键。
+
+        2026-09-20 P0-2（H1 修复）：超限/TERMINALIZE 后的调用仍被继续受理，
+        模型在拒绝提示下反复打同一工具（T046 实测 29 次 web_search 其中 24 次被拒），
+        纯拒绝段烧掉上百秒回合。调用方对每个预算拒发调用 `note_blocked_reason(key)`，
+        返回 ≥2 时应 break 工具循环进终态收口（见 runner 预算分支）。
+        """
+        total = sum(self.tool_execution_counts.values())
+        if total >= self.max_total_tool_executions:
+            return f"TOOL_BUDGET_TOTAL_EXCEEDED:{total}"
+        cap = self.per_tool_budget(name)
+        if cap is not None and self.tool_execution_counts.get(name, 0) >= cap:
+            return f"TOOL_BUDGET_PER_TOOL_EXCEEDED:{name}:{cap}"
+        return None
+
     def note_executed(self, name: str) -> None:
         """兼容旧调用：预算已在 can_execute_tool 预留，这里不再重复计数。"""
         return None

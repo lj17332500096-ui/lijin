@@ -45,20 +45,35 @@ def _mask_secrets(text: str) -> str:
 
 
 def _log_guardrail_failure(output: object, reason: str) -> None:
-    """拦截失败时把原始输出样本落盘（logs/guardrail_failures.jsonl），便于排查格式问题。"""
+    """拦截失败时把原始输出样本落盘（logs/guardrail_failures.jsonl），便于排查格式问题。
+
+    日志通道隔离（2026-09-20 P0-1）：生产日志必须只反映真实会话。
+    评测/测试桩数据（如 test_guardrails 的密钥桩、benchmark 回放）会经过同一条
+    check_output 落盘，把生产日志灌成 42 条相同样本，污染归因分析。
+    因此：带 FORGE_EVAL_MODE / FORGE_TEST_MODE 标记的进程写独立文件；
+    且 reason=="E-FINAL-EMPTY"（收口空回答）在测试/评测进程不单独记——
+    这类样本由 benchmark 的 report_*.json 完整保留，重复落盘无信息量。
+    """
     try:
         raw = output if isinstance(output, str) else json.dumps(output, ensure_ascii=False)
     except Exception:
         raw = str(output)
     snippet = _mask_secrets(raw)[:2000]
+    eval_mode = os.environ.get("FORGE_EVAL_MODE") == "1"
+    test_mode = os.environ.get("FORGE_TEST_MODE") == "1"
+    if eval_mode and "FINAL-EMPTY" in reason:
+        return  # 评测回放的空回答样本不写日志（benchmark 报告已留存）
     _LOG_DIR.mkdir(parents=True, exist_ok=True)
     record = {
         "time": datetime.now().isoformat(timespec="seconds"),
         "reason_head": reason[:200],
         "output_len": len(raw),
         "output_sample": snippet,
+        "source": "eval" if eval_mode else ("test" if test_mode else "prod"),
     }
-    with (_LOG_DIR / "guardrail_failures.jsonl").open("a", encoding="utf-8") as fh:
+    fname = "guardrail_failures.eval.jsonl" if eval_mode else (
+        "guardrail_failures.test.jsonl" if test_mode else "guardrail_failures.jsonl")
+    with (_LOG_DIR / fname).open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 

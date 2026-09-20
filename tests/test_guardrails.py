@@ -1,4 +1,5 @@
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -6,6 +7,10 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+
+# 测试桩数据不写生产日志通道（P0-1 日志隔离）：
+# guardrails._log_guardrail_failure 依 FORGE_TEST_MODE=1 分流到 guardrail_failures.test.jsonl
+os.environ.setdefault("FORGE_TEST_MODE", "1")
 
 from guardrails import check_output, scan_input
 

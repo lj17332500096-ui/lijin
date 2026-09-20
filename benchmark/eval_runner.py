@@ -287,6 +287,23 @@ def _apply_fixed_tools(fixed: bool) -> bool:
         return bool(fixed)
 
 
+def _pin_workspace_root() -> str:
+    """P1-1：把 WORKSPACE_ROOT 钉到项目根，让 benchmark_fixture 落入工作区子树。
+
+    根因：生产 WORKSPACE_ROOT 默认 = 项目根的父目录（`F:\\Byong-hermes\\Byong-hermes`），
+    而 fixture 在 `my_creative_agent\\benchmark_fixture` 下。case 文本里的
+    绝对路径（`F:/Byong-hermes/Byong-hermes/my_creative_agent/benchmark_fixture/app`）
+    相对**父目录**的 WORKSPACE_ROOT 是合法的，但模型被派发到的工具上下文根
+    是**项目根**，于是首调越界 → "只能查看工作区…内的目录" → 模型盲翻触发死循环。
+
+    评测时把 WORKSPACE_ROOT 显式钉到项目根，fixture 就落在子树内，
+    首调直接命中真实目录，消除 ① 死循环的触发链。
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    os.environ["WORKSPACE_ROOT"] = str(project_root)
+    return str(project_root)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="benchmark.eval_runner")
     parser.add_argument("--cases", default="",
@@ -311,6 +328,9 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(encoding="utf-8")
         except Exception:
             pass
+    # P1-1：先把工作区根钉到项目根，fixture 落入子树
+    _ws_root = _pin_workspace_root()
+    print(f"[workspace-root] WORKSPACE_ROOT={_ws_root}（P1-1 路径漂移修复）", flush=True)
     # 修法 1：把 tool_router 固定成常量，消除注入块对工具可用集的污染。
     # 注意：全量工具与生产配置（router 裁剪到 16）不同，结论不可直接外推。
     _fixed = _apply_fixed_tools(args.fixed_tools)

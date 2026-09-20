@@ -623,7 +623,27 @@ class AgentRuntime:
                                     )
                                 except Exception:
                                     pass
+                            # P0-2（H1）：预算拒发后模型若再次发起同因调用 →
+                            # 说明提示文本没有让它停手。第二次同因拒发即抛
+                            # ConvergenceTerminated 强终止工具循环，进终态收口。
+                            # （收敛提示文本是模型可感知的"硬墙"信号；TERMINALIZE
+                            #  的强制分支在下方 Phase 5 段处理，本段只管预算拒发。）
+                            _bkey = rctx.budget_block_key(name)
+                            if _bkey is not None and rctx.note_blocked_reason(_bkey) >= 2:
+                                rctx.convergence_forced = True
+                                if self.tasks is not None and run_rid:
+                                    try:
+                                        self.tasks.add_event(
+                                            run_rid, "convergence.forced",
+                                            {"tool": name, "level": "BUDGET_REJECTED",
+                                             "progress": rctx.progress_summary()},
+                                        )
+                                    except Exception:
+                                        pass
+                                raise ConvergenceTerminated(CONVERGENCE_TERMINALIZE)
                             return budget_reason or "本任务工具调用已达上限，请结束本轮并整理结果。"
+                    except ConvergenceTerminated:
+                        raise
                     except Exception:
                         pass
                 if rctx is not None:
@@ -2792,10 +2812,21 @@ class AgentRuntime:
                 _assistant = degraded.get("content") or ""
             except Exception:
                 _assistant = ""
+            # P1-2（T008 兜底）：TERMINALIZE 收口必须给出非空终态说明。
+            # 历史上 build_degraded_reply 偶发返回空/缺 evidence 摘要 → 终态
+            # final_text 为空（T008 连续 8 run 失败均为此形态）。这里加硬兜底，
+            # 保证终态消息永远可归因，评测 answer check 不再空手。
+            if not _assistant:
+                _assistant = (
+                    "本轮探索连续多轮未取得新进展，Runtime 已强制收口。"
+                    "已完成的部分与保留下来的操作记录见上方事件；"
+                    "未确认/未完成的部分如实说明：没有取得可靠结果。"
+                    "如需继续，请给出更明确的范围或换一种做法。"
+                )
             return _fail(
                 "这一步连续没有取得新进展，已安全结束本轮。已执行的操作与结果都保留。",
                 resp=None,
-                assistant_text=_assistant or None,
+                assistant_text=_assistant,
                 run_state="failed",
                 event_reason="convergence_terminated",
                 terminal_kind=KIND_NO_PROGRESS,
