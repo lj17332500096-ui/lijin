@@ -326,7 +326,7 @@ class FileScopeCoverageTests(unittest.TestCase):
 
 
 class GuardLeverConsistencyTests(unittest.TestCase):
-    """护栏开关：`.env` 的显式值必须与代码默认值一致。
+    """护栏开关与执行预算：`.env` 的显式值必须与代码默认值一致。
 
     背景（2026-09-20）：这些开关原先全部隐含在代码默认值里，且口径不一
     （`FORGE_REPEAT_GUARD` 默认 on，`FORGE_REDUNDANT_GUARD` / `FORGE_COMPLETION_READY`
@@ -350,6 +350,41 @@ class GuardLeverConsistencyTests(unittest.TestCase):
             key, _, val = line.partition("=")
             values[key.strip()] = val.strip()
         return values
+
+    def test_budget_values_match_code_defaults(self) -> None:
+        from runtime.runctx import _DEFAULT_PER_TOOL_BUDGETS
+
+        env = self._read_env_file()
+        if not env:
+            self.skipTest("无 .env（克隆/CI 环境），跳过")
+
+        for key, code_default in (("TOOL_BUDGET_TOTAL", 20),
+                                  ("TOOL_BUDGET_WEB_SEARCH", 5)):
+            self.assertIn(key, env, f".env 缺少 {key}（护栏与预算应显式声明）")
+            self.assertEqual(
+                int(env[key]), code_default,
+                f"{key} 在 .env 是 {env[key]}，代码默认是 {code_default}："
+                f"改一边必须同时改另一边，或从 .env 删掉让它走默认值。",
+            )
+
+        declared: dict = {}
+        for chunk in env.get("TOOL_BUDGET_PER_TOOL", "").replace(";", ",").split(","):
+            name, sep, cap = chunk.partition("=")
+            if sep and name.strip():
+                try:
+                    declared[name.strip()] = int(cap.strip())
+                except ValueError:
+                    self.fail(f"TOOL_BUDGET_PER_TOOL 里有非整数上限：{chunk!r}")
+        self.assertTrue(declared, ".env 应显式声明 TOOL_BUDGET_PER_TOOL")
+        mismatched = sorted(
+            n for n, c in declared.items()
+            if _DEFAULT_PER_TOOL_BUDGETS.get(n) not in (None, c)
+        )
+        self.assertFalse(
+            mismatched,
+            f"这些工具的独立预算在 .env 与 runtime/runctx.py::_DEFAULT_PER_TOOL_BUDGETS "
+            f"里不一致：{mismatched}",
+        )
 
     def test_guard_switches_are_explicit(self) -> None:
         env = self._read_env_file()

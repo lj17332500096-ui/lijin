@@ -27,6 +27,47 @@ def _env_int(name: str, default: int) -> int:
         return default
 
 
+#: 各工具的**独立**执行上限 —— 不依赖参数，专门兜住"参数漂移"式空转。
+#:
+#: 为什么需要它：单 Run 总上限（TOOL_BUDGET_TOTAL，默认 20）是最后一道闸，
+#: 但它落得太晚 —— 实测 T038 一共 35 次调用，其中 `list_workspace_files` 独占 19 次，
+#: 且每次都换一个目录写法（`benchmark_fixture/app` → `my_creative_agent` → …），
+#: 任何"按目标去重"的护栏都看不见它，只能等到 20 次总上限才收场。
+#: 这里给高频探索类工具设更早、更窄的闸。
+#:
+#: ⚠️ web_search 的历史上限（TOOL_BUDGET_WEB_SEARCH，默认 5）优先于此表，见 per_tool_budget()。
+#: 调整请用环境变量 TOOL_BUDGET_PER_TOOL（格式 `工具名=上限,工具名=上限`），不要改这里。
+_DEFAULT_PER_TOOL_BUDGETS: dict[str, int] = {
+    "list_workspace_files": 8,
+    "list_code_files": 6,
+    "list_notes": 6,
+    "list_sandbox_snapshots": 6,
+    "index_workspace": 3,
+    "search_documents": 8,
+    "search_sources": 8,
+}
+
+
+def _env_per_tool_budgets() -> dict[str, int]:
+    """解析 TOOL_BUDGET_PER_TOOL，格式 `工具名=上限,工具名=上限`（亦接受分号分隔）。"""
+    raw = __import__("os").getenv("TOOL_BUDGET_PER_TOOL", "").strip()
+    out: dict[str, int] = {}
+    if not raw:
+        return out
+    for chunk in raw.replace(";", ",").split(","):
+        name, sep, cap = chunk.partition("=")
+        name, cap = name.strip(), cap.strip()
+        if not sep or not name:
+            continue
+        try:
+            n = int(cap)
+        except ValueError:
+            continue
+        if n > 0:
+            out[name] = n
+    return out
+
+
 @dataclass(slots=True)
 class RunContext:
     """一轮 Run 的可变状态（全部由 Runtime 注入，不信任模型输入）。"""
@@ -47,14 +88,17 @@ class RunContext:
     mutation_counts: dict[str, int] = field(default_factory=dict)
     _discovery: DiscoveryTracker | None = field(default=None, repr=False)
     # ---- Convergence hardening（Run-level budget + rejected-action memory）----
-    # 默认值可被环境变量覆盖（TOOL_BUDGET_TOTAL / TOOL_BUDGET_WEB_SEARCH），
-    # 收敛主要靠 semantic intent + result novelty + no-progress，绝对次数只是 safety cap。
+    # 默认值可被环境变量覆盖（TOOL_BUDGET_TOTAL / TOOL_BUDGET_WEB_SEARCH /
+    # TOOL_BUDGET_PER_TOOL），收敛主要靠 semantic intent + result novelty + no-progress，
+    # 绝对次数只是 safety cap。
     max_total_tool_executions: int = field(
         default_factory=lambda: int(_env_int("TOOL_BUDGET_TOTAL", 20))
     )
     max_web_search_executions: int = field(
         default_factory=lambda: int(_env_int("TOOL_BUDGET_WEB_SEARCH", 5))
     )
+    #: 工具名 -> 独立上限（覆盖 _DEFAULT_PER_TOOL_BUDGETS 中的同名项）。
+    max_per_tool_executions: dict = field(default_factory=_env_per_tool_budgets)
     tool_execution_counts: dict[str, int] = field(default_factory=dict)
     rejected_actions: dict[str, str] = field(default_factory=dict)  # tool/intent -> reason
     constraints: dict[str, bool] = field(default_factory=dict)  # {allow_write, allow_delete}
@@ -73,6 +117,18 @@ class RunContext:
                 if q and q not in self.pending_questions:
                     self.pending_questions.append(q)
 
+    def per_tool_budget(self, name: str) -> int | None:
+        """该工具的独立执行上限；None 表示只受单 Run 总上限约束。
+
+        优先级：web_search 的历史配置（TOOL_BUDGET_WEB_SEARCH）
+        > TOOL_BUDGET_PER_TOOL 显式覆盖 > _DEFAULT_PER_TOOL_BUDGETS。
+        """
+        if name == "web_search":
+            return self.max_web_search_executions
+        if name in self.max_per_tool_executions:
+            return self.max_per_tool_executions[name]
+        return _DEFAULT_PER_TOOL_BUDGETS.get(name)
+
     def can_execute_tool(self, name: str) -> tuple[bool, str | None]:
         """Run 级工具预算：超限返回 False；放行时**原子预留**一个名额。
 
@@ -86,12 +142,18 @@ class RunContext:
                 f"本任务已执行 {total} 次工具调用，达到单 Run 执行上限。请停止继续调用工具，"
                 "直接基于已获得的信息给出最终回答；无法完成的部分说明限制。"
             )
-        if name == "web_search":
-            used = self.tool_execution_counts.get("web_search", 0)
-            if used >= self.max_web_search_executions:
+        cap = self.per_tool_budget(name)
+        if cap is not None:
+            used = self.tool_execution_counts.get(name, 0)
+            if used >= cap:
+                if name == "web_search":
+                    return False, (
+                        f"联网搜索已执行 {used} 次，达到本任务上限。请不要再搜索，"
+                        "直接基于已有信息作答，或改用其它可用能力，说明当前的限制。"
+                    )
                 return False, (
-                    f"联网搜索已执行 {used} 次，达到本任务上限。请不要再搜索，"
-                    "直接基于已有信息作答，或改用其它可用能力，说明当前的限制。"
+                    f"{name} 已执行 {used} 次，达到本任务上限。请不要再重复调用同一工具，"
+                    "换用其它能力或直接基于已获得的信息作答，并说明当前的限制。"
                 )
         # 原子预留
         self.tool_execution_counts[name] = self.tool_execution_counts.get(name, 0) + 1

@@ -107,6 +107,18 @@ _P9_DISCOVERY_TOOLS = frozenset({
 _PATH_KEYS = ("path", "file", "filename", "directory", "project")
 _QUERY_KEYS = ("query", "keyword", "q")
 
+#: 有"无参默认目标"语义的工具 → 其默认目标身份。
+#: 与工具体系的声明对齐（`list_workspace_files(directory=".")`、`list_notes()` 无参），
+#: 由 tests/test_tool_roster_consistency.py 守护，防止两边漂移。
+#: ⚠️ 缺失参数 ≠ 没有目标：`list_workspace_files()` 等价于 `list_workspace_files(".")`，
+#: 若不回落到默认身份，模型用空参数反复列同一目录就可以绕过所有重复护栏
+#: （实测 T038 传 `{}` 连列同一默认目录 19 次，护栏因 key=None 全程静默）。
+_DEFAULT_TARGET_IDENTITY: dict[str, str] = {
+    "list_workspace_files": ".",
+    "list_notes": "<all-notes>",
+    "list_sandbox_snapshots": "<all-snapshots>",
+}
+
 
 def _first_token(args: dict[str, Any], keys: tuple[str, ...]) -> str:
     for k in keys:
@@ -136,6 +148,18 @@ def resolve_target(name: str, arguments: dict[str, Any] | None) -> str:
     if name in _P9_VERIFICATION_TOOLS:
         return _first_token(args, ("filename", "file", "code"))[:400]
     return ""
+
+
+def logical_target(name: str, arguments: dict[str, Any] | None) -> str | None:
+    """目标身份（含"无参默认目标"回落）。None 仅当确实解析不出目标。
+
+    与 resolve_target 的区别：参数缺失时不再直接放行，而是回落到该工具的
+    声明默认目标（如 `"."`），使"空参数空转"同样受计数与护栏约束。
+    """
+    token = resolve_target(name, arguments)
+    if token:
+        return token
+    return _DEFAULT_TARGET_IDENTITY.get(name)
 
 
 def canonical_target_of(name: str, arguments: dict[str, Any] | None) -> str | None:
@@ -611,14 +635,16 @@ class DiscoveryTracker:
     def repeat_target_key(self, name: str, arguments: dict[str, Any] | None) -> str | None:
         """逻辑目标键（比 exact_identity 更宽松：不含 evidence epoch，容忍参数微调）。
 
-        目标解析统一走 resolve_target（单一实现，见模块级注释）。
-        目标不可解析时返回 None（保守放行，避免误杀）。
+        目标解析统一走 resolve_target / logical_target（单一实现，见模块级注释）。
+        ⚠️ 参数缺失**不再**等于放行：回落到工具的声明默认目标（如 `list_workspace_files`
+        的 `"."`），使"空参数反复列同一目录"同样受计数与护栏约束。
+        仅当既无参数、又无声明默认目标时才返回 None（保守放行，避免误杀）。
         """
         if name in _P9_READ_TOOLS:
-            tgt = resolve_target(name, arguments)
+            tgt = logical_target(name, arguments)
             return f"read|{tgt}" if tgt else None
         if name in _P9_DISCOVERY_TOOLS:
-            tgt = resolve_target(name, arguments)
+            tgt = logical_target(name, arguments)
             return f"search|{tgt}" if tgt else None
         if name in _P9_VERIFICATION_TOOLS:
             cmd = resolve_target(name, arguments)
@@ -839,11 +865,17 @@ class DiscoveryTracker:
         return ProgressSignal(novel, reason, sig, fp, error_class)
 
     def convergence_level(self) -> str:
-        """按 Run 级 progress 历史返回收敛级别（NORMAL/CAUTION/CONVERGENCE/TERMINALIZE）。"""
+        """按 Run 级 progress 历史返回收敛级别（NORMAL/CAUTION/CONVERGENCE/TERMINALIZE）。
+
+        ⚠️ blocked_repeat 阈值与终态对齐：告警级（CONVERGENCE）在第 convergence_after 次
+        被拦时点亮，硬终止级必须紧接其后，否则会出现"提示了 N 次却始终不终止"的窗口。
+        实测 T014：3 次 `tool.convergence` 之后仍在空转，只因硬闸要求 `>= 4`
+        （terminalize_after + 1），差 1 次没落下 —— 最终跑满 25 次调用 / 203 秒。
+        """
         if self.force_stop:
             return CONVERGENCE_TERMINALIZE
         if (self.consecutive_no_progress >= self.terminalize_after
-                or self.blocked_repeat_count >= self.terminalize_after + 1):
+                or self.blocked_repeat_count >= self.terminalize_after):
             return CONVERGENCE_TERMINALIZE
         if (self.consecutive_no_progress >= self.convergence_after
                 or self.duplicate_action_count >= self.convergence_after
