@@ -24,6 +24,8 @@ from __future__ import annotations
 
 import time
 
+_time = time  # 事件处理里算 elapsed 用 monotonic
+
 from rich.text import Text
 from textual._context import NoActiveAppError
 from textual.app import App, ComposeResult, NoScreen, Screen
@@ -47,6 +49,7 @@ from cli.tui.panels import (
     StatusHeader,
     SUCCESS,
     SURFACE,
+    ToolGroup,
     TuiPanels,
     TEXT_C,
     WARNING,
@@ -204,6 +207,32 @@ class ForgeTuiApp(App):
         margin: 0 1;
         color: {MUTED};
     }}
+    ModelPicker {{
+        /* 一行高，显示当前模型；点按 `m` 键打开 popup。 */
+        height: 1;
+        margin: 0 1;
+        padding: 0 1;
+        color: {MUTED};
+    }}
+    .model-popup-header {{
+        height: 1;
+        padding: 0 1;
+        color: {MUTED};
+    }}
+    .model-popup-body {{
+        padding: 0 1;
+        color: {TEXT_C};
+    }}
+    ModelPopup {{
+        /* 默认隐藏；按 m 时 display: block，列在输入框正上方 */
+        display: none;
+        height: auto;
+        background: {PANEL};
+        border: solid {BORDER};
+        margin: 0 1;
+        padding: 0 1;
+        max-height: 12;
+    }}
     SlashPopup {{
         /* 默认隐藏；show() 用 inline style 覆盖成 display: block。
            不隐藏的话启动时会常驻一个空的带边框方块。 */
@@ -220,9 +249,35 @@ class ForgeTuiApp(App):
         Binding("ctrl+q", "quit", "Quit"),
         Binding("ctrl+l", "clear_log", "Clear"),
         Binding("ctrl+o", "show_inspector", "Inspector"),
+        Binding("m", "toggle_model_picker", "Models", priority=True),
+        # F1 遍历历史（设计稿：按 f1 遍历历史）；Ctrl+F1 回退
+        Binding("f1", "history_prev", "History ↑"),
+        Binding("ctrl+f1", "history_next", "History ↓"),
         # priority=True 覆盖 Screen 默认的 tab → app.focus_next
         Binding("tab", "complete_slash", "Tab complete", priority=True),
     ]
+
+    # F1 历史专用键：单独 action，不走 _on_key_press 的 slash/approval 优先级
+    def action_history_prev(self) -> None:
+        if not self._history:
+            return
+        # 首次 F1 归位到末尾（最后一条），再往前
+        if self._hist_idx >= len(self._history):
+            self._hist_idx = len(self._history) - 1
+        else:
+            self._hist_idx = max(0, self._hist_idx - 1)
+        self._bar().input.value = self._history[self._hist_idx]
+
+    def action_history_next(self) -> None:
+        if not self._history:
+            return
+        if self._hist_idx < len(self._history) - 1:
+            self._hist_idx += 1
+        else:
+            self._hist_idx = len(self._history)
+            self._bar().input.value = ""
+            return
+        self._bar().input.value = self._history[self._hist_idx]
 
     def __init__(
         self,
@@ -254,6 +309,13 @@ class ForgeTuiApp(App):
         self._stream_item: MessageItem | None = None
         self._stream_buf: str = ""
         self._last_tool_item: MessageItem | None = None
+        # 工具分组：每轮 turn 开始时清零，run 过程中按 activity 累积
+        self._tool_group: "ToolGroup" | None = None
+        # 后端 activity 行 → 显示状态（tool.started 时建，tool.completed/failed 时定终态）
+        # key = activity_id；value = (name, detail, status, elapsed 或 None)
+        self._tool_rows: dict[str, tuple[str, str, str, float | None]] = {}
+        # 每个 activity 的开始时间戳（monotonic），用于算 elapsed
+        self._tool_started_at: dict[str, float] = {}
 
         # Approval 状态机
         #   idle → running → waiting_approval
@@ -269,6 +331,11 @@ class ForgeTuiApp(App):
         # 输入历史（当前 TUI session）
         self._history: list[str] = []
         self._hist_idx: int = 0
+        # 模型选择器状态
+        self._model_picker_visible: bool = False
+        # ModelPopup 的选中回调：在 on_mount 里把 App._on_model_selected 接进去
+        # （ModelPopup 自己不认识 App，所以这里用一个占位，挂载后 patch）
+        self._model_popup_callback_set: bool = False
 
         # Slash popup 状态
         self._popup_visible: bool = False
@@ -301,12 +368,18 @@ class ForgeTuiApp(App):
 
     # ── 布局 ──────────────────────────────────────────────────
     def compose(self) -> ComposeResult:
-        yield TuiPanels(self.session_name)
+        import os
+        yield TuiPanels(self.session_name, current_model=os.getenv("AGENT_MODEL", ""))
 
     def on_mount(self) -> None:
         self._app_state = self.query_one(TuiPanels)
         # 接上 InputBar 的上下文提示行（挂载后 widget 才存在）
         self._hint_label = self._app_state.bar.hint
+        # 把 ModelPopup 的选中回调接上 App（popup 是 TuiPanels 持有的，
+        # 构造时拿不到 App，所以在挂载时 patch 进去）
+        if not self._model_popup_callback_set:
+            self._app_state.model_popup._on_select = self._on_model_selected
+            self._model_popup_callback_set = True
         # 同步 header 宽度（默认 120 列宽屏）；size 在挂载前可能为 (0, 0)，安全读取
         width = self._app_state.msglog.size[0] or 120
         self._header().set_width(width)
@@ -318,8 +391,124 @@ class ForgeTuiApp(App):
         msglog.add_meta("◆ FORGE · 全能助手 TUI")
         msglog.add_meta(f"  session: {self.session_name}   |   mode: {self.mode}")
         msglog.add_meta("  /help 看命令   |   Ctrl+Q 退出   |   Ctrl+O Inspector")
+        msglog.add_meta("  按 m 切换模型   |   ↑↓ 历史   |   Tab 补全")
         msglog.add_meta("")
         self._bar().focus_input()
+        # 启动时异步拉取可用模型列表（网关 + 本地）
+        self._load_models_async()
+
+    def _load_models_async(self) -> None:
+        """后台拉取 /models 端点，把结果写进 ModelPicker。"""
+        self._run_async(self._fetch_models())
+
+    async def _fetch_models(self) -> None:
+        import os
+        picker = self._model_picker()
+        popup = self._model_popup()
+        if picker is None or popup is None:
+            return
+        picker.set_loading(True)
+        try:
+            models = await self._query_gateway_models()
+        except Exception:
+            models = []
+        current = os.getenv("AGENT_MODEL") or "—"
+        if models:
+            picker.set_models(models)
+            # 把当前 AGENT_MODEL 标成已选（如果它不在列表里就补进去）
+            if not any(mid == current for mid, _ in models):
+                models.append((current, "unknown"))
+            picker.set_loading(False)
+        else:
+            picker.set_models([(current, "unknown")])
+            picker.set_loading(False)
+        # 同步当前模型显示 + status header
+        picker.set_current(current)
+        self._header().set_model(current)
+
+    async def _query_gateway_models(self) -> list[tuple[str, str]]:
+        """并发拉网关 + 本地 /models，合并去重（网关优先）。
+
+        urllib 是同步阻塞 IO，用 asyncio.to_thread 丢到默认线程池跑，
+        不阻塞 Textual 事件循环。两个源并发；任一失败只跳过，不影响另一个。
+        """
+        import asyncio
+        import json
+        import os
+        import ssl
+        import urllib.request
+
+        def _fetch_sync(base_url: str, source: str) -> list[tuple[str, str]]:
+            if not base_url:
+                return []
+            key = os.getenv("OPENAI_API_KEY", "")
+            url = base_url.rstrip("/") + "/models"
+            req = urllib.request.Request(url, headers={
+                "Authorization": f"Bearer {key}" if key else "",
+                "Content-Type": "application/json",
+            })
+            try:
+                resp = urllib.request.urlopen(
+                    req, timeout=5, context=ssl.create_default_context()
+                )
+                data = json.loads(resp.read())
+                return [(m["id"], source) for m in data.get("data", [])]
+            except Exception:
+                return []
+
+        base = os.getenv("OPENAI_BASE_URL", "")
+        local_base = os.getenv("FORGE_LOCAL_MODEL_BASE_URL", "")
+        gateway, local = await asyncio.gather(
+            asyncio.to_thread(_fetch_sync, base, "gateway"),
+            asyncio.to_thread(_fetch_sync, local_base, "local"),
+        )
+        seen: set[str] = set()
+        merged: list[tuple[str, str]] = []
+        for mid, src in gateway + local:
+            if mid not in seen:
+                seen.add(mid)
+                merged.append((mid, src))
+        return merged
+
+    def _model_picker(self):
+        return self._app_state.model_picker if self._app_state else None
+
+    def _model_popup(self):
+        return self._app_state.model_popup if self._app_state else None
+
+    # ── 模型选择 action ───────────────────────────────────────
+    def action_toggle_model_picker(self) -> None:
+        """按 `m` 键打开 / 关闭模型选择 popup。"""
+        popup = self._model_popup()
+        picker = self._model_picker()
+        if popup is None or picker is None:
+            return
+        if popup.is_visible():
+            popup.hide()
+            self._model_picker_visible = False
+            return
+        # 首次打开且模型未加载 → 先拉
+        if not picker._models:
+            picker.set_loading(True)
+            self._run_async(self._fetch_models())
+        popup.show(picker._models, picker._current)
+        self._model_picker_visible = True
+
+    def _on_model_selected(self, model_id: str, source: str) -> None:
+        """ModelPopup 选中后回调：设 AGENT_MODEL 并更新状态栏。"""
+        import os
+        os.environ["AGENT_MODEL"] = model_id
+        # 切到本地模型时，FORGE_MODEL_PREF 也要跟着
+        if source == "local":
+            os.environ["FORGE_MODEL_PREF"] = "local"
+        else:
+            os.environ["FORGE_MODEL_PREF"] = "gateway"
+        picker = self._model_picker()
+        if picker:
+            picker.set_current(model_id)
+        self._header().set_model(model_id)
+        self._msglog().add_meta(f"已切换模型 → {model_id}（{source}）")
+        self._model_picker_visible = False
 
     # ── 输入：slash / 普通 / approval ─────────────────────────
     def on_input_submitted(self, event) -> None:
@@ -360,6 +549,10 @@ class ForgeTuiApp(App):
         self._stream_buf = ""
         self._stream_item = None
         self._last_tool_item = None
+        # 新一轮 turn 开始：重置工具分组状态
+        self._tool_group = None
+        self._tool_rows.clear()
+        self._tool_started_at.clear()
         self._header().set_state("running")
         self._update_footer("running")
         self._run_async(self._run_turn(text))
@@ -544,10 +737,18 @@ class ForgeTuiApp(App):
 
         try:
             if channel == "tool":
+                # 这是旧的「工具调用」行（来自 tool channel 的 {name,args}）。
+                # 设计稿 B 用 activity channel 的 tool.started/completed 来建「工具执行」
+                # 分组块，那里有 elapsed。tool channel 只作为兜底：如果 activity 没
+                # 到达（比如本地调试时关掉事件流），仍要保留一条扁平 tool 行。
                 name = str(payload.get("name") or "工具").strip()
                 args = str(payload.get("args") or "").strip()
-                item = msglog.add_tool(name, detail=args, status="running")
-                self._last_tool_item = item
+                if self._tool_group is None:
+                    item = msglog.add_tool(name, detail=args, status="running")
+                    self._last_tool_item = item
+                else:
+                    self._tool_group.toggle()  # 保证展开
+                    self._tool_group.add_tool(name, detail=args, status="running")
 
             elif channel == "assistant_delta":
                 meta = payload.get("metadata") or {}
@@ -560,18 +761,45 @@ class ForgeTuiApp(App):
             elif channel == "activity":
                 etype = str(payload.get("type") or "")
                 meta = payload.get("metadata") or {}
-                if etype in ("tool.started", "tool.finished"):
-                    label = str(meta.get("label") or etype)
-                    status = "done" if etype == "tool.finished" else "running"
-                    if self._last_tool_item:
-                        msglog.tool_update(self._last_tool_item, status, label)
-                    else:
-                        self._last_tool_item = msglog.add_tool(label, status=status)
+                aid = str(payload.get("activity_id") or "")
+                label = str(meta.get("label") or etype)
+
+                if etype == "tool.started":
+                    if not aid:
+                        return
+                    if self._tool_group is None:
+                        self._tool_group = msglog.tool_group_start()
+                    self._tool_rows[aid] = (label, label, "running", None)
+                    self._tool_started_at[aid] = _time.monotonic()
+                    self._tool_group.add_tool(label, detail="", status="running")
+
+                elif etype in ("tool.completed", "tool.failed"):
+                    if not aid:
+                        return
+                    status = "done" if etype == "tool.completed" else "failed"
+                    started = self._tool_started_at.pop(aid, None)
+                    elapsed = (
+                        (_time.monotonic() - started) if started is not None else None
+                    )
+                    # 用终态 label 覆盖之前 running 的那条
+                    prev = self._tool_rows.get(aid)
+                    if prev:
+                        self._tool_rows[aid] = (prev[0], prev[1], status, elapsed)
+                    if self._tool_group is not None:
+                        # 追加终态行（保留 running 行作为执行过程）
+                        self._tool_group.add_tool(
+                            label, detail="", status=status, elapsed=elapsed,
+                        )
+
                 elif etype in ("run.completed", "run.failed", "run.cancelled"):
-                    # 强制 flush 流式 buffer
+                    # 强制 flush 流式 buffer，把当前工具分组折叠成一行
                     if self._stream_item:
                         msglog.stream_end()
                         self._stream_item = None
+                    if self._tool_group is not None and self._tool_group.item_count > 1:
+                        self._tool_group.collapse()
+                        self._tool_group = None
+                    self._tool_rows.clear()
 
             elif channel == "control":
                 etype = str(payload.get("type") or "")
@@ -580,6 +808,7 @@ class ForgeTuiApp(App):
                     if self._stream_item:
                         msglog.stream_end()
                         self._stream_item = None
+                    # 工具分组在 activity 流里已经折叠，这里不再处理
                     # Runtime 明确完成 → 清除审批态
                     if self._in_approval:
                         self._exit_approval()
@@ -707,16 +936,63 @@ class ForgeTuiApp(App):
     def key_tab(self) -> None:
         self._on_key_press("tab")
 
+    def key_enter(self) -> None:
+        # ModelPopup 的确认键（popup 打开时 focus 在 popup 的 body 上，
+        # 不走 Input 的 on_input_submitted，所以这里拦截一次）
+        if self._model_picker_visible:
+            popup = self._model_popup()
+            if popup is not None and popup.is_visible():
+                popup.confirm()
+        elif self._popup_visible:
+            popup = self._popup()
+            if popup is not None:
+                sel = popup.selected()
+                if sel:
+                    self._bar().input.value = sel[0] + " "
+                    self._hide_slash_popup()
+                    self._bar().focus_input()
+
     def key_escape(self) -> None:
         self._on_key_press("escape")
 
+    def key_m(self) -> None:
+        # 按 m 切模型；在 model popup 打开时忽略（Enter 确认 / Esc 取消）
+        if self._model_picker_visible:
+            return
+        self.action_toggle_model_picker()
+
+    def key_f1(self) -> None:
+        """F1：设计稿"遍历历史"——把当前会话里所有历史输入快速翻一遍。
+
+        实现：从最后一条历史开始，按 F1 每次往前一条；按 Ctrl+F1 回退（往下）。
+        语义与 ↑↓ 一致，但 F1 是设计稿指定的专用键（终端里 ↑↓ 被系统抢键）。
+        """
+        self._on_key_press("f1")
+
+    def key_ctrl_f1(self) -> None:
+        """Ctrl+F1：历史回退（向下）。"""
+        self._on_key_press("ctrl_f1")
+
     def _on_key_press(self, key: str) -> None:
-        """按键处理，优先级：slash popup > approval > history > running。"""
+        """按键处理，优先级：model popup > slash popup > approval > history > running。"""
         input_focused = (
             self._bar().input is not None
             and self._bar().input.has_focus
         )
         popup = self._popup()
+
+        # 0. Model popup 打开时：↑↓/Esc 全部交给 popup
+        model_popup = self._model_popup()
+        if self._model_picker_visible and model_popup is not None and model_popup.is_visible():
+            if key == "down":
+                model_popup.select_next()
+            elif key == "up":
+                model_popup.select_prev()
+            elif key == "escape":
+                model_popup.hide()
+                self._model_picker_visible = False
+                self._bar().focus_input()
+            return
 
         # 1. Slash popup 打开时：↑↓/Tab/Esc 全部交给 popup
         if self._popup_visible and popup:

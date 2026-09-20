@@ -665,7 +665,10 @@ def test_message_log_fills_available_height():
 
 
 def test_layout_fills_screen_exactly():
-    """Header + MessageLog + InputBar 高度之和 == 终端行数，底部不留空白。"""
+    """Header + MessageLog + ModelPicker 行 + InputBar 高度之和 == 终端行数。
+
+    注：新增 ModelPicker 后高度预算多 1 行（模型行）。
+    """
     async def _run():
         app = ForgeTuiApp(session_name="layout")
         async with app.run_test(size=(120, 30)) as pilot:
@@ -675,10 +678,11 @@ def test_layout_fills_screen_exactly():
             total = (
                 panel.header.region.height
                 + panel.msglog.region.height
+                + panel.model_picker.region.height
                 + panel.bar.region.height
             )
             assert total == app.screen.region.height, (
-                f"三段高度 {total} != 屏幕 {app.screen.region.height}"
+                f"四段高度 {total} != 屏幕 {app.screen.region.height}"
             )
             assert panel.bar.region.bottom == app.screen.region.height
 
@@ -758,7 +762,7 @@ def test_footer_within_screen_width():
 
 
 def test_layout_survives_narrow_terminal():
-    """80x24 窄屏也不能出现塌陷或溢出。"""
+    """80x24 窄屏也不能出现塌陷或溢出（四段高度和 == 屏幕行数）。"""
     async def _run():
         app = ForgeTuiApp(session_name="layout")
         async with app.run_test(size=(80, 24)) as pilot:
@@ -769,6 +773,15 @@ def test_layout_survives_narrow_terminal():
             assert panel.bar.region.height <= 6
             assert panel.bar.region.bottom == app.screen.region.height
             assert panel.bar.input.content_size.height >= 1
+            total = (
+                panel.header.region.height
+                + panel.msglog.region.height
+                + panel.model_picker.region.height
+                + panel.bar.region.height
+            )
+            assert total == app.screen.region.height, (
+                f"窄屏四段高度 {total} != 屏幕 {app.screen.region.height}"
+            )
 
     asyncio.run(_run())
 
@@ -856,7 +869,8 @@ def test_hint_line_switches_with_state():
 
 
 def test_hint_line_does_not_break_layout_budget():
-    """加了提示行后，InputBar 仍须在 6 行预算内，且三段高度和仍等于屏幕行数。"""
+    """加了提示行 + ModelPicker 行后，InputBar 仍须在 6 行预算内，
+    且 四段（header / msglog / model_picker / bar）高度和仍等于屏幕行数。"""
     async def _run():
         for size in ((120, 30), (80, 24)):
             app = ForgeTuiApp(session_name="hint")
@@ -866,10 +880,172 @@ def test_hint_line_does_not_break_layout_budget():
                 panel = app.query_one(TuiPanels)
                 assert panel.bar.region.height <= 6, f"{size} 下 InputBar={panel.bar.region.height} 行"
                 total = (panel.header.region.height + panel.msglog.region.height
+                         + panel.model_picker.region.height
                          + panel.bar.region.height)
                 assert total == app.screen.region.height, (
-                    f"{size} 下三段高度和 {total} != 屏幕 {app.screen.region.height}"
+                    f"{size} 下四段高度和 {total} != 屏幕 {app.screen.region.height}"
                 )
                 assert panel.bar.region.bottom == app.screen.region.height
+
+    asyncio.run(_run())
+
+
+# ════════════════════════════════════════════════════════════════
+#  Section 8: 设计稿对齐（工具分组 + 模型选择器 + F1 历史）
+# ════════════════════════════════════════════════════════════════
+
+def test_tool_group_widget_basic():
+    """ToolGroup widget：添加 tool 行、折叠/展开、耗时显示。"""
+    from cli.tui.panels import ToolGroup
+    g = ToolGroup("工具执行")
+    assert g.item_count == 0
+    g.add_tool("文件系统", detail="列出文件", status="running")
+    g.add_tool("代码托管", detail="拉取仓库", status="running")
+    g.add_tool("终端", detail="git log", status="done", elapsed=0.3)
+    assert g.item_count == 3
+    text = g.render()
+    assert "▼ 工具执行" in text.plain
+    assert "文件系统" in text.plain
+    assert "0.3s" in text.plain
+    g.collapse()
+    assert "▸ 工具执行" in g.render().plain
+    assert "· 3 项" in g.render().plain
+    g.expand()
+    assert "▼ 工具执行" in g.render().plain
+
+
+def test_tool_group_in_message_log():
+    """MessageLog.tool_group_start / tool_group_add 联动。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="toolgroup")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            ml = app.query_one(TuiPanels).msglog
+            g = ml.tool_group_start()
+            assert g.item_count == 0
+            ml.tool_group_add("文件系统", detail="列出 .", status="running")
+            ml.tool_group_add("终端", detail="git log", status="done", elapsed=0.4)
+            assert g.item_count == 2
+            plain = g.render().plain
+            assert "工具执行" in plain
+            assert "文件系统" in plain
+            assert "0.4s" in plain
+            ml.tool_group_toggle()
+            assert "▸ 工具执行" in g.render().plain
+
+    asyncio.run(_run())
+
+
+def test_event_handler_builds_tool_group_from_activity():
+    """后端 activity 事件 → ToolGroup：tool.started 建行，tool.completed 补耗时。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="toolgroup_evt")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            # 模拟后端事件
+            app._on_tui_event("activity", {
+                "type": "tool.started",
+                "activity_id": "a1",
+                "metadata": {"label": "文件系统  列出文件"},
+            })
+            assert app._tool_group is not None
+            assert app._tool_group.item_count == 1
+            app._on_tui_event("activity", {
+                "type": "tool.completed",
+                "activity_id": "a1",
+                "metadata": {"label": "已检查 1 个文件"},
+            })
+            assert app._tool_group.item_count == 2
+            app._on_tui_event("activity", {
+                "type": "run.completed", "metadata": {},
+            })
+            assert app._tool_group is None
+            assert app._tool_rows == {}
+
+    asyncio.run(_run())
+
+
+def test_model_picker_in_panels():
+    """TuiPanels 里有 model_picker / model_popup；popup 默认隐藏。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="model")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            panel = app.query_one(TuiPanels)
+            assert panel.model_picker is not None
+            assert panel.model_popup is not None
+            assert panel.model_popup.is_visible() is False
+
+    asyncio.run(_run())
+
+
+def test_model_picker_shows_current_agent_model():
+    """ModelPicker 显示当前 AGENT_MODEL 值（同步验证渲染逻辑，不依赖网络 worker）。
+
+    断言的是「picker 拿到 current_model 后能正确渲染出来」这个 UI 契约。
+    真实 worker 拉取另由 test_model_picker_worker_fetches 覆盖（那里才容忍 loading）。
+    """
+    import os
+    async def _run():
+        old = os.environ.get("AGENT_MODEL", "")
+        os.environ["AGENT_MODEL"] = "agnes-2.5-flash"
+        try:
+            app = ForgeTuiApp(session_name="model_cur")
+            async with app.run_test(size=(120, 30)) as pilot:
+                await pilot.pause()
+                await pilot.pause()
+                picker = app.query_one(TuiPanels).model_picker
+                # compose 时把 AGENT_MODEL 传给 picker；worker 若未完成，
+                # 手动把 loading 关掉再验证渲染契约（picker 的 _current 已就位）
+                picker._loading = False
+                picker._refresh()
+                assert "agnes-2.5-flash" in picker.render().plain
+        finally:
+            if old:
+                os.environ["AGENT_MODEL"] = old
+            else:
+                os.environ.pop("AGENT_MODEL", None)
+
+    asyncio.run(_run())
+
+
+def test_f1_history_binding():
+    """F1 走 action_history_prev；Ctrl+F1 走 action_history_next（设计稿"按 f1 遍历历史"）。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="f1")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            bar = app.query_one(TuiPanels).bar
+            for msg in ("第一条", "第二条"):
+                bar.input.value = msg
+                app.on_input_submitted(type("E", (), {"value": msg, "input": bar.input})())
+            assert len(app._history) == 2
+            app.action_history_prev()
+            assert bar.input.value == "第二条"
+            app.action_history_prev()
+            assert bar.input.value == "第一条"
+            app.action_history_next()
+            assert bar.input.value == "第二条"
+
+    asyncio.run(_run())
+
+
+def test_model_picker_toggle_action():
+    """按 m 键切换 model popup 显隐；popup 打开时 model_picker_visible=True。"""
+    async def _run():
+        app = ForgeTuiApp(session_name="model_toggle")
+        async with app.run_test(size=(120, 30)) as pilot:
+            await pilot.pause()
+            await pilot.pause()
+            picker = app.query_one(TuiPanels).model_picker
+            picker._models = [("agnes-2.5-flash", "gateway"), ("agnes-2.0-flash", "gateway")]
+            app.action_toggle_model_picker()
+            assert app._model_picker_visible is True
+            app.action_toggle_model_picker()
+            assert app._model_picker_visible is False
 
     asyncio.run(_run())

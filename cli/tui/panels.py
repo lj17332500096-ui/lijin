@@ -141,6 +141,97 @@ class StatusHeader(Static):
 
 
 # ── 面板：消息条目 ────────────────────────────────────────────────
+class ToolGroup(Static):
+    """设计稿 B 里的「工具执行」分组块：组头 + 多条 tool 子项 + 折叠箭头。
+
+    渲染规则：
+    - 展开时：组头一行 + 每条 tool 子项各占一行
+    - 折叠时：组头一行，子项全部收起（再点一次可展开）
+
+    耗时来自后端 `metadata.elapsed_seconds`（tool.completed/failed 事件）。
+    没有耗时的（tool.started 还没结束）不显示耗时，只显示「进行中」。
+    """
+
+    def __init__(self, title: str = "工具执行") -> None:
+        self._title = title
+        self._collapsed = False
+        # 每条 tool 的状态行：(name, detail, status, elapsed)
+        self._rows: list[tuple[str, str, str, float | None]] = []
+        self._text = self._build_text()
+        super().__init__(self._text)
+
+    # ── 对外 API ──────────────────────────────────────────────
+    def add_tool(self, name: str, detail: str = "", status: str = "done",
+                 elapsed: float | None = None) -> None:
+        """追加一条 tool 子项。status: running / done / failed。"""
+        self._rows.append((name, detail, status, elapsed))
+        self._refresh()
+
+    def collapse(self) -> None:
+        self._collapsed = True
+        self._refresh()
+
+    def expand(self) -> None:
+        self._collapsed = False
+        self._refresh()
+
+    def toggle(self) -> None:
+        if self._collapsed:
+            self.expand()
+        else:
+            self.collapse()
+
+    @property
+    def item_count(self) -> int:
+        return len(self._rows)
+
+    # ── 渲染 ──────────────────────────────────────────────────
+    @staticmethod
+    def _tool_symbol(status: str) -> str:
+        return {"done": "✓", "running": "◌", "failed": "×"}.get(status, "·")
+
+    @staticmethod
+    def _tool_color(status: str) -> str:
+        return {"done": SUCCESS, "running": WARNING, "failed": ERROR_C}.get(status, MUTED)
+
+    def _build_text(self) -> Text:
+        t = Text()
+        arrow = "▸" if self._collapsed else "▼"
+        count = f"  · {len(self._rows)} 项" if self._rows else ""
+        t.append(f"{arrow} ", style=MUTED)
+        t.append(self._title, style=f"bold {PRIMARY}")
+        t.append(count, style=MUTED)
+        t.append("\n")
+
+        if self._collapsed:
+            return t
+
+        for name, detail, status, elapsed in self._rows:
+            symbol = self._tool_symbol(status)
+            color = self._tool_color(status)
+            t.append("  ┃ ", style=BORDER)
+            t.append(f"{symbol} ", style=color)
+            if name:
+                t.append(_escape(name), style=f"bold {TEXT_C}")
+            if detail:
+                t.append(f"  {_escape(detail)}", style=MUTED)
+            if elapsed is not None:
+                t.append(f"  {elapsed:.1f}s", style=MUTED)
+            elif status == "running":
+                t.append("  进行中", style=MUTED)
+            t.append("\n")
+        return t
+
+    def _refresh(self) -> None:
+        self._text = self._build_text()
+        try:
+            self.update(self._text)
+        except (NoScreen, NoActiveAppError):
+            pass  # 未挂载时（单测）只更新 _text
+
+    def render(self) -> Text:
+        return self._text
+
 class MessageItem(Static):
     """单条消息条目。kind 决定视觉呈现。
 
@@ -259,13 +350,14 @@ class MessageLog(VerticalScroll, can_focus=False):
 
     def __init__(self) -> None:
         super().__init__()
-        self._items: list[MessageItem] = []
+        self._items: list["MessageItem | ToolGroup"] = []
         self._stream_item: MessageItem | None = None
         self._stream_buf: str = ""
         self._last_refresh: float = 0.0
         self._REFRESH_INTERVAL: float = 0.030  # 30 ms
+        self._last_tool_group: "ToolGroup" | None = None
 
-    def _append_item(self, item: MessageItem) -> MessageItem:
+    def _append_item(self, item) -> "MessageItem | ToolGroup":
         self._items.append(item)
         # 非 App 上下文（单测）时 mount 会抛 MountError / NoActiveAppError，允许静默跳过
         try:
@@ -274,6 +366,29 @@ class MessageLog(VerticalScroll, can_focus=False):
         except (MountError, NoActiveAppError):
             pass
         return item
+
+    # ── 工具分组 ──────────────────────────────────────────────
+    def tool_group_start(self, title: str = "工具执行") -> ToolGroup:
+        """开始一个工具分组块（默认展开）。
+
+        返回的 ToolGroup 实例可直接 mount 到 MessageLog。
+        """
+        group = ToolGroup(title=title)
+        self._last_tool_group = group
+        self._append_item(group)
+        return group
+
+    def tool_group_add(self, name: str, detail: str = "", status: str = "done",
+                       elapsed: float | None = None) -> None:
+        """在当前工具分组里追加一条 tool 行。"""
+        if self._last_tool_group is None:
+            return
+        self._last_tool_group.add_tool(name, detail=detail, status=status, elapsed=elapsed)
+
+    def tool_group_toggle(self) -> None:
+        """折叠 / 展开当前工具分组。"""
+        if self._last_tool_group is not None:
+            self._last_tool_group.toggle()
 
     # ── 对外 API ──────────────────────────────────────────────
 
@@ -416,6 +531,149 @@ class InputBar(Vertical, can_focus=False):
             self.hint.update(text)
 
 
+# ── 面板：模型选择下拉（真实 HTTP 驱动）──────────────────────────
+class ModelPicker(Static):
+    """输入栏右下角的 `agnes-2.5-flash ▾`。
+
+    点击或按 `Tab`/`Enter` 打开 popup，列出租户账号真实可用的模型
+    （调网关 /models 端点 + 本地 /v1/models 合并去重）。
+
+    选择模型 → 设 AGENT_MODEL 环境变量 → 后续 run_turn 用它（不重启进程）。
+    """
+
+    def __init__(self, current: str = "") -> None:
+        self._current = current or "—"
+        self._models: list[tuple[str, str]] = []  # (id, source)  source: gateway/local/unknown
+        self._loading = False
+        self._popup: "ModelPopup | None" = None
+        self._text = self._build_text()
+        super().__init__(self._text)
+
+    def _build_text(self) -> Text:
+        t = Text()
+        if self._loading:
+            t.append("模型加载中…", style=MUTED)
+        else:
+            t.append(f" {self._current} ", style=f"bold {PRIMARY}")
+            t.append(" ▾", style=MUTED)
+        return t
+
+    def set_current(self, model_id: str) -> None:
+        self._current = model_id
+        # 同步到 status header（header 的 model 字段也是这个名字）
+        self._refresh()
+
+    def set_models(self, models: list[tuple[str, str]]) -> None:
+        self._models = models
+        self._refresh()
+
+    def set_loading(self, loading: bool) -> None:
+        self._loading = loading
+        self._refresh()
+
+    def attach_popup(self, popup: "ModelPopup") -> None:
+        self._popup = popup
+
+    def open_popup(self) -> None:
+        if self._popup is not None:
+            self._popup.show(self._models, self._current)
+
+    def _refresh(self) -> None:
+        self._text = self._build_text()
+        try:
+            self.update(self._text)
+        except (NoScreen, NoActiveAppError):
+            pass
+
+    def render(self) -> Text:
+        return self._text
+
+
+class ModelPopup(Vertical, can_focus=False):
+    """模型选择 popup：列可用模型，选中后回调。
+
+    键盘：↑↓ 切换、Enter 确认、Esc 取消。
+    """
+
+    def __init__(self, on_select: "callable | None" = None) -> None:
+        super().__init__()
+        self._on_select = on_select
+        self._models: list[tuple[str, str]] = []
+        self._selected: int = 0
+        self._body = Static(self._build_text(), classes="model-popup-body")
+        self._body.display = True
+        self._header = Static("选择模型  （↑↓ 选 / Enter 确认 / Esc 取消）",
+                              classes="model-popup-header")
+
+    def compose(self) -> ComposeResult:
+        yield self._header
+        yield self._body
+
+    def show(self, models: list[tuple[str, str]], current: str) -> None:
+        self._models = models
+        self._selected = next(
+            (i for i, (mid, _) in enumerate(models) if mid == current), 0
+        )
+        # 用 CSS 类覆盖默认 display:none；Textual 的 inline style 优先级低
+        try:
+            self.styles.display = "block"
+            self.refresh()
+        except (NoScreen, NoActiveAppError):
+            pass
+        self._body.update(self._build_text())
+        self._body.focus()
+
+    def hide(self) -> None:
+        self._models = []
+        try:
+            self.styles.display = "none"
+            self.refresh()
+        except (NoScreen, NoActiveAppError):
+            pass
+
+    def is_visible(self) -> bool:
+        try:
+            return self.styles.display != "none"
+        except (NoScreen, NoActiveAppError):
+            return False
+
+    def select_next(self) -> None:
+        if self._models:
+            self._selected = (self._selected + 1) % len(self._models)
+            self._body.update(self._build_text())
+
+    def select_prev(self) -> None:
+        if self._models:
+            self._selected = (self._selected - 1) % len(self._models)
+            self._body.update(self._build_text())
+
+    def confirm(self) -> None:
+        if not self._models:
+            return
+        mid, source = self._models[self._selected]
+        self.hide()
+        if self._on_select is not None:
+            self._on_select(mid, source)
+
+    def cancel(self) -> None:
+        self.hide()
+
+    def _build_text(self) -> Text:
+        if not self._models:
+            return Text("(未加载模型，按 m 重新拉取)", style=MUTED)
+        t = Text()
+        for i, (mid, source) in enumerate(self._models):
+            marker = "●" if i == self._selected else " "
+            color = PRIMARY if i == self._selected else TEXT_C
+            tag = {"gateway": "[网关]", "local": "[本地]"}.get(source, "")
+            t.append(f"{marker} {mid:<32} ", style=f"bold {color}")
+            if tag:
+                t.append(tag, style=MUTED)
+            if i < len(self._models) - 1:
+                t.append("\n")
+        return t
+
+
 # ── SlashPopup（独立类，在 InputBar.compose 里 import）─────────────
 class SlashPopup(Static):
     """斜杠命令自动补全 popup。
@@ -496,15 +754,28 @@ class SlashPopup(Static):
 
 # ── 主 App 容器 ───────────────────────────────────────────────────
 class TuiPanels(Vertical, can_focus=False):
-    """三栏布局容器：StatusHeader / MessageLog / InputBar。"""
+    """四行布局：StatusHeader / MessageLog / ModelPicker 行 / InputBar。
 
-    def __init__(self, session_name: str = "personal") -> None:
+    ModelPicker 行把 `agnes-2.5-flash ▾` 放在 MessageLog 和 InputBar 之间，
+    设计稿把它画在输入栏右侧 —— 终端里独立占一行更易点选，布局不冲突。
+    隐藏时 display:none，不占高度（由 App 层控制显隐）。
+    """
+
+    def __init__(self, session_name: str = "personal",
+                 current_model: str = "") -> None:
         super().__init__()
         self.header = StatusHeader(session_name)
         self.msglog = MessageLog()
+        self.model_picker = ModelPicker(current_model)
+        self.model_popup = ModelPopup()
         self.bar = InputBar()
+        self.model_picker.attach_popup(self.model_popup)
+        # 模型 popup 默认隐藏；App 层按 "m" 键显示
+        self.model_popup.display = False
 
     def compose(self) -> ComposeResult:
         yield self.header
         yield self.msglog
+        yield self.model_picker
+        yield self.model_popup
         yield self.bar
