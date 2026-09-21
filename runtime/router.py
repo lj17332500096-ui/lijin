@@ -25,6 +25,38 @@ def default_model() -> str:
     return _env("AGENT_MODEL", "") or _env("MODEL_DEFAULT", "")
 
 
+# ---------- P1-B(3)：reasoning_effort 场景路由 ----------
+# 该网关（apihub.agnes-ai.cn）对 reasoning_effort 的语义与 OpenAI 标准错位
+# （n=5 去噪：minimal 最浅 / low 最深 / medium / high 次之），coding 想深推理
+# 须选 low 而非 high。默认 off，显式 FORGE_REASONING_EFFORT=on 才注入。
+_CODING_SCENE_MARKERS = (
+    "def ", "class ", "import ", "#include", "function ", "async ",
+    "bug", "修复", "实现", "代码", "代码块", "单元测试", "集成测试",
+    "报错", "异常", "调试", "refactor", "重构成", "脚本",
+    "test_", "_test", "pytest", "run_tests", "写一个", "实现一个",
+    "python", "python3", "javascript", "typescript", "rust", "golang",
+)
+
+
+def reasoning_effort_for_scene(message: str, default: str = "medium") -> str:
+    """按任务场景选 reasoning_effort 档位。
+
+    coding 场景（代码/修 bug/测试/实现）→ low（该网关错位语义下=最深推理）；
+    其余场景 → default（medium）。纯函数，无副作用，可单测。
+    仅当 FORGE_REASONING_EFFORT=on 时被调用（由调用方控制）。
+    """
+    text = (message or "").lower()
+    for marker in _CODING_SCENE_MARKERS:
+        if marker in text:
+            return "low"
+    return default
+
+
+def reasoning_effort_enabled() -> bool:
+    """FORGE_REASONING_EFFORT 开关（默认 off，不影响生产）。"""
+    return _env("FORGE_REASONING_EFFORT", "").lower() in ("on", "1", "true")
+
+
 def profile_model(profile: str) -> str | None:
     if profile == "cheap":
         return _env("MODEL_CHEAP", "") or None

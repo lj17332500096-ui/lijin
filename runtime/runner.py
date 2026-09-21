@@ -1407,6 +1407,36 @@ class AgentRuntime:
 
         base = base_agent or current_assistant_agent()
         chosen = agent_for(base, profile or (channel if channel in ("cheap", "reasoning") else "default"))
+        # P1-B(3)：FORGE_REASONING_EFFORT=on 时按场景注入 reasoning_effort。
+        # 该网关（apihub.agnes-ai.cn）语义与 OpenAI 错位：coding 想深推理须选 low，
+        # 非 coding 场景保持 medium。默认 off，显式开启才克隆注入，不影响生产。
+        try:
+            from runtime.router import reasoning_effort_enabled, reasoning_effort_for_scene
+            if reasoning_effort_enabled():
+                _effort = reasoning_effort_for_scene(message)
+                _effort = "medium" if not _effort else _effort
+                try:
+                    from agents import ModelSettings
+                    _cur = getattr(chosen, "model_settings", None)
+                    _reasoning = {"effort": _effort}
+                    if _cur is not None:
+                        chosen = chosen.clone(
+                            model_settings=ModelSettings(
+                                max_tokens=getattr(_cur, "max_tokens", 4096),
+                                temperature=getattr(_cur, "temperature", None),
+                                top_p=getattr(_cur, "top_p", None),
+                                reasoning=_reasoning,
+                            )
+                        )
+                    else:
+                        chosen = chosen.clone(
+                            model_settings=ModelSettings(
+                                max_tokens=4096, reasoning=_reasoning)
+                        )
+                except Exception:
+                    pass  # reasoning 注入失败不阻塞普通执行
+        except Exception:
+            pass
         _is_capability = False
         try:
             from runtime.capability_introspection import capability_context_block
