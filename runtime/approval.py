@@ -182,17 +182,21 @@ class ApprovalGate:
                     run_id: str | None = None) -> str | None:
         if not self.should_gate(tool_name):
             return None
-        # 受信评测代码根内的 run_python/code_loop：本地受控测试验证，无需审批。
+        # 受信评测代码根内的 run_python/code_loop/run_tests：本地受控测试验证，无需审批。
         # 仅当 FORGE_TRUSTED_CODE_ROOTS 显式配置该目录时生效，不影响生产 Project 审批。
         # 判定用**规范化真实路径**（project 解析目录 / 绝对 filename），绝不扫描 code 文本，
         # 防止“注释里写受信根路径”或 sibling 前缀路径绕过 Approval。
-        if tool_name in ("run_python", "code_loop"):
+        # P1-B(4)（2026-09-21）：run_tests 纳入受信白名单（其 project 字段与 run_python
+        # 同语义，target 对应 filename 辅助判定）。治 T023——评测 fixture 内 run_tests 被
+        # 审批门误拦，导致 coding case 卡在审批门而非真正跑验证。
+        if tool_name in ("run_python", "code_loop", "run_tests"):
             try:
                 from code_exec import trusted_root_for
                 if trusted_root_for(
                     str((arguments or {}).get("project") or ""),
                     str((arguments or {}).get("filename") or ""),
-                    str((arguments or {}).get("args") or ""),
+                    str((arguments or {}).get("args") or "")
+                    or str((arguments or {}).get("target") or ""),
                 ) is not None:
                     return None
             except Exception:
