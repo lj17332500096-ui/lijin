@@ -66,11 +66,23 @@ def _trusted_code_roots() -> list[Path]:
 def _project_dir(project: str) -> Path | None:
     if not PROJECT_RE.match(project or ""):
         return None
+    proj = (project or "").strip()
+    # P1-B(1)（2026-09-22）：相对路径（如 "my_creative_agent/benchmark_fixture"）
+    # 先 CWD-resolve 再按 canonical 路径比对受信根，不再整串字符串比 basename。
+    # 受信命中：resolve 后路径（或其任一祖先）落在某受信根下 → 取该根为沙箱 project。
+    roots = _trusted_code_roots()
+    try:
+        resolved = Path(proj).resolve()
+        for root in roots:
+            if _canonical_under(resolved, root):
+                return root
+    except Exception:
+        pass
     # 受信基准根：project 名命中受信根目录名 → 以该根为沙箱 project（benchmark 本地验证）。
-    for root in _trusted_code_roots():
-        if root.name.lower() == project.strip().lower():
+    for root in roots:
+        if root.name.lower() == proj.lower():
             return root
-    return (SANDBOX_ROOT / project).resolve()
+    return (SANDBOX_ROOT / proj).resolve()
 
 
 def _canonical_under(child: Path, root: Path) -> bool:

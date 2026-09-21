@@ -147,11 +147,13 @@ class RunBudgetTests(unittest.TestCase):
         self.assertIn("硬上限", reason)
 
     def test_total_execution_budget(self):
+        # P1-B(2)：read_workspace_file 已有 per-tool cap=8，改用在 per-tool 表外的
+        # run_tests 验证「总预算 20 次全放行」语义（run_tests 走总预算、不受 cap）。
         rc = RunContext(run_id="r1")
         for i in range(rc.max_total_tool_executions):
-            ok, _ = rc.can_execute_tool("read_workspace_file")
+            ok, _ = rc.can_execute_tool("run_tests")
             self.assertTrue(ok)
-            rc.note_executed("read_workspace_file")
+            rc.note_executed("run_tests")
         ok, _ = rc.can_execute_tool("run_python")
         self.assertFalse(ok)
 

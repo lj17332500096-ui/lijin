@@ -45,6 +45,12 @@ _DEFAULT_PER_TOOL_BUDGETS: dict[str, int] = {
     "index_workspace": 3,
     "search_documents": 8,
     "search_sources": 8,
+    # P1-B(2)（2026-09-22）：read_workspace_file 设 per-tool cap=8。
+    # 实测 T024 撞 TOOL_BUDGET_TOTAL=20（read 13 + list 7 碎片堆叠），
+    # 给 read 设更早的独立上限（8），防反复读同一批文件消耗总预算。
+    # coding 任务合法读取一般 ≤6 个文件，cap=8 留余量；
+    # 调整用 TOOL_BUDGET_PER_TOOL=read_workspace_file=N 覆盖。
+    "read_workspace_file": 8,
 }
 
 #: web_search 两级预算（软/硬）。

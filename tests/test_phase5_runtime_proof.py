@@ -102,10 +102,11 @@ class AtomicBudgetTests(unittest.TestCase):
 
     def test_budget_reserves_atomically(self):
         from runtime.runctx import RunContext
+        # P1-B(2)：read_workspace_file 已有 per-tool cap=8，改用 run_tests（不在 per-tool 表）
         rc = RunContext(run_id="r1")
         allowed = 0
         for _ in range(rc.max_total_tool_executions + 5):
-            ok, _ = rc.can_execute_tool("read_workspace_file")
+            ok, _ = rc.can_execute_tool("run_tests")
             if ok:
                 allowed += 1
         self.assertEqual(allowed, rc.max_total_tool_executions)
