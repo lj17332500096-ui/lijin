@@ -36,6 +36,7 @@ EV_COMPACTION_STARTED = "context.compaction.started"
 EV_COMPACTION_COMPLETED = "context.compaction.completed"
 EV_COMPACTION_FAILED = "context.compaction.failed"
 EV_WINDOWED = "context.history_windowed"
+EV_TOOL_TRIMMED = "context.history_tool_trimmed"
 EV_METRICS = "context.metrics"
 
 ProgressCb = Callable[[str, dict[str, Any]], Awaitable[None] | None]
@@ -49,6 +50,7 @@ class SessionStats:
     chars: int = 0
     est_tokens: int = 0
     user_turns: int = 0
+    tool_calls: int = 0  # P0-B-1：工具调用条数（function_call，快路径判定工具碎片用）
     has_previous_summary: bool = False
     fast: bool = False  # True = 由 SQL 快路径估算（chars 为字节量，仅用于提前判定）
 
@@ -57,7 +59,7 @@ class SessionStats:
 class PrepResult:
     """一次 Session Preparation 的结果与指标（metrics 进事件/审计，不打扰 UI）。"""
 
-    action: str = "none"  # none | compacted | windowed | compact_failed | window_failed
+    action: str = "none"  # none | compacted | windowed | tool_trimmed | compact_failed | window_failed | tool_trim_failed
     reason: str = ""
     before: SessionStats = field(default_factory=SessionStats)
     after: SessionStats = field(default_factory=SessionStats)
@@ -114,16 +116,25 @@ async def quick_stats(session: Any) -> SessionStats | None:
                     f"OR message_data LIKE '%\"role\":\"user\"%')",
                     (session.session_id,),
                 ).fetchone()
+                # P0-B-1：快路径统计工具调用条数（function_call），判断是否值得进精确路径裁工具碎片
+                tool_rows = conn.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE session_id = ? AND "
+                    f"(message_data LIKE '%\"type\": \"function_call\"%' "
+                    f"OR message_data LIKE '%\"type\":\"function_call\"%')",
+                    (session.session_id,),
+                ).fetchone()
             finally:
                 conn.close()
         except Exception:
             return None
         if row is None:
             return None
-        return SessionStats(messages=int(row[0]), chars=int(row[1]),
-                            est_tokens=int(row[1]),
-                            user_turns=int(approx_users[0] if approx_users else 0),
-                            fast=True)
+        return SessionStats(
+            messages=int(row[0]), chars=int(row[1]), est_tokens=int(row[1]),
+            user_turns=int(approx_users[0] if approx_users else 0),
+            tool_calls=int(tool_rows[0]) if tool_rows else 0,
+            fast=True,
+        )
 
     return await asyncio.to_thread(_sync)
 
@@ -145,6 +156,127 @@ def precise_stats(items: list[Any]) -> SessionStats:
 # ---------------------------------------------------------------------------
 # Hard Window（纯函数，可离线测试；按完整逻辑 Turn 切割）
 # ---------------------------------------------------------------------------
+
+
+def tool_trim_enabled() -> bool:
+    """P0-B-1 工具消息裁剪开关（默认 on，可用 .env 关）。"""
+    return os.getenv("FORGE_TOOL_TRIM_GUARD", "on").strip().lower() not in ("off", "false", "0")
+
+
+def tool_trim_keep_rounds() -> int:
+    """保留最近几次工具调用（更早的调用/结果对会被替换为占位摘要）。默认 2。
+
+    注意：FORGE 的会话历史里 function_call / function_call_output 是**平铺的独立 item**
+    （非嵌套），所以「保留最近 N」= 保留最近 N 个「调用+结果对」，N 即工具调用次数。
+    """
+    return max(0, _env_int("FORGE_TOOL_TRIM_KEEP_ROUNDS", 2))
+
+
+def tool_trim_min_chars() -> int:
+    """工具碎片（旧调用+结果）字符量低于此值时不裁剪（短会话没必要）。默认 4000。"""
+    return max(0, _env_int("FORGE_TOOL_TRIM_MIN_CHARS", 4000))
+
+
+_TOOL_CALL_TYPES = {"function_call", "tool_call", "custom_tool_call"}
+_TOOL_OUTPUT_TYPES = {"function_call_output", "function_output", "tool_output", "function_call_result"}
+
+
+def _item_type(item: Any) -> str:
+    """取 item 的 type 字段（dict 或 SDK 对象；与 audit._item_type 同口径，此处不引 audit 避免循环依赖）。"""
+    if isinstance(item, dict):
+        return str(item.get("type", ""))
+    return str(getattr(item, "type", "") or type(item).__name__)
+
+
+def _item_tool_name(item: Any) -> str:
+    if isinstance(item, dict):
+        name = item.get("name") or ""
+        if not name and isinstance(item.get("function"), dict):
+            name = item["function"].get("name", "")
+        return str(name)
+    return str(getattr(item, "name", "") or "")
+
+
+def _item_call_id(item: Any) -> str | None:
+    """工具调用/结果的 id，用于成对匹配（防止裁剪后留下孤儿 output）。"""
+    if isinstance(item, dict):
+        return item.get("call_id") or item.get("id") or item.get("tool_call_id")
+    cid = getattr(item, "call_id", None) or getattr(item, "tool_call_id", None) or getattr(item, "id", None)
+    return str(cid) if cid else None
+
+
+def identify_tool_rounds(items: list[Any]) -> list[tuple[int, int]]:
+    """识别工具调用轮次：每个 (call_idx, output_idx) 是「一条工具调用 + 它紧邻的对应结果」。
+
+    - 只有 call 没有结果（结果在更后面/缺失）的 call，output_idx = -1，裁剪时只删 call；
+    - call/output 成对，保证裁剪后不留孤儿 output（与 window_history 的成对约束同口径）。
+    """
+    # 先按 call_id 把 output 归位（同 id 多条 output 取第一条）
+    output_by_call: dict[str, int] = {}
+    for i, item in enumerate(items):
+        t = _item_type(item)
+        if t in _TOOL_OUTPUT_TYPES:
+            cid = _item_call_id(item)
+            if cid and cid not in output_by_call:
+                output_by_call[cid] = i
+    rounds: list[tuple[int, int]] = []
+    for i, item in enumerate(items):
+        if _item_type(item) in _TOOL_CALL_TYPES:
+            cid = _item_call_id(item)
+            oi = output_by_call.get(cid, -1) if cid else -1
+            rounds.append((i, oi))
+    return rounds
+
+
+def trim_tool_messages(items: list[Any], keep_rounds: int = 2) -> list[Any]:
+    """P0-B-1 工具消息裁剪（纯函数、零模型调用）：保留最近 keep_rounds 轮工具调用，
+    更早的工具调用及其结果替换为一条 system 占位（记工具名 + 次数），提示「已省略旧工具输出」。
+
+    设计约束（对齐 window_history 的成对原则）：
+    - 只在工具调用处下刀：system / user / assistant 非工具消息 / 摘要一律保留；
+    - 删一条工具调用必删其对应结果（成对），绝不留下孤儿 function_call_output；
+    - 占位摘要本身是一条 system 行，不影响后续 compact._is_previous_summary 判定；
+    - keep_rounds=0 → 不保留任何工具调用，全部裁成一条占位（最激进）。
+    """
+    rounds = identify_tool_rounds(items)
+    if not rounds or keep_rounds >= len(rounds):
+        # 轮数不足或全部都在保留窗口内 → 原样返回（不裁）
+        return list(items)
+    # 要裁剪的（较早的）轮次：除最近 keep_rounds 轮外的全部
+    to_trim = rounds[:-keep_rounds] if keep_rounds > 0 else rounds
+    if not to_trim:
+        return list(items)
+
+    # 收集被删的索引 + 统计（按工具名）
+    drop: set[int] = set()
+    tool_counts: dict[str, int] = {}
+    for ci, oi in to_trim:
+        drop.add(ci)
+        tool_counts[_item_tool_name(items[ci]) or "(unknown)"] = tool_counts.get(_item_tool_name(items[ci]) or "(unknown)", 0) + 1
+        if oi >= 0:
+            drop.add(oi)
+
+    # 占位摘要：放在「第一个被裁 call 的位置」，保留时序（旧→新）。
+    # 结构与 compact._summary_item 同口径（{role, content} 两字段，不带 type，避免 SDK 校验拒项）；
+    # 文案含 compact._SUMMARY_MARK 同款标记语义，但独立一句，便于后续再次 compact 时识别为「可压缩占位」。
+    first_drop_idx = min(drop)
+    name_list = "、".join(f"{k}×{v}" for k, v in sorted(tool_counts.items(), key=lambda kv: -kv[1])[:8])
+    placeholder = {
+        "role": "system",
+        "content": f"[工具消息裁剪 · 已省略较早工具输出]\n涉及工具：{name_list}（共 {len(to_trim)} 次调用）。"
+                   "如需这些结果请重新调用对应工具，不要假设旧输出仍在上下文。",
+    }
+
+    out: list[Any] = []
+    inserted = False
+    for i, item in enumerate(items):
+        if i == first_drop_idx and not inserted:
+            out.append(placeholder)
+            inserted = True
+        if i in drop:
+            continue
+        out.append(item)
+    return out
 
 
 def window_history(
@@ -410,11 +542,15 @@ async def prepare_session_context(
         }
 
     # ---- 1) 快路径：轮数/字节都远低于阈值时零成本放行（只留一条轻量 metrics） ----
+    #   P0-B-1：若工具调用条数已超出保留窗口（keep+1）且碎片字符量达阈值，
+    #   即使总字节不超硬限也需进精确路径裁工具碎片，故快路径不得直接放行。
     quick = await quick_stats(session)
     if quick is not None:
         quick_bytes = quick.chars
+        tool_fragment = quick.tool_calls > tool_trim_keep_rounds() and quick_bytes >= tool_trim_min_chars()
         if (
-            quick.user_turns < soft_turns
+            not tool_fragment
+            and quick.user_turns < soft_turns
             and quick_bytes < soft_chars
             and quick_bytes < hard_chars
             and quick.messages < hard_msgs
@@ -455,6 +591,41 @@ async def prepare_session_context(
             # 锁内复查发现已不满足（并发请求刚完成 compact）→ 无操作
             result.action = "none"
             result.reason = "already_compacted"
+
+    # ---- 3.5) P0-B-1 工具消息裁剪（中间档，零模型）：工具调用轮次超出保留窗口
+    #   且被裁部分字符量达阈值时，把较早的工具调用/结果替换为一条占位摘要。
+    #   不依赖 compact（compact 要 60 轮才触发），专治「工具碎片堆叠占上下文」。 ----
+    if tool_trim_enabled():
+        keep_rounds = tool_trim_keep_rounds()
+        min_chars = tool_trim_min_chars()
+        rounds = identify_tool_rounds(items_now)
+        if len(rounds) > keep_rounds:
+            to_trim = rounds[:-keep_rounds] if keep_rounds > 0 else rounds
+            trimmed_chars = 0
+            for ci, oi in to_trim:
+                trimmed_chars += compact._item_rough_chars(items_now[ci])
+                if oi >= 0:
+                    trimmed_chars += compact._item_rough_chars(items_now[oi])
+            if trimmed_chars >= min_chars:
+                before_chars = sum(compact._item_rough_chars(it) for it in items_now)
+                trimmed_items = trim_tool_messages(items_now, keep_rounds)
+                if len(trimmed_items) < len(items_now):
+                    ok = await compact._atomic_replace(session, items_now, trimmed_items)
+                    after_items = await session.get_items(limit=10_000_000)
+                    result.after = precise_stats(after_items)
+                    if ok:
+                        result.action = "tool_trimmed" if result.action == "none" else result.action
+                        await _emit(EV_TOOL_TRIMMED, {
+                            "tool_rounds_total": len(rounds),
+                            "tool_rounds_trimmed": len(to_trim),
+                            "tool_rounds_kept": keep_rounds,
+                            "chars_before": before_chars,
+                            "chars_after": result.after.chars,
+                            "messages_before": len(items_now),
+                        })
+                    else:
+                        result.action = "tool_trim_failed"
+                        await _emit(EV_METRICS, _metrics())
 
     # ---- 4) Hard Limit：历史（compact 后仍）超硬边界 → Runtime 硬窗口（不依赖模型） ----
     current = precise_stats(items_now)
