@@ -123,6 +123,7 @@ NON_FILE_TOOLS = {
     "remember", "recall_memory", "forget_memory",
     "schedule_add", "schedule_list", "schedule_remove", "schedule_set_enabled",
     "deep_research", "search_sources", "scan_dependencies",
+    "think",
     "write_code_file", "read_code_file", "list_code_files",
     "run_python", "code_loop", "run_tests",
     "sandbox_snapshot", "sandbox_rollback", "list_sandbox_snapshots",

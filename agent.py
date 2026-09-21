@@ -50,6 +50,7 @@ from tools import (
     schedule_list,
     schedule_remove,
     schedule_set_enabled,
+    think,
     web_search,
 )
 
@@ -223,6 +224,7 @@ ui 里的图表/表格数据也必须来自真实工具结果或用户提供的�
         get_current_datetime,
         read_workspace_file,
         list_workspace_files,
+        think,
         calculate,
         remember,
         recall_memory,

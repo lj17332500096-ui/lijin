@@ -127,6 +127,18 @@ Hard window 之前）；快路径加 `tool_calls` 字段避免工具碎片多时
 
 **权衡**：纯增益项、可独立回滚（去掉工具即可）。建议**最先做**，作为 P0 三件套里最安全的一块。
 
+**落地状态**（2026-09-21）：✅ 已实现。`tools.py` 新增 `think(text)` 零副作用工具（`@function_tool`），
+接进 `agent.py` 的导入 + `Agent(tools=[...])` 工具表（模型可见）。scratchpad 落 `RunContext.think_notes`
+（`runctx.py` 加 `note_think` / `think_notes_snapshot`），只存最近 20 条、单条截断 500 字符、不落库、
+不进主 context（避免污染 token）、Completion Gate 不把它当 evidence。`think` 不在
+`_P9_MUTATION_TOOLS` / `_P9_DISCOVERY_TOOLS` / `_P9_READ_TOOLS` 任何一张分类表里（天然 DISCOVERY_SAFE，
+readiness gate 对未知工具默认放行，零改动面）。新增 `tests/test_think_tool.py`（10 用例），全量回归通过。
+
+> 落地简化说明：方案原写「落地写 `run_notes` 表（run_id + 时间戳 + text）」，实际采用更轻的
+> Run 内内存 scratchpad（`RunContext.think_notes`）——因为 P0-C 的价值在「模型给自己留字的地板」，
+> 跨 Run 持久化不是收益点反而增复杂度；若后续要复盘 think 轨迹，再加落库即可，接口 `note_think`
+> 已留好扩展位。
+
 ---
 
 ### 2.4 P1-A　Prompt Caching（省钱项 · 取决于网关能力）

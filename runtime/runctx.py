@@ -141,9 +141,30 @@ class RunContext:
     needs_user_input: bool = False
     pending_questions: list[str] = field(default_factory=list)
     needs_user_blocked_count: int = 0
+    # ---- P0-C：think / scratchpad（模型→自己的过程地板；只存最近 20 条，不落库、
+    #      不进主 model context，避免污染 token；Completion Gate 不把它当 evidence）----
+    think_notes: list[str] = field(default_factory=list, repr=False)
     # ---- Phase 5：TERMINALIZE 强制收口（一次收口机会，之后 break SDK 工具循环）----
     terminalize_announced: bool = False
     convergence_forced: bool = False
+
+    def note_think(self, text: str) -> int:
+        """记一条 think 笔记到 Run 级 scratchpad，返回当前条数。
+
+        与 decision_hint（运行时→模型）互补：think 补「模型→自己」的地板。
+        只保留最近 20 条（防无限增长）；不落库、不进 context（纯过程记录）。
+        """
+        cleaned = (text or "").strip()
+        if not cleaned:
+            return len(self.think_notes)
+        self.think_notes.append(cleaned[:500])
+        if len(self.think_notes) > 20:
+            self.think_notes.pop(0)
+        return len(self.think_notes)
+
+    def think_notes_snapshot(self) -> list[str]:
+        """返回 think 笔记快照（只读副本）。"""
+        return list(self.think_notes)
 
     def enter_needs_user_input(self, questions: list[str] | None = None) -> None:
         self.needs_user_input = True

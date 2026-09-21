@@ -684,6 +684,23 @@ def save_note(title: str, content: str) -> str:
 
 
 @function_tool
+def think(text: str) -> str:
+    """记录一条你自己的思考/计划/中间结论（过程地板，零副作用）。
+
+    在两个工具调用之间需要"留个便条给自己"时用：记下当前进展、下一步打算、
+    已排除的方向。只写本 Run 的 scratchpad（不落库、不影响任何文件/外部资源），
+    不会改变任务状态，也不会被当作完成证据。随时可用，无目标参数。
+    """
+    from runtime.runctx import current as _rc
+
+    rctx = _rc()
+    if rctx is None:
+        return "（think 仅在 Run 内可用；当前无活跃 Run，已忽略。）"
+    count = rctx.note_think(text)
+    return f"已记录 1 条思考（本 Run 累计 {count} 条）。可继续下一步。"
+
+
+@function_tool
 def read_note(filename: str) -> str:
     """读取 notes 目录里的某个文件产出，filename 为文件名（可带 .md）。
     返回文件内容；如果文件不存在则返回错误提示。"""
