@@ -1078,6 +1078,11 @@ class DiscoveryTracker:
           * verification_passed=True  → 直接收口，不要再改代码（治 T038/T049）
           * verification_seen 且未通过 → 优先修复失败点，不要盲目继续探索（治 T023/T024）
           * mutation_seen 且未验证     → 下一步优先 run_tests，而不是继续写（治 coding 不收敛）
+        P1-B(3)（2026-09-22）新增两态：
+          * 探索型 destructive（mutation 否 + 读多 + 低新颖连续）→ 要么 ask user
+            确认要么动手改，不能反复 read/think 空转（治 T038）
+          * coding 意图层（mutation 否 + 已读完目标文件）→ 读完必须动手写，
+            不要读完就放弃（治 T023）
         """
         if not self.saturated():
             return None
@@ -1102,6 +1107,22 @@ class DiscoveryTracker:
         elif s["mutation_seen"] and not s["verification_seen"]:
             lines.append(
                 "已修改但未验证：下一步优先运行验证（run_tests），而不是继续写代码或探索。"
+            )
+        # P1-B(3)：destructive 探索型——读多、未改、低新颖连续（治 T038 空转 think）
+        elif (not s["mutation_seen"]
+              and s["unique_files_read"] >= 2
+              and s["low_novelty_streak"] >= 2):
+            lines.append(
+                "已反复读取但尚未修改或确认。破坏性/配置类任务不能只读不写："
+                "要么向用户确认是否执行，要么动手修改对应文件，不要再 read/think 空转。"
+            )
+        # P1-B(3)：coding 意图层——读完目标文件未动手写（治 T023 读完就放弃）
+        elif (not s["mutation_seen"]
+              and s["unique_files_read"] >= 1
+              and s["meaningful_progress_count"] == 0):
+            lines.append(
+                "已读取目标文件但未开始修改。下一步动手写修复/实现，"
+                "不要读完就放弃；若确实无法完成，再明确说明限制。"
             )
         else:
             lines.append("继续探索需要明确的未解决问题；否则转入修改/验证/回答。")
