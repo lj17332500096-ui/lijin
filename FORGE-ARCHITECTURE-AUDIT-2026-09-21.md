@@ -91,7 +91,22 @@ replan_count/clarification_required/clarification_happened`）。全量回归 12
   （建议：`deep_research` / `code_loop` / `compact` 三类纯探索/纯验证/纯摘要类；
   `write_project_file` / `edit` / `run_python` 永远走主 Run。）
 
-**落地状态**（2026-09-21）：✅ 已实现。`runtime/context.py` 新增 `identify_tool_rounds` + `trim_tool_messages` 纯函数 + 3 个开关（`FORGE_TOOL_TRIM_GUARD=on` / `FORGE_TOOL_TRIM_KEEP_ROUNDS=2` / `FORGE_TOOL_TRIM_MIN_CHARS=4000`），接进 `prepare_session_context` 的「3.5 中间档」（Soft compact 之后、Hard window 之前）；快路径加 `tool_calls` 字段避免工具碎片多时误放行。新增 `tests/test_tool_trim.py`（9 用例），全量回归 1248/0。
+**落地状态**（2026-09-21 复审）：⏸️ **暂不实现（理由已核实）**。逐工具核查后发现：`deep_research`
+（`research.py:197`）与 `code_loop`（`runtime/codex_loop.py:168`）**都已是黑盒**——各自只把最终
+结果字符串回传主链（`deep_research` 回 `_format_return` 的 ≤RETURN_CAP 节选 + 报告路径；
+`code_loop` 回四段总结），内部中间碎片（3 次模型调用 / 12 次搜索 / 多轮验证循环）**当前根本没进
+主会话历史**。因此层 3「子会话隔离」对这两个工具的"消除碎片堆叠"收益实际为零——碎片已经没堆进
+主上下文了。真正需要子会话隔离的「模型自己一次 Run 内串多次 web_search/read 的碎片堆叠」已被
+**层 1 工具消息裁剪**（`trim_tool_messages`）治住。硬套子会话只会增加 `get_or_create_container` +
+独立 `SQLiteSession` + 所有权模型的复杂度而无对应收益（参考库「子智能体间上下文隔离是致命短板」
+的代价在此场景下纯负）。**结论：层 1+2 已覆盖碎片堆叠与压缩断片，层 3 推迟到确有"跨任务并行探索"
+需求时再上。**
+
+**P0-B-1 落地状态**（层 1，2026-09-21）：✅ 已实现。`runtime/context.py` 新增 `identify_tool_rounds` +
+`trim_tool_messages` 纯函数 + 3 个开关（`FORGE_TOOL_TRIM_GUARD=on` / `FORGE_TOOL_TRIM_KEEP_ROUNDS=2` /
+`FORGE_TOOL_TRIM_MIN_CHARS=4000`），接进 `prepare_session_context` 的「3.5 中间档」（Soft compact 之后、
+Hard window 之前）；快路径加 `tool_calls` 字段避免工具碎片多时误放行。新增 `tests/test_tool_trim.py`
+（9 用例），全量回归 1248/0。
 
 ### 2.3 P0-C　think / scratchpad 工具（零成本 · 最先做）
 
