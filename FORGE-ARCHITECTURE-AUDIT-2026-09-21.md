@@ -77,6 +77,8 @@ replan_count/clarification_required/clarification_happened`）。全量回归 12
 - 压缩后加「**开篇语**」（参考库明确要求）：「上下文已使用结构化 8 节算法压缩，所有必要信息已保留，可无缝继续对话」——这是避免压缩后模型"断片"的关键；
 - FORGE 落地：新建 `runtime/context_compress.py`，`compact_history(messages) -> compressed` + 写 `compression_history` 表（保留最近 10 次，参考库 §一 第 3 条）。
 
+**落地状态**（2026-09-21）：✅ 已实现（复用既有 `compact.py`，无需新建 `context_compress.py`）。`compact.py` 的 `_SUMMARY_SYSTEM` 从自由散文升级为 8 节 XML `state_snapshot`（task_intent / tech_context / code_changes / errors_fixes / current_status / pending_tasks / user_preferences / key_decisions），`_summary_item` 前缀 `_SUMMARY_OPENING` 开篇语（"上下文已使用结构化 8 节算法压缩，可无缝继续，不要重复执行已完成步骤"），`SUMMARY_MAX_CHARS` 1200→1600。新增 `tests/test_compact_state_snapshot.py`（11 用例），全量回归通过。
+
 **层 3 · 子任务委托 / 上下文隔离（参考库 §2.3 Context Quarantine，成本高 · 最后做 · 需 2 个决策）**
 - 参考库明确：「**搜索的本质是压缩**；子代理通过并行操作自己的上下文窗口促进压缩，在把最重要 token 压缩给主代理前，各自独立探索问题不同方面」；且「**子智能体间上下文隔离**是致命短板」（§3.2，无好解，故单智能体优先）；
 - FORGE 落地：复用 `get_or_create_container` + 独立 `SQLiteSession`，把**无副作用的重活**（`deep_research` / `code_loop` / `compact 摘要` / `--daemon` 定时任务）放进临时子会话；子会话只回传 **≤2k token 摘要**进主链（层 2 的压缩指令直接复用）；evidence 仍走既有 `rctx.note_execution_identity` 登记路径，**Completion Gate 一行不用改**；**委托入口硬编码在 `runtime` 层少数已知位置**，**不**暴露成模型可见工具（否则 Single Active Run / FileScope / Approval 所有权模糊——参考库 §3.1「主智能体与子智能体上下文中断」即此风险）。

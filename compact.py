@@ -34,7 +34,7 @@ TRIGGER_CHARS = 180000      # 或对话（含工具输出，粗略估算）总�
 KEEP_USER_TURNS = 20        # 摘要后保留最近几轮原文
 PER_MSG_CAP = 1600          # 单条消息进入摘要材料的长度上限
 TRANSCRIPT_CAP = 150000     # 一次发给模型做摘要的材料总长度上限
-SUMMARY_MAX_CHARS = 1200
+SUMMARY_MAX_CHARS = 1600
 
 #: 最近一次摘要模型失败的分类信息（供 compaction 事件如实记录 provider 原因）
 _LAST_SUMMARY_ERROR: dict[str, str] = {}
@@ -56,12 +56,36 @@ def _refresh_thresholds() -> None:
 
 _SUMMARY_MARK = "[此前对话的自动摘要"
 
-_SUMMARY_SYSTEM = """你是会话压缩器。请把下面这段“用户与助手”的旧对话压缩成一段中文摘要，供之后继续对话时使用。
+#: 压缩开篇语（参考库《Practical Guide to Context Engineering》：ClaudeCode 压缩后
+#: 必须加一句"上下文已压缩、可无缝继续"的开篇语，让模型续接时知道这是压缩态、
+#: 关键信息已结构化保留，避免把摘要当成"完整历史"而重复执行已完成步骤）。
+_SUMMARY_OPENING = (
+    "上下文已使用结构化 8 节算法压缩。所有必要信息已保留，可无缝继续对话。"
+    "不要重复执行已完成步骤；如需某条被压缩掉的细节，请重新调用对应工具。"
+)
+
+# P0-B-2（上下文工程三层之层 2）：把 _SUMMARY_SYSTEM 从「自由散文摘要」升级为
+# 参考库 ClaudeCode 的 8 节 state_snapshot 结构（对齐《Practical Guide to Context
+# Engineering》上下文压缩指令篇）。用 XML 而非 JSON（Claude 模型对 XML 标签友好），
+# 8 节对应：任务意图 / 技术上下文 / 文件与代码变更 / 错误与修复 / 当前状态 /
+# 待处理任务 / 用户偏好 / 关键决策。信息密集、省略客套与重复、保留实体名。
+_SUMMARY_SYSTEM = """你是会话压缩器。请把下面这段"用户与助手"的旧对话，压缩成一份结构化的中文 8 节 state_snapshot，供之后无缝续接时使用。
+
 要求：
-1. 保留：用户的需求/目标、关键决定、用户偏好、已保存的文件产出名、重要结果、尚未完成的事、下一步计划；
-2. 省略：过程细节、工具调用细节、客套话、重复解释；
-3. 用简洁要点列出，全文控制在 500 字以内；如果之前已经有过摘要，先概括旧摘要要点再补充新内容；
-4. 只输出摘要正文，不要加“摘要：”之类的前缀，也不要输出 JSON。"""
+1. 严格按下列 8 节输出，每节用 XML 标签包裹（Claude 模型对 XML 更友好，不要改用 JSON）；
+   某节无内容时保留标签并写"（无）"，不要省略标签：
+   <task_intent>用户的明确请求与总体目标（一句话高层 + 具体意图）</task_intent>
+   <tech_context>技术栈 / 框架 / 包管理器 / 环境约定（用于重建开发环境的关键事实）</tech_context>
+   <code_changes>检查、修改或创建过的具体文件与代码片段（文件名 + 改动摘要，保留关键签名/路径）</code_changes>
+   <errors_fixes>遇到的错误及修复方式；用户的纠正反馈（用户说"以不同方式做"的尤其要留）</errors_fixes>
+   <current_status>当前任务进度：已完成哪些步骤、现在停在哪一步（避免压缩后重复执行）</current_status>
+   <pending_tasks>尚未完成的待办任务，按优先级列出</pending_tasks>
+   <user_preferences>用户的工作偏好 / 沟通方式 / 工具习惯 / 测试覆盖率要求等（本项目工作记忆）</user_preferences>
+   <key_decisions>已拍板的关键决策（防止项目方向丢失）</key_decisions>
+2. 省略：客套话、重复解释、纯过程性对话填充；但保留所有实体名（文件 / 函数 / 工具 / 路径 / 数值）；
+3. 信息要极其密集，全文控制在 1200 字以内；如果之前已经有过摘要（"先前摘要"），先概括旧摘要要点再补充新内容；
+4. 只输出 <state_snapshot>...</state_snapshot> 一个 XML 块，不要额外解释、不要加其它标签。
+"""
 
 
 def _model_name() -> str:
@@ -194,8 +218,18 @@ def summarize_transcript(transcript: str) -> str:
 
 
 def _summary_item(summary: str) -> dict[str, str]:
+    """把压缩产物写成一条 system 历史项。
+
+    P0-B-2：按参考库《Practical Guide to Context Engineering》，压缩产物前必须加
+    一句「开篇语」（_SUMMARY_OPENING），让模型续接时知道这是结构化压缩态、
+    关键信息已保留、不要重复执行已完成步骤。开篇语 + 摘要 一起构成「新一轮
+    对话的上下文」，减少断片率。
+    """
     stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-    return {"role": "system", "content": f"{_SUMMARY_MARK} · {stamp}]\n{summary}"}
+    return {
+        "role": "system",
+        "content": f"{_SUMMARY_MARK} · {stamp}]\n{_SUMMARY_OPENING}\n{summary}",
+    }
 
 
 def _append_summary_file(session_id: str, summary: str) -> Path:
