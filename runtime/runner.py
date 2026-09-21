@@ -1047,6 +1047,18 @@ class AgentRuntime:
                             rctx.mark_persistence_done(name)
                     except Exception:
                         pass
+                # ---- 搜索两级预算：web_search 放行后叠加 soft/hard 提示文本 ----
+                # 达到 soft 线（默认 3）：不拒绝，返回 policy feedback 让模型自判
+                # 是否值得继续搜索（要求新证据 + 不同目的，禁止换词重复）。
+                # 达到 hard 线（默认 5）：由 can_execute_tool 拒绝，不进此处。
+                if (rctx is not None and name == "web_search"
+                        and isinstance(result, str)):
+                    try:
+                        _fb = rctx.search_budget_feedback()
+                        if _fb:
+                            result = result + "\n\n" + _fb
+                    except Exception:
+                        pass
                 if wa_applied and self.tasks is not None:
                     try:
                         self.tasks.update_tool_call_status(
@@ -1166,6 +1178,14 @@ class AgentRuntime:
                 ).hexdigest()[:16]
             except Exception:
                 fp = ""
+            # progress_event：对本次调用做确定性进展判定（复用于 trace/评测）
+            progress_event = ""
+            try:
+                if rctx is not None:
+                    _sig = rctx._t().action_signature(name, arguments)
+                    progress_event = _sig[:120]
+            except Exception:
+                progress_event = ""
             from datetime import datetime, timezone
 
             if self.tasks is not None and rid and rid != "?":
@@ -1182,6 +1202,7 @@ class AgentRuntime:
                     "blocked_reason": str(output_head)[:200] if blocked else "",
                     "execution_status": status,
                     "result_fingerprint": fp,
+                    "progress_event": progress_event,
                     "result_summary": str(output_head)[:200],
                     "evidence_kind": status,
                     "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),

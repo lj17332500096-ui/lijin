@@ -316,6 +316,79 @@ class Observation:
             or "补充" in text or "请告诉" in text or "确认" in text
         )
 
+    # ---- 行为断言指标（Phase 11+）：从 tool_calls 明细派生，不引入第二套状态 ----
+    def search_call_count(self) -> int:
+        """web_search 真实执行次数（executed 状态，不含 blocked/error）。"""
+        return sum(
+            1 for c in self.tool_calls
+            if c.get("name") == "web_search" and c.get("status") == "executed"
+        )
+
+    def duplicate_tool_calls(self) -> int:
+        """同 fingerprint + 无中间状态变化 的重复调用次数。
+
+        算法：遍历 executed 调用，按 result_fingerprint 分组；
+        同组内若两次之间无 mutation（workspace_epoch 未变），计一次重复。
+        没有 fingerprint 时回退到 normalized_args + canonical_target 精确去重。
+        """
+        dup = 0
+        last_fp: dict[str, int] = {}
+        last_epoch: dict[str, int] = {}
+        for c in self.tool_calls:
+            if c.get("status") != "executed":
+                continue
+            fp = str(c.get("result_fingerprint") or "")
+            key = f"{c.get('name')}|{fp[:8]}" if fp else \
+                f"{c.get('name')}|{str(c.get('canonical_target') or '')[:40]}"
+            epoch = int(c.get("workspace_epoch") or 0)
+            prev_epoch = last_epoch.get(key)
+            if last_fp.get(key) == fp and prev_epoch == epoch:
+                dup += 1
+            last_fp[key] = fp
+            last_epoch[key] = epoch
+        return dup
+
+    def no_progress_calls(self) -> int:
+        """无进展（NO_PROGRESS）调用数：同 progress_event 且同 fingerprint
+        且中间无 epoch 变化的连续调用，第 2 次起计入。"""
+        seen: dict[str, tuple[str, int]] = {}
+        noprogress = 0
+        for c in self.tool_calls:
+            if c.get("status") != "executed":
+                continue
+            sig = str(c.get("progress_event") or "")
+            fp = str(c.get("result_fingerprint") or "")
+            epoch = int(c.get("workspace_epoch") or 0)
+            key = f"{c.get('name')}|{sig[:60]}"
+            prev = seen.get(key)
+            if prev is not None and prev[0] == fp and prev[1] == epoch:
+                noprogress += 1
+            seen[key] = (fp, epoch)
+        return noprogress
+
+    def replan_count(self) -> int:
+        """replan 次数：从 blocked_reasons 派生——convergence/redundant/repeat 护栏
+        触发的 blocked 调用数（这些是模型被迫换路径的信号）。
+        精确 replan_count 需要 Runtime 记录 replan 事件，当前用 blocked 数近似。"""
+        n = 0
+        for r in self.blocked_reasons:
+            if any(m in r for m in ("收敛", "convergence", "重复", "重复调用",
+                                    "已有证据", "预算", "budget", "护栏")):
+                n += 1
+        return n
+
+    def clarification_required(self) -> bool:
+        """该 case 是否预期需要追问（由 expected.user_input_required 决定，
+        此处只读 obs 侧信号：needs_user_input 触发的 blocked 调用）。"""
+        return any("缺少必要信息" in r or "MISSING_REQUIRED" in r
+                   for r in self.blocked_reasons)
+
+    def clarification_happened(self) -> bool:
+        """实际是否发生了追问：终态 waiting_user 或 reply_kind=questions。"""
+        if (self.reply_kind or "").strip().lower() == "questions":
+            return True
+        return (self.terminal_state or self.final_status or "").strip().lower() == "waiting_user"
+
 
 # ---------------------------------------------------------------------------
 # CaseResult
@@ -374,6 +447,26 @@ class CaseResult:
             "reasons": self.reasons,
             "error": self.error,
         }
+
+    def as_row_with_behavior_metrics(self, obs: "Observation") -> dict[str, Any]:
+        """as_row + 行为断言指标（Phase 11+ 行为层治理用）。
+
+        新增字段（全部由 obs.tool_calls / obs.blocked_reasons 派生，不引入第二套状态）：
+        - search_call_count        web_search 真实执行次数
+        - duplicate_tool_calls     同 fingerprint 且中间无 epoch 变化的重复调用数
+        - no_progress_calls        同 progress_event 且同 fingerprint 的连续无进展调用数
+        - replan_count            护栏触发的 blocked 调用数（replan 近似）
+        - clarification_required   该 case 是否预期需要追问（obs 侧信号）
+        - clarification_happened   实际是否发生了追问（终态 waiting_user / reply_kind=questions）
+        """
+        row = self.as_row()
+        row["search_call_count"] = obs.search_call_count()
+        row["duplicate_tool_calls"] = obs.duplicate_tool_calls()
+        row["no_progress_calls"] = obs.no_progress_calls()
+        row["replan_count"] = obs.replan_count()
+        row["clarification_required"] = obs.clarification_required()
+        row["clarification_happened"] = obs.clarification_happened()
+        return row
 
 
 # ---------------------------------------------------------------------------

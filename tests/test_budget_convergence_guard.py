@@ -31,7 +31,7 @@ class BudgetBlockKeyTests(unittest.TestCase):
 
     def test_per_tool_exceeded_returns_block_key(self):
         rc = RunContext()
-        rc.max_web_search_executions = 2
+        rc.max_web_search_hard = 2
         # 放行 2 次
         for _ in range(2):
             ok, _ = rc.can_execute_tool("web_search")

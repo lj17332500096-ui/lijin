@@ -136,13 +136,15 @@ class RunBudgetTests(unittest.TestCase):
 
     def test_web_search_budget_exhausted(self):
         rc = RunContext(run_id="r1")
-        for _ in range(rc.max_web_search_executions):
+        # 两级预算：hard 是拒绝线（= max_web_search_hard，与 max_web_search_executions 对齐）
+        for _ in range(rc.max_web_search_hard):
             ok, _ = rc.can_execute_tool("web_search")
             self.assertTrue(ok)
             rc.note_executed("web_search")
         ok, reason = rc.can_execute_tool("web_search")
         self.assertFalse(ok)
-        self.assertIn("达到本任务上限", reason)
+        # 2026-09-21 行为层整改：hard 拒发文案改为两级预算语义（含"硬上限"）
+        self.assertIn("硬上限", reason)
 
     def test_total_execution_budget(self):
         rc = RunContext(run_id="r1")

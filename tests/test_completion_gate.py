@@ -390,13 +390,15 @@ class RunTurnCompletionGateTests(unittest.TestCase):
 
         # 本用例语义：模型口头声称等待批准（无真实 pending），repair 后撤回声明
         # → 会话型完成。全程无真实工具执行（义务门已在 setUp 关闭）。
+        # 2026-09-21：第 9 类「模糊执行意图」拦截让"运行测试验证一下"在消息层
+        # 即进入 needs_user_input（确定性收口为 questions → WAITING_USER），
+        # 单次调用即可完成，不再有 repair loop → h.calls=1。
         with _FakeHarness(self) as h:
             h.install(fake)
             result = h.run("运行测试验证一下。")
-            self.assertTrue(result.ok)  # repair 后撤回声明 → 会话型完成
-            self.assertEqual(len(h.calls), 2)
+            self.assertTrue(result.ok)  # 拦截后收口 → 会话型完成
+            self.assertEqual(len(h.calls), 1)
             types = self._events(h, result.task.id)
-            self.assertIn("completion.check.rejected", types)
             self.assertIn("completion.check.passed", types)
 
     def test_verbal_approval_persists_fails_cleanly(self) -> None:

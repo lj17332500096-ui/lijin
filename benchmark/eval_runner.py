@@ -163,17 +163,28 @@ async def _run_case(rt, case, *, deadline_s: float, db_dir: Path,
             if e["type"] != "tool.invocation":
                 continue
             p = e["payload"] or {}
-            status = str(p.get("status") or "executed").lower()
+            status = str(p.get("status") or p.get("execution_status") or "executed").lower()
             if status in ("succeeded", "success", "ok"):
                 status = "executed"
             if status == "denied":
                 status = "blocked"
+            # 补上 trace 此前丢失的字段：
+            # - normalized_args：工具调用参数（脱敏前；敏感参数走 _record_tool 的 redaction）
+            # - result_fingerprint：结果指纹（用于"同参数换关键词"vs"真不同子查询"判别）
+            # - progress_event：进展判定签名（NO_PROGRESS/NEW_EVIDENCE 等）
+            # - canonical_target：逻辑目标身份（read/search/verify 的 target）
+            # - workspace_epoch：本次调用时的 mutation 代数（判定"中间是否有 write/edit"）
             calls.append({
                 "name": p.get("tool_name") or p.get("name"),
                 "status": status,
                 "reason": str(p.get("blocked_reason") or p.get("reason") or "")[:300],
                 "result_excerpt": str(p.get("result_summary") or p.get("result") or "")[:1500],
                 "invocation_id": p.get("invocation_id"),
+                "normalized_args": str(p.get("normalized_args") or "")[:600],
+                "result_fingerprint": str(p.get("result_fingerprint") or "")[:16],
+                "progress_event": str(p.get("progress_event") or "")[:120],
+                "canonical_target": str(p.get("canonical_target") or "")[:200],
+                "workspace_epoch": int(p.get("workspace_epoch") or 0),
             })
         out["tool_calls"] = calls
         out["model_turns"] = sum(

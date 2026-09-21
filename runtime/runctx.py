@@ -35,7 +35,7 @@ def _env_int(name: str, default: int) -> int:
 #: 任何"按目标去重"的护栏都看不见它，只能等到 20 次总上限才收场。
 #: 这里给高频探索类工具设更早、更窄的闸。
 #:
-#: ⚠️ web_search 的历史上限（TOOL_BUDGET_WEB_SEARCH，默认 5）优先于此表，见 per_tool_budget()。
+#: ⚠️ web_search 的硬上限（TOOL_BUDGET_WEB_SEARCH，默认 5）与软预算见下方两级逻辑；
 #: 调整请用环境变量 TOOL_BUDGET_PER_TOOL（格式 `工具名=上限,工具名=上限`），不要改这里。
 _DEFAULT_PER_TOOL_BUDGETS: dict[str, int] = {
     "list_workspace_files": 8,
@@ -46,6 +46,38 @@ _DEFAULT_PER_TOOL_BUDGETS: dict[str, int] = {
     "search_documents": 8,
     "search_sources": 8,
 }
+
+#: web_search 两级预算（软/硬）。
+#: 软预算：达到时不拒绝，返回 policy feedback 让模型自判是否值得继续；
+#: 硬预算：达到时拒绝继续 web_search，要求基于已有证据收口。
+#: 默认 soft=3 / hard=5 —— 第一阶段不引入任务分类（simple/normal/multi-part），
+#: 保留 SEARCH_BUDGET_PROFILE 扩展接口，后续可接任务分类器切换档位。
+_SEARCH_SOFT_DEFAULT = 3
+_SEARCH_HARD_DEFAULT = 5  # 与历史 TOOL_BUDGET_WEB_SEARCH 默认值对齐
+
+
+def _search_soft_limit() -> int:
+    """web_search 软预算：达到时给 policy feedback（不拒绝）。"""
+    return int(_env_int("TOOL_BUDGET_WEB_SEARCH_SOFT", _SEARCH_SOFT_DEFAULT))
+
+
+def _search_hard_limit() -> int:
+    """web_search 硬预算：达到时拒绝。默认与 TOOL_BUDGET_WEB_SEARCH 一致（5）。"""
+    return int(_env_int("TOOL_BUDGET_WEB_SEARCH", _SEARCH_HARD_DEFAULT))
+
+
+_SEARCH_SOFT_FEEDBACK = (
+    "【搜索预算提示】web_search 已达到本次任务的建议搜索预算。"
+    "请先判断现有证据是否已经足够回答；只有在仍缺少一个明确且新的关键证据，"
+    "并且下一次搜索与已有搜索目的不同的情况下，才继续搜索。"
+    "不要仅通过改写关键词重复查询。"
+)
+
+_SEARCH_HARD_FEEDBACK = (
+    "【搜索预算硬上限】web_search 已达到本次任务硬上限。"
+    "请基于已有证据完成回答；无法确认的内容明确说明无法确认，"
+    "不要继续换关键词搜索。"
+)
 
 
 def _env_per_tool_budgets() -> dict[str, int]:
@@ -94,9 +126,12 @@ class RunContext:
     max_total_tool_executions: int = field(
         default_factory=lambda: int(_env_int("TOOL_BUDGET_TOTAL", 20))
     )
-    max_web_search_executions: int = field(
-        default_factory=lambda: int(_env_int("TOOL_BUDGET_WEB_SEARCH", 5))
-    )
+    #: web_search 两级预算：soft 达到给 feedback（不拒绝），hard 达到拒绝。
+    max_web_search_soft: int = field(default_factory=_search_soft_limit)
+    max_web_search_hard: int = field(default_factory=_search_hard_limit)
+    #: 兼容字段：保留 max_web_search_executions 供读取（= hard），
+    #: 新代码请用 search_budget_state() 获取两级状态。
+    max_web_search_executions: int = field(default_factory=_search_hard_limit)
     #: 工具名 -> 独立上限（覆盖 _DEFAULT_PER_TOOL_BUDGETS 中的同名项）。
     max_per_tool_executions: dict = field(default_factory=_env_per_tool_budgets)
     tool_execution_counts: dict[str, int] = field(default_factory=dict)
@@ -120,14 +155,48 @@ class RunContext:
     def per_tool_budget(self, name: str) -> int | None:
         """该工具的独立执行上限；None 表示只受单 Run 总上限约束。
 
-        优先级：web_search 的历史配置（TOOL_BUDGET_WEB_SEARCH）
+        优先级：web_search 的 hard 上限（max_web_search_hard / TOOL_BUDGET_WEB_SEARCH）
         > TOOL_BUDGET_PER_TOOL 显式覆盖 > _DEFAULT_PER_TOOL_BUDGETS。
+
+        ⚠️ web_search 是两级：hard 是拒绝线，soft 只给 feedback。
+        per_tool_budget 返回 hard 用于拒绝判断；soft 线请用 search_budget_state()。
         """
         if name == "web_search":
-            return self.max_web_search_executions
+            return self.max_web_search_hard
         if name in self.max_per_tool_executions:
             return self.max_per_tool_executions[name]
         return _DEFAULT_PER_TOOL_BUDGETS.get(name)
+
+    def search_budget_state(self) -> tuple[str, int, int, int]:
+        """web_search 两级预算状态。
+
+        返回 (state, used, soft, hard)：
+        - state in {"normal", "soft_reached", "hard_reached"}
+        - 调用方按 state 决定：
+          * normal        → 放行
+          * soft_reached  → 放行但返回 policy feedback（不拒绝）
+          * hard_reached  → 拒绝，返回 hard feedback
+
+        保留扩展接口：后续可接任务分类器（simple/normal/multi-part）
+        通过 SEARCH_BUDGET_PROFILE 环境变量切换 soft/hard 档位。
+        当前默认 simple+normal=3/5，multi-part=4/6 走 TOOL_BUDGET_WEB_SEARCH 覆盖。
+        """
+        used = self.tool_execution_counts.get("web_search", 0)
+        soft, hard = self.max_web_search_soft, self.max_web_search_hard
+        if used >= hard:
+            return "hard_reached", used, soft, hard
+        if used >= soft:
+            return "soft_reached", used, soft, hard
+        return "normal", used, soft, hard
+
+    def search_budget_feedback(self) -> str | None:
+        """web_search 两级预算对应的 feedback 文案（normal 时返回 None）。"""
+        state, used, soft, hard = self.search_budget_state()
+        if state == "hard_reached":
+            return _SEARCH_HARD_FEEDBACK
+        if state == "soft_reached":
+            return _SEARCH_SOFT_FEEDBACK
+        return None
 
     def can_execute_tool(self, name: str) -> tuple[bool, str | None]:
         """Run 级工具预算：超限返回 False；放行时**原子预留**一个名额。
@@ -146,11 +215,10 @@ class RunContext:
         if cap is not None:
             used = self.tool_execution_counts.get(name, 0)
             if used >= cap:
+                # web_search 两级：拒绝（达到 hard 上限）时走硬上限文案，
+                # 与 search_budget_state() 的 hard_reached 语义对齐。
                 if name == "web_search":
-                    return False, (
-                        f"联网搜索已执行 {used} 次，达到本任务上限。请不要再搜索，"
-                        "直接基于已有信息作答，或改用其它可用能力，说明当前的限制。"
-                    )
+                    return False, _SEARCH_HARD_FEEDBACK
                 return False, (
                     f"{name} 已执行 {used} 次，达到本任务上限。请不要再重复调用同一工具，"
                     "换用其它能力或直接基于已获得的信息作答，并说明当前的限制。"

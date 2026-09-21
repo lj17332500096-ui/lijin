@@ -264,11 +264,18 @@ def missing_required_fields(message: str | None, tool_name: str,
                             arguments: dict[str, Any] | None) -> tuple[bool, str | None]:
     """返回 (missing, 引导文本) —— 缺执行必需字段时拦截，防止模型猜参数空转。
 
-    只针对 Benchmark 暴露的 4 类“必需信息”场景，普通探索（读文件/搜代码/修复）不拦。
+    只针对 Benchmark 暴露的 4 类"必需信息"场景，普通探索（读文件/搜代码/修复）不拦。
+    ⚠️ arguments 仅用于「豁免已明确提供的字段」（如 send 工具的 file/to 参数），
+    不用于绕过缺项拦截——缺项拦截只看 request_text 里是否给出了可定位的值。
     """
     text = str(message or "").strip()
     if not text:
         return False, None
+    # 0) 发送类工具：arguments 里已明确提供的字段可豁免对应缺项判定
+    _args = arguments or {}
+    _arg_file = str(_args.get("file") or _args.get("file_path") or _args.get("path") or "").strip()
+    _arg_receiver = str(_args.get("to") or _args.get("receiver") or _args.get("recipient")
+                        or _args.get("email") or "").strip()
     # 1) 航班/行程：缺出发地
     if re.search(r"航班|机票|飞往|去.+的机票|查.*航班", text):
         if not any(t in text for t in ("从", "自", "出发", "起飞")):
@@ -309,11 +316,105 @@ def missing_required_fields(message: str | None, tool_name: str,
                 "在得到确认前不要执行删除。"
             )
     # 6) 发送/转发：缺收件人与内容确认（Phase 7）
-    if re.search(r"发给|发送给|转发给|寄给", text):
+    # ⚠️ 仅在「未命中文件发送场景」时兜底；命中文件场景（词表文件 或 带扩展名文件）
+    # 时由第 7 类接管（第 7 类在下方 return 前做精确判定）。
+    _is_file_send = bool(
+        re.search(r"(?:把|将)?\s*(?:文件|文档|材料|照片|图片|附件|报告|表格)"
+                  r".{0,6}(?:发|转发|寄)", text)
+        or re.search(r"(?:发|转发|寄)\s*(?:一个|一份|个|下|给我)?"
+                     r".{0,4}(?:文件|文档|材料|照片|图片|附件)", text)
+        or re.search(r"[A-Za-z0-9_.\-]{2,}\s*\.(?:[a-zA-Z]{1,5})"
+                     r".{0,12}(?:发|转发|寄)", text)  # 带扩展名的文件 + 发送动词
+    )
+    if re.search(r"发给|发送给|转发给|寄给", text) and not _is_file_send:
         return True, (
             "【需要用户确认】发送/转发前必须确认收件人与要发送的具体内容。"
             "请先向用户确认，不要自行推断并发送。"
         )
+    # 7) 文件发送/转发：缺「文件 + 接收对象」两者之一即拦（T044 对抗场景：
+    # 「帮我把文件发给他」—— 既没有具体文件名，也没有具体接收人）。
+    # 判定：命中文件发送场景（词表文件 或 带扩展名文件），且请求里
+    # 既没有给出可定位的文件名（带扩展名或「这个文件/该文件」等指代），
+    # 也没有给出接收对象（邮箱/姓名/账号/「发给某人+称谓」）。
+    if re.search(r"(?:把|将)?\s*(?:文件|文档|材料|照片|图片|附件|报告|表格)"
+                 r".{0,6}(?:发|转发|寄)", text) or \
+       re.search(r"(?:发|转发|寄)\s*(?:一个|一份|个|下|给我)?"
+                 r".{0,4}(?:文件|文档|材料|照片|图片|附件)", text) or \
+       re.search(r"[A-Za-z0-9_.\-]{2,}\s*\.(?:[a-zA-Z]{1,5})"
+                 r".{0,12}(?:发|转发|寄)", text):
+        has_file_ref = bool(
+            re.search(r"[一-龥A-Za-z0-9_./\\-]{2,}\s*\.(?:[a-zA-Z]{1,5})", text)  # 文件名
+            or re.search(r"(?:叫|名为|名叫)\s*[一-龥A-Za-z0-9_]{2,}", text)       # 指定文件
+            or "这个文件" in text or "该文件" in text
+            or bool(_arg_file)                                                   # arguments 已提供 file
+        )
+        has_receiver = bool(
+            re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", text)                 # 邮箱
+            or re.search(r"发给\s*[一-龥A-Za-z]{2,}(?:的|先生|女士|同学|老师|经理)" , text)
+            or re.search(r"发给\s*(?:微信|qq|QQ|邮箱|邮件)", text)
+            # ⚠️ 注意：「某人」/「对方」/「他」等指代词不算明确接收对象（T044 对抗：
+            # 「帮我把文件发给他」既无文件也无明确收件人，不能猜测）。
+            # 明确接收对象要求：邮箱 / 姓名+称谓 / 平台（微信/QQ/邮箱/邮件）/ 具体名字结尾。
+            or bool(_arg_receiver)                                               # arguments 已提供 to/receiver
+        )
+        if not (has_file_ref and has_receiver):
+            missing = []
+            if not has_file_ref:
+                missing.append("要发的具体文件（文件名或路径）")
+            if not has_receiver:
+                missing.append("接收对象（收件人/邮箱/账号）")
+            return True, (
+                "【缺少必要信息】发送/转发文件需要明确" + "、".join(missing) + "。"
+                "请先向用户追问缺失项，不要自行猜测文件或收件人并执行发送。"
+            )
+    # 8) 查天气/查本地事：缺「位置」即拦（T011/T012/T048 对抗场景：
+    # 「查一下明天天气」—— 没有城市/地区，web_search 无法定向）。
+    # ⚠️ 天气类动词与天气类名词允许隔任意时间/修饰词（明天/一下/北京等），
+    # 用 `.{0,6}` 兜住，避免「查一下明天天气」这类常见口语漏匹配。
+    _weather_query = bool(
+        re.search(r"(?:查|看|帮我|告诉我|报一下|告诉我一下|给我)\s*(?:一下|一个)?\s*"
+                  r"(?:明天|今天|今天|明日|今日|后天|这两天|最近)?\s*"
+                  r"(?:天气|气温|温度|降雨|是否下雨|风力|空气质量)", text)
+        or re.search(r"(?:明天|今天|明日|今日|后天)?\s*(?:的)?\s*天气", text)
+        or re.search(r"天气.{0,4}(?:怎么样|如何|预报)", text)
+    )
+    if _weather_query:
+        has_location = bool(
+            re.search(r"(?:北京|上海|广州|深圳|成都|杭州|武汉|西安|南京|重庆|苏州|"
+                      r"天津|长沙|郑州|青岛|厦门|香港|台北|纽约|伦敦|东京|巴黎|新加坡|"
+                      r"北京天气)", text)
+            or re.search(r"[一-龥]{2,4}(?:市|省|区|县|城市)", text)
+            or re.search(r"(?:我这里|我所在|本地|当地)", text)
+        )
+        if not has_location:
+            return True, (
+                "【缺少必要信息】查询天气/气温需要明确城市或地区。"
+                "请先向用户追问位置（例如“请问查哪个城市？”），"
+                "不要自行假设城市直接搜索。"
+            )
+    # 9) 模糊执行意图：「想测一下/试试/跑一下/检查一下」但没给具体测试目标
+    # （T044 对抗：「我今天想先用 Python 3.13 测一下」—— 既没说测什么文件，
+    # 也没说测哪个功能，模型容易越界执行 run_python 或自行解读）。
+    # ⚠️ 有明确目标（文件名/函数名/具体命令/「找出原因并修复」类）不拦，
+    # 避免误伤 T049「找出项目测试偶发失败原因并修复」这类 coding case。
+    _vague_exec = bool(
+        re.search(r"测一下|测试一下|跑一下|验证一下|跑通一下", text)
+        and not re.search(r"找出|修复|定位|排查|原因|解决|问题", text)  # 有诊断/修复目标 → 不拦
+    )
+    if _vague_exec:
+        # 有具体测试目标（文件路径 / 函数名 / 命令 / 代码位置）→ 不拦
+        has_test_target = bool(
+            re.search(r"[一-龥A-Za-z0-9_./\\-]{2,}\s*\.(?:[a-zA-Z]{1,5})", text)  # 文件路径
+            or re.search(r"(?:在|于|针对)\s*[一-龥A-Za-z0-9_]{2,}", text)         # 在某处
+            or re.search(r"(?:函数|方法|类|模块|接口|功能)\s*[一-龥A-Za-z0-9_]{1,}", text)
+            or re.search(r"(?:test_|_test|tests?/)", text)                        # 测试文件
+            or re.search(r"(?:跑|执行)\s*(?:python|pytest|node|npm|pip)\s+", text)  # 具体命令
+        )
+        if not has_test_target:
+            return True, (
+                "【缺少必要信息】你说的“测一下”没有具体测试目标（哪个文件/函数/命令）。"
+                "请先向用户确认要测什么，不要自行假设目标直接执行测试。"
+            )
     return False, None
 
 
@@ -345,6 +446,51 @@ def required_questions(message: str | None) -> list[str]:
             qs.append("请确认要删除的具体文件/目录清单（这是破坏性操作）。")
     if re.search(r"发给|发送给|转发给|寄给", text):
         qs.append("请确认收件人，以及要发送的具体内容。")
+    # 7) 文件发送：缺文件/收件人（与 missing_required_fields 第 7 类对齐）
+    if re.search(r"(?:把|将)?\s*(?:文件|文档|材料|照片|图片|附件|报告|表格)"
+                 r".{0,6}(?:发|转发|寄)", text) or \
+       re.search(r"(?:发|转发|寄)\s*(?:一个|一份|个|下|给我)?"
+                 r".{0,4}(?:文件|文档|材料|照片|图片|附件)", text):
+        has_file_ref = bool(
+            re.search(r"[一-龥A-Za-z0-9_./\\-]{2,}\s*\.(?:[a-zA-Z]{1,5})", text)
+            or re.search(r"(?:叫|名为|名叫)\s*[一-龥A-Za-z0-9_]{2,}", text)
+            or "这个文件" in text or "该文件" in text
+        )
+        has_receiver = bool(
+            re.search(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+", text)
+            or re.search(r"发给\s*[一-龥A-Za-z]{2,}(?:的|先生|女士|同学|老师|经理)", text)
+            or re.search(r"发给\s*(?:微信|qq|QQ|邮箱|邮件)", text)
+        )
+        if not has_file_ref:
+            qs.append("要发送的是哪个文件？请给出文件名或路径。")
+        if not has_receiver:
+            qs.append("发给谁？请给出收件人/邮箱/账号。")
+    # 8) 查天气/气温：缺位置（与 missing_required_fields 第 8 类对齐）
+    if (re.search(r"(?:查|看|告诉我|报一下)\s*(?:一下)?\s*(?:天气|气温|温度|降雨|是否下雨|"
+                  r"风力|空气质量)", text)
+            or re.search(r"天气.{0,4}(?:怎么样|如何|预报)", text)) and not \
+       re.search(r"(?:北京|上海|广州|深圳|成都|杭州|武汉|西安|南京|重庆|苏州|天津|"
+                 r"长沙|郑州|青岛|厦门|香港|台北|纽约|伦敦|东京|巴黎|新加坡|北京天气)",
+                 text) and \
+       not re.search(r"[一-龥]{2,4}(?:市|省|区|县|城市)", text) and \
+       not re.search(r"(?:我这里|我所在|本地|当地)", text):
+        qs.append("请问查哪个城市/地区的天气？")
+    # 9) 模糊执行意图：「想测一下/试试/跑一下」但没给具体测试目标（T044 对抗）
+    # 与 missing_required_fields 第 9 类同一套判定，只是输出面向用户的问句。
+    _vague_exec = bool(
+        re.search(r"测一下|测试一下|跑一下|验证一下|跑通一下", text)
+        and not re.search(r"找出|修复|定位|排查|原因|解决|问题", text)
+    )
+    if _vague_exec:
+        has_test_target = bool(
+            re.search(r"[一-龥A-Za-z0-9_./\\-]{2,}\s*\.(?:[a-zA-Z]{1,5})", text)
+            or re.search(r"(?:在|于|针对)\s*[一-龥A-Za-z0-9_]{2,}", text)
+            or re.search(r"(?:函数|方法|类|模块|接口|功能)\s*[一-龥A-Za-z0-9_]{1,}", text)
+            or re.search(r"(?:test_|_test|tests?/)", text)
+            or re.search(r"(?:跑|执行)\s*(?:python|pytest|node|npm|pip)\s+", text)
+        )
+        if not has_test_target:
+            qs.append("你想测试什么？请给出具体的文件/函数/命令目标。")
     return qs
 
 #: 显式配置补充的只读探索工具（逗号分隔；仅当 metadata 无法表达“只读”时用于登记）。

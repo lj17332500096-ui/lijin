@@ -60,6 +60,9 @@ web/llama-ui/
 # 跟踪它们会让每次运行都污染 git status，并重新堆积出本轮那 1555 个删除。
 # 注意 materials/ 是用户输入资料，必须保持跟踪，不在此列。
 runs_eval*/
+runs_*/
+code_sandbox/demo/
+code_sandbox/f1_fixture/
 forge_data/
 exports/
 notes/
