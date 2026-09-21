@@ -1071,7 +1071,14 @@ class DiscoveryTracker:
                 or self.post_mutation_discovery >= 3)
 
     def decision_hint(self) -> str | None:
-        """极短的结构化运行时事实反馈（不是 Planner，不写成长 Prompt）。"""
+        """极短的结构化运行时事实反馈（不是 Planner，不写成长 Prompt）。
+
+        非 coding 场景：维持原行为（验证已跑/未跑的二态提示）。
+        coding 场景（mutation_seen=True）：细化为三态——
+          * verification_passed=True  → 直接收口，不要再改代码（治 T038/T049）
+          * verification_seen 且未通过 → 优先修复失败点，不要盲目继续探索（治 T023/T024）
+          * mutation_seen 且未验证     → 下一步优先 run_tests，而不是继续写（治 coding 不收敛）
+        """
         if not self.saturated():
             return None
         s = self.saturation_summary()
@@ -1084,9 +1091,18 @@ class DiscoveryTracker:
             f"已修改：{'是' if s['mutation_seen'] else '否'}；已验证：{verify}。",
         ]
         if s["verification_passed"]:
-            lines.append("验证已通过：除非有明确未解决问题，否则直接收口给出最终回答，不要再探索。")
+            lines.append(
+                "验证已通过：除非有明确未解决问题，否则直接收口给出最终回答，不要再探索或改代码。"
+            )
+        elif s["mutation_seen"] and s["verification_seen"]:
+            lines.append(
+                "已修改且已运行验证但验证未通过：下一步优先修复失败点（读失败用例、看报错、改对应代码），"
+                "不要再探索其它文件，也不要重复运行相同验证。"
+            )
         elif s["mutation_seen"] and not s["verification_seen"]:
-            lines.append("已修改但未验证：下一步优先运行验证，而不是继续探索。")
+            lines.append(
+                "已修改但未验证：下一步优先运行验证（run_tests），而不是继续写代码或探索。"
+            )
         else:
             lines.append("继续探索需要明确的未解决问题；否则转入修改/验证/回答。")
         return "\n".join(lines)

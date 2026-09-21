@@ -663,6 +663,17 @@ class AgentRuntime:
                                 name, arguments
                             ):
                                 _conv_reason = CONVERGENCE_REACHED_TEXT
+                                # P1-B-C：coding 不收敛专项——CONVERGENCE 分支把
+                                # evidence-driven 的 decision_hint 追加到硬提示后，
+                                # 让模型在"被拦下继续探索"的同时拿到明确的下一步
+                                # （已修改未验证→run_tests / 已验证未通过→修失败点 /
+                                #  验证已通过→收口），治 T038/T023/T024/T049 节奏问题。
+                                try:
+                                    _hint = rctx.decision_hint()
+                                except Exception:
+                                    _hint = None
+                                if _hint:
+                                    _conv_reason = f"{_conv_reason}\n{_hint}"
                         # CAUTION 只记录/提示，不阻断（避免误伤 read→edit→read 等正常重读）。
                     except Exception:
                         _conv_reason = None
