@@ -30,6 +30,22 @@ WORKSPACE_ROOT = Path(os.getenv("WORKSPACE_ROOT") or BASE_DIR.parent).resolve()
 SANDBOX_ROOT = WORKSPACE_ROOT / "code_sandbox"
 
 PROJECT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+# P1-B(1)（2026-09-22）：受信根判定专用宽松路径正则——允许字母数字、_-. 和
+# 路径分隔符 / \（覆盖 "my_creative_agent/benchmark_fixture" 相对路径与
+# "F:/Byong-hermes/..." 绝对路径这类"声明执行位置"型 project），但禁止 ".." 越界段。
+# 仅在 trusted_root_for / _project_dir 的受信判定分支使用；普通 project 名仍走严格 PROJECT_RE。
+# 越界（../ 、sibling 前缀、symlink）由 _canonical_under 在第二道继续拦截，本正则只放行合法路径进入判定。
+TRUSTED_PROJECT_PATH_RE = re.compile(r"^(?:[A-Za-z]:)?(?:[A-Za-z0-9_.\-/\\]+)$")
+# ".." 段在正则层就拒（保持原 PROJECT_RE 对 "../.." 的"项目名"拒绝语义），不进下游子树判定。
+_TRUSTED_PATH_HAS_DOTDOT_RE = re.compile(r"(^|/|\\)\.\.(/|\\|$)")
+
+
+def _trusted_path_ok(proj: str) -> bool:
+    """受信判定是否接受该 project 声明：宽松路径正则匹配 且 不含 '..' 越界段。"""
+    if not TRUSTED_PROJECT_PATH_RE.match(proj or ""):
+        return False
+    return not _TRUSTED_PATH_HAS_DOTDOT_RE.search(proj)
+
 MAX_FILE_BYTES = 300 * 1024
 MAX_OUTPUT_CHARS = 12000
 DEFAULT_TIMEOUT = 40
@@ -64,7 +80,9 @@ def _trusted_code_roots() -> list[Path]:
 
 
 def _project_dir(project: str) -> Path | None:
-    if not PROJECT_RE.match(project or ""):
+    # P1-B(1)：受信 resolve 分支用 _trusted_path_ok 放行路径型 project（相对 a/b、绝对 F:/...），
+    # 拒 '..' 越界段；严格 PROJECT_RE 仍用于非受信场景的沙箱命名。越界安全由 _canonical_under 兜底。
+    if not (_trusted_path_ok(project or "") or PROJECT_RE.match(project or "")):
         return None
     proj = (project or "").strip()
     # P1-B(1)（2026-09-22）：相对路径（如 "my_creative_agent/benchmark_fixture"）
@@ -113,7 +131,9 @@ def trusted_root_for(project: str, filename: str = "", args: str = "") -> Path |
     if not roots:
         return None
     proj = (project or "").strip()
-    if proj and PROJECT_RE.match(proj):
+    # P1-B(1)：受信判定分支用宽松路径校验（_trusted_path_ok）放行路径型 project
+    # （相对 "a/b"、绝对 "F:/..."），拒 '..' 越界段；子树越界由 _canonical_under 兜底。
+    if proj and _trusted_path_ok(proj):
         # 声明的 project 解析出的真实目录必须落在某受信根内
         pdir = _project_dir(proj)
         if pdir is not None:
