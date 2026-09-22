@@ -64,7 +64,7 @@ Make the path-sensitive test fixtures derive their workspace root from the curre
 
 **Logged**: 2026-09-07T00:00:00+08:00
 **Priority**: low
-**Status**: pending
+**Status**: resolved
 **Area**: tests
 
 ### Summary
@@ -80,9 +80,17 @@ The documented-looking task collection path accepts GET only; task creation uses
 ### Suggested Fix
 Either expose POST on `/api/tasks` or document `/api/tasks/create` as the supported compatibility endpoint.
 
+### Resolution
+- **Resolved**: 2026-09-22T00:00:00+08:00
+- **Notes**: 失效结案（非修复）。`/api/tasks` 与 `/api/tasks/create` 两条路由已于 2026-09-22
+  随 `/api/*` 全部归档删除（API 接口层审计 Phase C，见 FORGE-API-LAYER-AUDIT-2026-09-22.md §17），
+  该 405 已无法复现。归档依据：生产 bundle 中 `"/api/"` 命中 0 次、全仓无 HTTP 消费者。
+  恢复点 `git tag archive/api-routes-pre-delete-20260922`；若将来复活 `/api/*`，
+  本条应重新打开（届时仍需在「给 `/api/tasks` 暴露 POST」与「文档化 `/api/tasks/create`」间二选一）。
+
 ### Metadata
-- Reproducible: yes
-- Related Files: webapp.py
+- Reproducible: no（端点已删除）
+- Related Files: webapp.py（归档前）
 
 ---
 

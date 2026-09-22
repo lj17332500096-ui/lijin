@@ -55,7 +55,7 @@ class PublicWireTests(unittest.TestCase):
 
     def test_transport_and_legacy_names_still_pass(self) -> None:
         for kind in (
-            "run.started",            # 不是 TaskState 成员，但 webapp 直接 feed
+            "run.started",            # 不是 TaskState 成员，但 runner 在 Run 启动时 emit
             "run.waiting_for_user",   # 历史别名
             "runtime.done", "runtime.error", "approval.required",
             "assistant.reply", "source.not_ready",

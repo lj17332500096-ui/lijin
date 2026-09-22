@@ -43,7 +43,8 @@ class ProjectModelTests(unittest.TestCase):
         self.mgr = TaskManager(self.db)
 
     def test_01_create_project_without_work_location(self) -> None:
-        # 直接走容器创建 + update（与 /api/projects/create 同构）
+        # 直接走容器创建 + update（原 /api/projects/create 的等价路径；
+        # 该 HTTP 端点已于 2026-09-22 随 /api/* 归档删除，容器语义仍由 TaskManager 保证）
         c = self.mgr.get_or_create_container("proj-demo-1", title="银行流水整理")
         c = self.mgr.update_project(c["id"], memory_scope="project_only", instructions="无WL也能用")
         self.assertIsNone(c["work_location_id"])

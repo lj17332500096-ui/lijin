@@ -26,7 +26,8 @@ _RUN_STATE_KINDS: frozenset[str] = frozenset(f"run.{s.value}" for s in TaskState
 _OTHER_CONTROL_KINDS: frozenset[str] = frozenset({
     "runtime.done", "runtime.error", "approval.required", "assistant.reply", "source.not_ready",
     # run.started 不是 TaskState 成员（TaskState 无 STARTED），但它是既有传输名，
-    # 由 webapp._start_run_session 直接 feed；漏掉会被闸口静默丢弃。
+    # 由 runtime/runner.py 在 Run 启动时 emit；漏掉会被闸口静默丢弃。
+    # （原生产者 webapp._start_run_session 已于 2026-09-22 随 /api/* 归档删除。）
     "run.started",
 })
 ALLOWED_CONTROL_KINDS: frozenset[str] = (

@@ -318,7 +318,8 @@ Agent 可以“读懂”你工作区里的文档再回答问题。新增两个�
 除工作区 RAG 外，网页端的每个 Project 可以有自己的资料库（Sources），适合把常用文档长期放在
 项目里供 Agent 检索：
 
-- 上传与管理：前端“资料”面板操作（后端 `POST /api/projects/{id}/sources/upload` 等），
+- 上传与管理：后端能力仍完整（原入口 `POST /api/projects/{id}/sources/upload` 等已于
+  2026-09-22 随 `/api/*` 归档删除，见「网页界面」一节的说明），
   文件落 `sources/`，与附件共用安全白名单；
 - 生命周期：parsing/indexing/ready/failed 状态有明确信号；未就绪不会参与检索，并会给 Agent
   发 `not_ready` 提示，不会静默当作“没有资料”；
@@ -605,7 +606,8 @@ python -m runtime --runs [schedule_id]   # 幂等执行台账（谁在什么时�
 
 - **终端/语音**：自动逐条询问（y=批准 / n=拒绝 / s=跳过），批准任意一条后自动续跑同一任务，
   被批准的调用直接放行，被拒绝的按记录直接拒绝（不会问第二遍）；
-- **网页**：弹出确认框 → 调 `/api/approval` → 自动以 `resume_task` 续跑；
+- **网页**（该通道随 UI 层冻结、其 `/api/approval` 端点已于 2026-09-22 归档）：原实现为
+  弹出确认框 → 调 `/api/approval` → 自动以 `resume_task` 续跑；
 - **定时任务**（无人值守渠道）：高风险操作自动拒绝并如实记入任务失败原因。
 
 ```powershell
@@ -697,7 +699,8 @@ print(select_tool_names('把月支出做成 Excel', [t.name for t in assistant_a
 Artifact（id/sha256/size/kind 入库），**UI 与终端只展示登记结果，模型无法自称"已保存"**：
 
 - 终端：回复后打印「🗂 产物已登记：文件名（art_xxx）」；
-- 网页：回复气泡内出现可点击下载的产物链接 → `/api/artifacts/{id}/download`
+- 网页（该通道随 UI 层冻结、其端点已于 2026-09-22 归档）：原实现在回复气泡内给出可点击
+  的产物链接 → `/api/artifacts/{id}/download`
   （路径取自 Registry，不信任模型自报路径；对应老 guardrails 的假路径检测退居兜底）；
 - 失败/被拒的任务不登记；产物按 task/session 可查：`python -m runtime --task <id>`。
 
@@ -939,35 +942,47 @@ MCP_SERVERS=[{
 如果仍被拦截，说明模型整段没按格式输出，重新发一次或换种说法即可。被拦截的
 内容不会进入会话记录，不会越积越乱。
 
-## 网页界面
+## 网页界面（已冻结 / 已归档）
 
-不想开终端？本地网页界面，和终端共用同一套 Agent、工具与运行时（agent.db +
-`sessions.sqlite`）。`/`（与 `/runtime` 同页）是当前 Runtime 主界面
-（`web/runtime.html`：个人会话 + Project 模式），旧版纯聊天页保留在 `/chat`
-（`web/index.html`）：
+本项目当前阶段是「只优化后端」，网页界面整体冻结：`python webapp.py` 默认拒绝启动
+（退出码 2）并指向 CLI 消息平台，仅 `FORGE_ENABLE_UI=1` 或 `--enable-frozen-ui` 才真正起服务。
+冻结范围与边界约定见 [ui_frozen.py](ui_frozen.py)。**主入口是 CLI：**
 
 ```powershell
-.\.venv\Scripts\python webapp.py            # 打开 http://127.0.0.1:8765
-.\.venv\Scripts\python webapp.py --open     # 启动后自动打开浏览器
-.\.venv\Scripts\python webapp.py --port 9000
+.\.venv\Scripts\python main.py              # CLI 消息平台（进程内直连 Runtime）
 ```
 
-也可以直接双击 `start-web.bat`（自动切到项目目录并启动网页界面）。
+冻结后的 `webapp.py` 只保留「前端宿主」职责。唯一前端是 `web/llama-ui`
+（SvelteKit 构建产物），经 [llama_bridge.py](llama_bridge.py) 的 **OpenAI 兼容端点**
+接 AgentRuntime：
 
-特点（[webapp.py](webapp.py) + [web/runtime/](web/runtime/)）：
+| 路径 | 作用 |
+|---|---|
+| `/` | 302 → `/llama-ui/` |
+| `/chat`、`/runtime` | 301 → `/llama-ui/`（旧页面已下线） |
+| `/v1/models`、`/v1/chat/completions`、`/v1/chat/completions/control`、`/v1/stream`、`/v1/streams/lookup`、`/props`、`/tools`、`/slots`、`/models/*` | llama_bridge 的 OpenAI 兼容端点（根路径版与 `/llama-ui/` 前缀版同时提供） |
+| `/llama-ui` | `_SPAStaticFiles` 托管前端产物（SPA fallback；带资源扩展名与 API-like 命名空间保持真 404，不做 HTML 回落） |
 
-- SSE 实时推送且**断连只退订、不取消**：刷新/断网后重订阅同一 run_id 续看，绝不重复建 Run；
-- Run 生命周期走 POST（`POST /api/tasks/{id}/runs` / `POST /api/projects/{id}/runs`，
-  `client_message_id` 幂等），GET/stream 全部只读；同容器单 Active Run（并发 409）；
-- 界面含：会话/项目列表（收藏、归档/回收站）、运行详情与事件流、审批中心、产物下载、
-  Project 资料库（Sources 上传/状态）、长期记忆管理、定时任务台账、全局搜索、通知；
-- 回复按 AgentReply 结构化渲染（类型标签、摘要、正文、产出文件、追问、下一步）；
-- 生成式 UI 卡片（metric/图表/table/todo/form/file_list）白名单渲染，按钮回灌成普通消息；
-- 纯本地监听 127.0.0.1，无任何外部 CDN，断网也能打开页面。
+**2026-09-22 归档说明**：原 63 条 `/api/*` 路由（会话 / 项目 / 容器 / Run / 审批 / 产物 /
+Sources / 记忆 / 定时 / 搜索 / 通知等）已删除。依据是生产 bundle 中 `"/api/"` 命中 **0** 次、
+`assistant_delta` / `run_id` / `EventSource` 命中均为 **0**，全仓无 HTTP 消费者，唯一测试
+消费者 `tests/test_webapp.py` 处于冻结跳过——它是一套前端从未调用过的并行协议面。
+同一批清理还处理了 `web/runtime/`（已移除）与 `web/index.html`（现为 `.legacy.archive`）。
+
+- 恢复点：`git tag archive/api-routes-pre-delete-20260922`
+  （`git show <tag>:webapp.py` 可取回含 63 条路由的原文件）
+- 审计依据：`FORGE-API-LAYER-AUDIT-2026-09-22.md` §17 与 §19
 
 说明：网页服务负责交互与执行；定时任务常驻请另开 `python main.py --daemon`。
 
 ## 生成式 UI 交互卡片
+
+> **存续状态（2026-09-22）**：`ui` 数组是**仍在生效的后端契约**——由 `schemas.py`
+> 定义、`agent.py` 注入提示、`runtime/reply_parser.py` 解析、`guardrails.py` 校验
+> （单回复 ≤8 块、图表 series 长度等于 labels、表格行宽等于列数等）。
+> 但**网页渲染器已随 UI 层归档**（仅存于 `web/index.html.legacy.archive`）：
+> 终端模式仍会在文字后显示「📊 附 N 张交互卡片」一行，卡片本身不再有可视化宿主。
+> 下列形态与设计要点描述的是该契约，将来若要恢复渲染，按此实现即可。
 
 网页端除了文字回复，还能把 Agent 输出的 `ui` 数组渲染成**可交互卡片**（聊天流内嵌），
 形态对应 awesome-llm-apps 的 generative UI 模板（dashboard-canvas / financial-coach），
