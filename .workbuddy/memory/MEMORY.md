@@ -11,14 +11,27 @@
 - 数据：`agent.db`（WAL）+ `sessions.sqlite` + 文件产出（`notes/`、`exports/`）。
 
 ## 2. 工程铁律
-- **run_id = trace_id**：事件/消息/审计全键。
+- **run_id 是事件/消息/审计的主键**。~~run_id = trace_id~~ 是**错的**（2026-09-22 实测纠正）：
+  `runner.py` grep `trace_id` = 0 命中；`trace_export.py` 曾按 `trace_id == run_id` 过滤而恒假 → `spans` 恒 `[]`。
+  已改为记录盖 `run_id` 字段（不篡改 OTel 的 `trace_id`），过滤键用 `run_id`。
+  另：`tool_calls.task_id` 装 run_id，`messages.task_id` 装容器 id —— 同列异义，join 必错。
 - **清理路径**：`except (Exception, SystemExit)`，保留 `KeyboardInterrupt`。
+  （本机 WorkBuddy 的 Python shim 会把 `shutil.rmtree` 劫持成 trash 并在失败时抛 `SystemExit`，
+  所以这条不是教条而是必需；但**测试自己的**清理调用被劫持时要靠 `PYTHONPATH=` 屏蔽，别去改生产清理路径。）
+- **重试权只属于 provider 网关**：SDK `max_retries=0`；单 provider `FORGE_PROVIDER_MAX_ATTEMPTS=3`；
+  primary+fallback 合计 `FORGE_PROVIDER_MAX_TOTAL_ATTEMPTS=6`；L3 格式闸 `FORGE_FORMAT_RETRY_MAX=1`。
+  判据写法 `local_attempts + 1 < max_attempts`（`local_attempts` 记的是**重试**次数）。
+- **同一事实的多种表示只能取其一，相加必错**（明细 vs 聚合、原始 vs 派生）。
+- **判据字符串必须与生产端写出的值对齐**：`record_attempt` 的 kind 钩子曾只认 `"ok"`
+  而生产写 `"success"` → 钩子静默失效、整列恒 NULL。任何「按名字/标记分流」的地方都要有回归用例。
 - **同文件多处编辑**：串行 Edit 或整文件 Write，禁止并行（互相覆盖且都报成功）。
 - **禁止 `cat >> 文件 << 'EOF'`**：Git Bash 会写到文件头部并覆盖。追加用 Write 或 Python。
 - **脏工作区提交**：绝不用 `git add -A`。精确暂存 = `git ls-files --others --exclude-standard` + `git diff --name-only --diff-filter=M`，用 `--pathspec-from-file` 喂。
 - **Git Bash `find` 是 Windows find.exe**，结果不可信。`git ls-files/status` 中文路径要 `-c core.quotePath=false`。
 - **`git rm -r` 删多子目录会波及父目录**（退出码 0 ≠ 删对了）。删完核对 `git diff --name-only --diff-filter=D`。
-- **同一事实的多种表示只能取其一，相加必错**（明细 vs 聚合、原始 vs 派生）。
+- **本机跑全量的正确命令**：`PYTHONPATH= .venv/Scripts/python.exe -m pytest tests/ -q`。
+  不屏蔽 shim 会有 9~11 条 `SystemExit: 1` 假失败（测试自身清理被劫持，非代码问题）。
+  pytest 的 summary 行有时不落盘，拿失败清单要用 `--junitxml=`。
 
 ## 3. 评测方法论
 - n=50 只能检出 ≈±28pp，n=100 ≈±20pp，检 10pp 需 n≈400。任何「提升 X%」必须给样本量与 CI。
@@ -48,12 +61,35 @@
   3.0 上 P0~P2 修复部分生效（T008/T010/T020/T049 通过）；
   追问类 case 退化（T040 false_completion、T007 final_text 空）需单独跟踪。
 
-## 6. 待办
+## 6. API 接口层整改（2026-09-22《FORGE-API-LAYER-AUDIT》§17 顺序）
+- 定级 **C**：Runtime 内核 B+，工具层 C，事件协议 C-，HTTP 接口层 D，可观测性 C-。
+- **HTTP 层整体停用**（`ui_frozen.py:37 UI_FROZEN=True` + `webapp.py:1999 require_ui_enabled`）；
+  活动路径只有进程内 `main.py` / `cli/app.py` → `AgentRuntime.run_turn`。
+  报告里每项都标了 `[活动]` / `[潜伏]`，潜伏项不要因"反正没启用"忽略。
+- **Phase A（A1–A9）完成**，验收 `tests/test_api_layer_phase_a.py`：
+  A1 参数校验失败不再记成功、A2 事件白名单由 `TaskState` 派生、A3 `webapp` 补 `task_id`、
+  A4 进程级退出信号统一收口（`ProcessExitInterrupted`，SystemExit→failed / Ctrl+C 仍穿透）、
+  A5 审批名单由 `side_effect` 派生、A6 目录补 `think`/`search_sources`、A7 受信根加门禁、
+  A8 四条审计出口统一脱敏、A9 墙钟限值判据修正。
+- **Phase B（B1–B9）完成**，验收 `tests/test_api_layer_phase_b.py`（56 条）：
+  B1 `transition` 改 CAS、B2 关 SDK 内建重试 + 尝试预算、B3 分层超时显式化、
+  B4 `waiting_user` 进单 Active Run（**方案修正**：新 Run 取代而非拒绝，否则打断追问继承）、
+  B5 取消杀同步工具进程树（**新增 `runtime/cancel_scope.py`**）、B6 `spec.timeout_seconds` 真正接线、
+  B7 `tool_calls` 补耗时/轮次/归一化参数/指纹、B8 记录盖 `run_id` + 追踪改 opt-in、
+  B9 `auto_recover` 阈值方向与 `budget_json` 死列。
+- **Phase C（C1–C8）/ Phase D（D1–D5）未开始**。C 的前置决定：`/api/*` 是"复活"还是"归档"
+  （报告建议归档 60+ 条无消费者的 `/api/*`，只保留 llama-bridge 的 `/v1/*`）；C 阶段必须一次性做完。
+- 执行记录与 4 条「审计结论被实施修正」的细节见报告新增的 **§19**。
+
+## 7. 待办
 - **n=200 对照**（4×n=50 各模型合并）检验 agnes-3.0 vs 2.5 的 −8pp 是否真实。
 - **区间口径按 3.0 重新校准**：T001/T031/T023/T050 的 `min_tool_calls`/`max_tool_calls`
   是按 2.5 基线定的，3.0 的工具调用节奏不同，部分 case 区间需调整。
 - **T040 false_completion 单独立 case**：3.0 上该追问没追问，需补对抗用例。
 - **T008 评测口径复查**：`BLOCKED_NEEDS_USER_INPUT` 的期望终态是否应从 `completed` 改为 `waiting_user`。
 - **第二轮 A/B**：per-tool 预算 8→12 放宽或改为「仅对失败/低新颖度调用计数」。
-- **提交状态**：P0~P2 核心改动已提交（`3405cfe`）；区间口径校准已提交（`a4df1b9`）；
-  `.env` 模型切换（agnes-3.0-flash）未入库（`.env` 不入库）；运行产物（`runs_*/`、`report_*.json`）不入库。
+- **Phase C/D**：见 §6，未开始；C 需先定 `/api/*` 的去留。
+- **提交状态**：Phase A/B 全部改动**尚未提交**（工作区里 `runtime/*`、`main.py`、`code_exec.py`、
+  `webapp.py`、`.env.example`、`tests/test_api_layer_phase_{a,b}.py`、新增 `runtime/cancel_scope.py`
+  与报告 `FORGE-API-LAYER-AUDIT-2026-09-22.md` 均为 M/??）。更早的 P0~P2 改动已提交。
+  `.env` 模型切换（agnes-3.0-flash）与运行产物不入库。
