@@ -89,8 +89,24 @@
 - **Phase C 归档后收缩为 C3 + C6**（对报告 §17 的实质修正）：C1（校验前置）/C4（字段重命名）
   /C5（SSE `id:`）的作用面已随 `/api/*` 消失；C2 早已是 `pytest.skip` 空操作；C7（`/api/v1` 前缀）
   与 C8（`ToolResult`）**会打断冻结前端**——llama-ui 的 fetch 多为相对路径，且按
-  `error`/`plain_text_response` 解析。剩下的 C3（统一错误结构）与 C6（`POST /tools` 绑定断言
-  + 只读白名单）**都落在 `llama_bridge.py` = 冻结层内**，与「只优化后端」约定冲突，需先决策。
+  `error`/`plain_text_response` 解析。
+- **Phase C 完成（C3 + C6，2026-09-22）**，验收 `tests/test_api_layer_phase_c.py`（25 条）。
+  两项都在 `llama_bridge.py` = 冻结层内，属有意开出的**接口层例外**（只动错误结构与请求守卫，
+  不动 UI 功能与前端契约）。
+  **C6 = 反 CSRF 而非格式校验**：写端点（`/tools`、`/v1/chat/completions`、`.../control`）必须带
+  `Content-Type: application/json` 否则 415。跨站 `fetch` POST 默认 `text/plain`，属「简单请求」
+  不触发预检、浏览器直接投递，而 `await request.json()` **并不校验类型** → 任意网页都能借用户
+  浏览器触发工具执行。只读端点与无 body 的 GET/DELETE **不加**（前端走 `A0()` 本就不带该头，
+  加了会静默打断 `/v1/stream` 续读）。另 `webapp.main()` 加**绑定断言**（非回环监听需
+  `FORGE_ALLOW_NONLOCAL_UI=1`）。**不选「逐请求回环断言」的原因**：Starlette `TestClient` 下
+  `request.client.host == "testclient"`（实测，非回环），逐请求断言会打死全部 UI 测试。
+  **C3 = 非 2xx 统一** `{"error":{message,type,code,retryable},"request_id"}`，形状由前端取错函数
+  `kIe()` 的首选分支 `r?.error?.message` **反推**确定（不是自定的）。**200 路径刻意不上信封**：
+  工具结果仍走 `plain_text_response`，且 200 里的 `error` 必须是**字符串**（前端做
+  `String(a.error)`，传对象会渲染成 `[object Object]`）。
+  顺带修掉 `/tools` 审批**死分支**（原只回 `approval_required`，前端命中数为 0，用户看到原始
+  JSON；现补一条字符串 `error` 使「被阻断」有可读反馈）。
+  全量 **1408 passed / 6 skipped / 0 failed**（对归档基线 1383 恰好 +25 = 本文件用例数 → 零回归）。
 - **Phase D（D1–D5）未开始。**
 - 执行记录、归档依据与「审计结论被实施修正」的细节见报告 **§19**。
 
@@ -101,17 +117,17 @@
 - **T040 false_completion 单独立 case**：3.0 上该追问没追问，需补对抗用例。
 - **T008 评测口径复查**：`BLOCKED_NEEDS_USER_INPUT` 的期望终态是否应从 `completed` 改为 `waiting_user`。
 - **第二轮 A/B**：per-tool 预算 8→12 放宽或改为「仅对失败/低新颖度调用计数」。
-- **Phase C 剩余（C3 + C6）需先决策**（两项都在冻结层内，见 §6）。C6 的可行性已实测：
-  前端 `Lb(){return{[ds.CONTENT_TYPE]:sv.JSON,...A0()}}` → 所有请求必带
-  `Content-Type: application/json`，故"强制 JSON 类型 + 回环地址断言"不会打断前端，
-  却能挡掉 `text/plain` 跨站简单请求（浏览器不发预检即投递，`await request.json()` 不校验类型）。
-- **`/tools` 审批分支是死分支**：`api_tools_execute` 命中审批门时返回 `{"approval_required",...}`，
-  而 bundle 中 `approval_required`/`approval` 命中**均为 0** → 前端无此分支，靠
-  `JSON.stringify(a)` 兜底把原始 JSON 显示给用户（不是静默失败，但也不说人话）。
-  与 B7 的 kind 漂移同族：**分支声称处理了某场景，对方从未实现**。修 C6 时一并处理。
+- **Phase C**：已完成（C3 + C6），见 §6。C6 的可行性实测依据：前端
+  `Lb(){return{[ds.CONTENT_TYPE]:sv.JSON,...A0()}}` → 所有带 body 的请求必带
+  `Content-Type: application/json`，故守卫不会打断前端。
+- **同类残留（C 阶段新发现，未修）**：`llama_bridge.api_chat_completions` 的**非流式**路径在
+  `choices[0].message` 上写 `approval_required=True`，而 bundle 中该键命中数为 **0**
+  ——与 `/tools` 审批死分支同族（**分支声称处理了某场景，对方从未实现**）。
+  该字段是**附加且被忽略**的（正文本身已在 `content` 里），不造成可见缺陷；
+  将来清理需注意：改 OpenAI 响应体的风险**高于**改桥层自有字段。
 - **Phase D**：见 §6，未开始。
-- **提交状态**：Phase A/B + 审计报告 + 归档**均已入库**
-  （`a902658` → `a2cb623` → tag `archive/api-routes-pre-delete-20260922` → `352f321`）。
+- **提交状态**：Phase A/B + 审计报告 + 归档 + Phase C **均已入库**
+  （`a902658` → `a2cb623` → tag `archive/api-routes-pre-delete-20260922` → `352f321` → `f59e417` → `9b41ab1`）。
   工作区残留**有意不提交**：`benchmark_fixture/_inline_*.py`×4（运行 churn）、
   `code_sandbox/{auth_fix,fix_auth_calculate}/*`（沙箱产物）、
   `delivery/EVAL-P0-12CASE-2026-09-21.md`（上次会话交付物，不混入本次提交）。

@@ -1376,9 +1376,65 @@ L1 上限判据是 `local_attempts + 1 < max_attempts`（`local_attempts` 记的
 不会打断前端，且能挡掉 `text/plain` 的跨站简单请求（浏览器不发预检即投递、而
 `await request.json()` 不校验类型）。
 
-### 19.7 尚未实施
+### 19.7 Phase C 已实施（C3 + C6，2026-09-22）
 
-- **C3**（`llama_bridge` 错误结构统一）与 **C6**（`POST /tools` 绑定断言 + 只读白名单）：
-  均在冻结层内，待决策后实施（见 §19.6 结论）。
+决策：C3 与 C6 **一起做完**（C 只剩这两项，正好满足报告"一次性做完"的要求）。
+两项都在 `llama_bridge.py` = 冻结层内，属有意开出的**接口层例外**：改动只触及错误结构与
+请求守卫，不动任何 UI 功能与前端契约。
+
+**C6 写操作守卫**
+
+- `_require_json_content_type()`：会直接产生副作用的 POST 端点（`/tools`、
+  `/v1/chat/completions`、`/v1/chat/completions/control`）必须带
+  `Content-Type: application/json`，否则 415。
+  这不是格式校验而是**反 CSRF**：跨站 `fetch(url, {method:"POST", body:"..."})` 的
+  Content-Type 默认是 `text/plain`，属"简单请求"**不触发预检**、浏览器直接投递，
+  而 `await request.json()` **不校验**类型 → 任意网页都能在用户浏览器里触发工具执行。
+  强制 JSON 会让浏览器先发预检，本服务不返回 CORS 头 → 实际 POST 被拦下。
+- **只加在写端点上**。只读端点（`/props`、`/slots`、`/v1/models`、`/v1/streams/lookup`、
+  `/models/*`）与无 body 的 GET/DELETE **不加**——前端那几处走 `A0()`，本就不带
+  Content-Type，加了会静默打断 `/v1/stream` 续读。边界有回归用例锁住
+  （`test_get_stream_is_not_guarded` / `test_delete_stream_is_not_guarded` /
+  `test_readonly_post_is_not_guarded`）。
+- `webapp.main()` **绑定断言**：非回环监听需显式 `FORGE_ALLOW_NONLOCAL_UI=1`，否则退出码 2。
+  **为什么不选"逐请求回环断言"**：Starlette `TestClient` 下 `request.client.host` 是
+  `"testclient"`（本次实测，非回环），逐请求断言会打死全部 UI 测试；而"绑定"才是真正要
+  保证的不变量。两个守卫互补：**绑定管"谁能连进来"，Content-Type 管"同机其它页面能否借道"**。
+- 守卫**先于**任何 Runtime 实例化返回（有用例守住），避免给拒绝路径留副作用入口。
+- 未采用报告所提的"只读白名单"：`gated_names` 已由工具目录派生（所有 `side_effect=True`
+  默认需审批），白名单会与它重复，且会打断前端合法的 `executeTool` 调用。
+  真正的残留暴露面是 `SIDE_EFFECT_EXEMPT` 里那 9 个会写盘但豁免审批的工具
+  （`save_*` / `remember` / `schedule_add` 等），已由上述两个守卫覆盖跨站与远程两条路径。
+
+**C3 统一错误结构**
+
+- 非 2xx 统一为 `{"error": {message, type, code, retryable}, "request_id"}`。
+  形状**由前端 `kIe()` 的首选分支 `r?.error?.message` 反推确定**，不是自定的；
+  该函数另兼容 `error` 为字符串与顶层 `message`，最后回退到 HTTP 状态码表。
+- 已转换 4 处非 2xx：404 `stream_not_found`（保留 `conv_id`，前端要读它做本地状态清理）、
+  400 `missing_tool`、400 `missing_run_id`（保留旧契约字段 `ok=False`）、
+  500 `run_failed` + `retryable=True`。
+- `request_id`：沿用调用方的 `X-Request-Id`（截断 64 字符），否则生成 `llmb-<hex12>`。
+- **200 路径刻意不上信封**：工具结果走 `plain_text_response`（文本）；若 200 里出现 `error`，
+  它必须是**字符串**——前端对它做 `String(a.error)`，传对象会渲染成 `[object Object]`。
+  这条约束已写进模块 docstring 与用例（`SuccessPathContractTests`）。
+- 顺带修掉 §19.6 记录的 `/tools` 审批**死分支**：命中审批门时除保留
+  `approval_required`/`approval` 外，补一条**字符串** `error`（含工具名与"待审批"），
+  使"被阻断"在前端有可读反馈而不是一坨原始 JSON。
+
+**验证**：新增 `tests/test_api_layer_phase_c.py`（**25 条全通过**）——覆盖守卫生效、
+守卫不越界（GET/DELETE/只读不被拦）、守卫先于 Runtime 实例化、信封形状与前端首选分支对齐、
+`request_id` 透传与生成、200 路径契约不变、审批分支可读性、绑定断言四种组合。
+`FORGE_ENABLE_UI=1` 下 UI 冻结层 **55 passed**（含 `test_ui_isolation` 边界守卫）。
+另核对 `scripts/verify_llama_bridge.py` 的 `http()` 助手本就带
+`Content-Type: application/json`（第 28 行），未被守卫打断。
+
+### 19.8 尚未实施
+
 - **Phase D**（D1–D5）：连接复用 / 历史分页 / 结构化日志 / `_too_repetitive` 迁 `RunContext` /
   补 4 类缺失测试。**未开始。**
+- **同类残留（新发现，非原 Phase C）**：`api_chat_completions` 非流式路径在
+  `choices[0].message` 上写 `approval_required=True`，而 bundle 中 `approval_required`
+  命中数为 **0**——与 §19.6 的 `/tools` 死分支同族。该字段是**附加且被忽略**的，
+  不造成可见缺陷（正文本身已在 `content` 里），故本次未动；将来若清理需注意
+  改 OpenAI 响应体的风险高于改桥层自有字段。
