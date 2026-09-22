@@ -58,10 +58,29 @@ def _exec_enabled() -> bool:
     return os.getenv("ALLOW_CODE_EXEC", "").strip().lower() == "true"
 
 
+def _eval_or_test_mode() -> bool:
+    """是否处于**显式声明**的评测/测试进程。
+
+    口径与 guardrails.py:62-63 一致（FORGE_EVAL_MODE / FORGE_TEST_MODE == "1"），
+    生产进程两者都不设。
+    """
+    return (os.environ.get("FORGE_EVAL_MODE") == "1"
+            or os.environ.get("FORGE_TEST_MODE") == "1")
+
+
 def _trusted_code_roots() -> list[Path]:
     """受信评测/本地代码根（环境变量 FORGE_TRUSTED_CODE_ROOTS，逗号分隔绝对路径）。
     只用于让受控的 benchmark fixture 能作为 run_python 的沙箱根执行本地测试；
-    不影响生产 Project（默认未配置时行为不变）。"""
+    不影响生产 Project（默认未配置时行为不变）。
+
+    P1-14（2026-09-22）：这是**评测专用免审批通道**，绝不允许在生产生效。
+    实测生产 ``.env`` 曾把该变量指向 ``benchmark_fixture`` —— 等于把评测配置
+    泄漏进生产：该目录下 ``run_python``/``code_loop``/``run_tests`` 完全无审批直接执行。
+    现在只有显式声明评测/测试模式的进程才读取该配置（评测配置应写在评测器里，
+    而不是生产 ``.env``；见 benchmark/eval_runner.py::_pin_workspace_root）。
+    """
+    if not _eval_or_test_mode():
+        return []
     raw = os.getenv("FORGE_TRUSTED_CODE_ROOTS", "").strip()
     if not raw:
         return []
@@ -310,6 +329,62 @@ def _kill_tree(pid: int) -> None:
         pass
 
 
+def _communicate_or_cancel(job: Any, proc: subprocess.Popen, timeout: int) -> tuple[str, str, bool]:
+    """等待子进程结束，期间把「杀掉这棵进程树」登记进取消表（审计 P1-2）。
+
+    返回 ``(stdout, stderr, timed_out)``。
+
+    为什么需要这一步：同步工具由 SDK 用 ``asyncio.to_thread`` 执行，``task.cancel()``
+    只能取消 awaiting 的 Future —— worker 线程仍会阻塞在 ``proc.communicate()`` 上，
+    子进程继续写文件/跑测试。用户看到「已取消」，副作用却已经落盘。
+    登记 killer 后，Runner 在 CancelledError 到达 await 点时调用
+    ``cancel_scope.kill_run(run_id)`` 即可让整棵树立刻死掉，``communicate()`` 随即返回。
+
+    幂等性说明：句柄释放只能发生一次。``CloseHandle`` 重复调用是真实风险
+    （句柄号可能已被系统复用，第二次会关掉别的对象），所以用状态位而不是
+    「关两次无所谓」的写法。
+    """
+    # 延迟导入：模块顶层导入 runtime.* 会先执行 runtime/__init__（它导入 runner），
+    # 而 runner 会反过来导入本模块 → 循环导入。工具被调用时 runtime 早已加载完毕。
+    from runtime.cancel_scope import register as _register, unregister as _unregister
+
+    state = {"job_released": False, "tree_killed": False}
+
+    def _stop_process_tree() -> None:
+        if state["tree_killed"] or state["job_released"]:
+            return
+        state["tree_killed"] = True
+        if job is not None:
+            _release_job(job, proc)
+            state["job_released"] = True
+        else:
+            _kill_tree(proc.pid)
+
+    token = _register(_stop_process_tree)
+    timed_out = False
+    # 必须先绑定：超时分支里 communicate 抛异常，两个名字都不会被赋值，
+    # 直接 `return stdout or ""` 会变成 UnboundLocalError（旧代码靠"超时即提前 return"
+    # 侥幸避开了这一点，收进公共函数后这个侥幸就没了）。
+    stdout: str | None = None
+    stderr: str | None = None
+    try:
+        try:
+            stdout, stderr = proc.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+    finally:
+        _unregister(token)
+        if timed_out:
+            _stop_process_tree()
+        elif not state["job_released"]:
+            # 正常完成：进程已退出，只需释放 job 句柄。
+            # 这里**不能**走 _kill_tree —— 对一个已经退出的 PID 做 taskkill /T /F，
+            # 在 PID 被复用时会杀掉无关进程。
+            _release_job(job, proc)
+            state["job_released"] = True
+    return stdout or "", stderr or "", timed_out
+
+
 @function_tool
 def write_code_file(project: str, filename: str, content: str) -> str:
     """在代码沙箱里写/覆盖一个代码文件（写代码任务的第一步）。
@@ -433,19 +508,11 @@ def run_python_impl(
     )
     if proc is None:
         return "运行失败：无法创建子进程（job object 或 Popen 不可用）。"
-    timed_out = False
-    try:
-        try:
-            stdout, stderr = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-    finally:
-        _release_job(job, proc)
+    # P1-2：等待期间登记「杀进程树」回调，取消 Run 时整棵树立刻停下
+    stdout, stderr, timed_out = _communicate_or_cancel(job, proc, timeout)
     if timed_out:
         # job 句柄关闭时 KILL_ON_JOB_CLOSE 已杀掉整棵树（含孙进程）；
         # 无 job 句柄（非 Windows / 缺 pywin32）时降级用 taskkill /T 兜底。
-        if job is None:
-            _kill_tree(proc.pid)
         return f"运行超时（>{timeout}s）：已强制终止进程树（含子孙进程），请检查是否死循环或运行太慢。"
 
     elapsed = time.monotonic() - start
@@ -530,19 +597,11 @@ def run_tests_impl(project: str, target: str = "", extra_args: str = "", timeout
     )
     if proc is None:
         return "运行失败：无法创建子进程（job object 或 Popen 不可用）。"
-    timed_out = False
-    try:
-        try:
-            stdout, stderr = proc.communicate(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-    finally:
-        _release_job(job, proc)
+    # P1-2：等待期间登记「杀进程树」回调，取消 Run 时整棵树立刻停下
+    stdout, stderr, timed_out = _communicate_or_cancel(job, proc, timeout)
     if timed_out:
         # job 句柄关闭时 KILL_ON_JOB_CLOSE 已杀掉整棵树（含孙进程）；
         # 无 job 句柄（非 Windows / 缺 pywin32）时降级用 taskkill /T 兜底。
-        if job is None:
-            _kill_tree(proc.pid)
         return f"运行超时（>{timeout}s）：已强制终止 pytest 进程树（含子孙进程）。"
 
     elapsed = time.monotonic() - start

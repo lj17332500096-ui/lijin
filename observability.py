@@ -177,6 +177,24 @@ def add_exporter(export_fn: Callable[[dict], None]) -> None:
     _EXPORTERS.append(export_fn)
 
 
+def _current_run_id() -> str | None:
+    """当前 Run 的 id（不在 Run 内则 None）。
+
+    B8（P1-6，2026-09-22）：SDK 生成的 OTel ``trace_id`` 与 Run id **毫无关联**，
+    而 ``trace_export`` 是按 Run id 过滤 span 的 —— 不盖这个字段，过滤条件恒为假、
+    导出的 ``spans`` 永远是空数组（``traces/`` 目录在 Web 路径下也从未产生）。
+    这里**不篡改** ``trace_id``（OTel 语义要保持，span_id/parent 关系都依赖它），
+    而是额外盖上 Run 身份，让「跨层追踪」有一个真实可用的键。
+    """
+    try:
+        from runtime.runctx import current as _cur
+
+        ctx = _cur()
+        return getattr(ctx, "run_id", None) if ctx is not None else None
+    except Exception:
+        return None
+
+
 def base_record(trace: Trace | None, span: Any | None = None, name: str = "") -> dict[str, Any]:
     trace_id = getattr(trace, "trace_id", None) if trace is not None else getattr(span, "trace_id", None)
     span_id = getattr(span, "span_id", None) if span is not None else None
@@ -187,6 +205,8 @@ def base_record(trace: Trace | None, span: Any | None = None, name: str = "") ->
         "otel_schema": OTEL_VERSION,
         "resource": {"service.name": SERVICE_NAME},
         "trace_id": trace_id,
+        # B8：Run 身份（与 OTel trace_id 并存，后者由 SDK 生成、无法指定）
+        "run_id": _current_run_id(),
         "span_id": span_id,
         "parent_span_id": parent_id,
         "name": name,

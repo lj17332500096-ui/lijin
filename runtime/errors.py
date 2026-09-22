@@ -48,6 +48,43 @@ class TaskCancelled(RuntimeError):
     pass
 
 
+class ProcessExitInterrupted(RuntimeError):
+    """进程级退出信号（SystemExit / KeyboardInterrupt）被拦截并转成的普通运行时错误。
+
+    为什么需要这层转换（P0-6b / A4，2026-09-22）：asyncio 的 ``Task.__step`` 对
+    ``(KeyboardInterrupt, SystemExit)`` 有**特例** —— 它会把异常 ``raise`` 出
+    ``run_forever``，于是最外层 ``await`` 永不恢复、协程 ``finally`` 整段跳过，
+    Run 永久停在 ``running``，只能等进程重启后的 auto_recover 收尸。
+
+    转换本身只解决「状态收不回」的问题，收口后是否把原异常重新抛出由
+    ``must_reraise`` 决定（两种异常的对外语义不同，见该属性的说明）。
+    """
+
+    def __init__(self, original: BaseException) -> None:
+        super().__init__(
+            f"执行被进程级退出信号中断（{type(original).__name__}）：{original}"
+        )
+        self.original = original
+        self.original_type = type(original).__name__
+        self.exit_code = getattr(original, "code", None)
+
+    @property
+    def must_reraise(self) -> bool:
+        """清理收口完成后是否应把 ``original`` 重新抛出。
+
+        - ``SystemExit`` → **不重抛**。工具/沙箱里的 ``sys.exit()`` 不是「本进程想退出」
+          的合法表达，反而是既有事故源：``runner._close_run`` 的 docstring 记录过
+          「清理路径抛出的 SystemExit 让 uvicorn 跑一段时间后突然退出」。
+          按 failed 收口即可，进程继续服务。
+        - ``KeyboardInterrupt`` → **重抛**。Ctrl-C 是用户意图，必须穿透到
+          ``main.py`` / ``cli`` 的顶层处理器（与 ``provider_gateway`` 的
+          「KeyboardInterrupt 不吞，保证 Ctrl+C 语义不受影响」一致）。
+          只是在它穿透之前，先把 Run 的终态写完 —— 否则一次 Ctrl-C 就会留下一个
+          永远停在 running 的僵尸 Run。
+        """
+        return isinstance(self.original, KeyboardInterrupt)
+
+
 class ToolError(AgentError):
     pass
 

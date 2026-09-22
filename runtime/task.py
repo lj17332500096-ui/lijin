@@ -47,6 +47,20 @@ class RunBudget:
     max_output_tokens: int | None = 4096
     token_budget: int = 0
 
+    def to_dict(self) -> dict[str, Any]:
+        """序列化为可持久化的普通 dict（``runs.budget_json`` 用）。
+
+        为什么必须有这个显式方法：``@dataclass(slots=True)`` 的实例**没有
+        ``__dict__``**，``budget.__dict__`` 抛 AttributeError；调用方一旦用
+        ``hasattr(budget, "__dict__")`` 兜底，就会静默落成 ``{}`` ——
+        ``runs.budget_json`` 因此长期是空对象，唯一读取方
+        （``recover_stale_tasks`` 的预算相对阈值）永远读不到真实预算，
+        使「按预算回收僵尸 Run」的能力变成死代码（2026-09-22 定位）。
+        """
+        from dataclasses import asdict
+
+        return asdict(self)
+
 
 @dataclass(slots=True)
 class TaskUsage:

@@ -58,9 +58,13 @@ class ScheduleMirrorTests(unittest.TestCase):
     def test_auto_recover_function(self) -> None:
         import datetime as _dt
 
-        from runtime.task import TaskState
+        from runtime.task import RunBudget, TaskState
 
-        task = self.manager.create_task("s1", "崩溃任务")
+        # B9：显式给一个小预算。auto_recover 现在按 Run 自己的墙钟预算判定
+        # （budget_relative=True），阈值 = max(900, 2×预算)。用默认预算（3600s）时
+        # 阈值是 7200s —— 3600s 的静默就**不该**被当成崩溃遗留下手（那正是误杀长任务）。
+        task = self.manager.create_task("s1", "崩溃任务",
+                                        budget=RunBudget(max_wall_seconds=60))
         self.manager.transition(task.id, TaskState.RUNNING)
         old = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(seconds=3600)).isoformat(timespec="seconds")
         with self.manager._connect() as conn:

@@ -25,6 +25,11 @@ from pathlib import Path
 
 import code_exec
 
+#: P1-14（2026-09-22）：受信代码根现在是**评测/测试专用**免审批通道
+#: （code_exec._trusted_code_roots 只在 FORGE_EVAL_MODE/FORGE_TEST_MODE=1 时读取）。
+#: 本文件测的正是该机制，因此显式声明测试模式。
+os.environ.setdefault("FORGE_TEST_MODE", "1")
+
 
 def _with_trusted_root(monkeypatch_fixture_root: Path):
     """临时把 FORGE_TRUSTED_CODE_ROOTS 指向给定受信根，返回受信根 Path。"""
@@ -42,6 +47,9 @@ class _TrustRootTestsBase(unittest.TestCase):
         self.inner_project = self.trusted_root / "inner_proj"
         self.inner_project.mkdir()
         self._old_env = os.environ.get("FORGE_TRUSTED_CODE_ROOTS")
+        # P1-14：受信代码根是评测/测试专用免审批通道，只有显式声明测试模式才生效。
+        # 每个用例重设一次（其他测试文件可能 del 掉该变量）。
+        os.environ["FORGE_TEST_MODE"] = "1"
         os.environ["FORGE_TRUSTED_CODE_ROOTS"] = str(self.trusted_root)
 
     def tearDown(self):

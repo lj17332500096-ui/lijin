@@ -9,6 +9,7 @@ category / risk / side_effect / destructive / idempotent 等元数据，
 """
 
 from dataclasses import dataclass, field
+import os
 from typing import Any
 
 
@@ -23,8 +24,54 @@ class ToolSpec:
     side_effect: bool = False  # 是否对外部世界造成持久影响
     destructive: bool = False  # 是否可能破坏/删除数据
     idempotent: bool = True    # 相同参数重复执行结果是否等价
-    timeout_seconds: int = 30
+    timeout_seconds: int = 120
     source: str = "native"     # native / mcp / skill / agent
+
+
+#: B6（P1-3，2026-09-22）：单次工具调用的超时（秒）。
+#:
+#: ``ToolSpec.timeout_seconds`` 此前是个**没人读的死字段**（默认 30），于是任何一个
+#: 卡住的工具都能一直占着 Run，直到把整轮墙钟预算耗光 —— 判据只剩「超过墙钟预算」，
+#: 既看不出是谁卡的，也让后面本该执行的步骤全部饿死。
+#:
+#: 取值原则：**宁可放宽也不要误杀**。长跑类工具按设计就要跑几分钟（deep_research /
+#: code_loop / run_tests / 索引构建），给它们足够上限；其余给 120s 的宽松默认。
+#: 环境变量 ``FORGE_TOOL_TIMEOUT`` 可覆盖**全局默认值**（排查/压测用）。
+_TOOL_TIMEOUT_DEFAULT = 120
+
+TOOL_TIMEOUT_SECONDS: dict[str, int] = {
+    # 长跑：调研 / 验证循环 / 测试 / 索引 / 抓取
+    "deep_research": 900,
+    "code_loop": 900,
+    "run_tests": 900,
+    "index_workspace": 900,
+    "fetch_github_repo": 600,
+    "run_python": 600,
+    # 文档产出与解析（Office 文件可能很大）
+    "save_word_doc": 600,
+    "save_excel_workbook": 600,
+    "save_ppt_deck": 600,
+    "read_office_file": 300,
+    "read_spreadsheet": 300,
+    # 沙箱快照/回滚（要复制整个工作区）
+    "sandbox_snapshot": 300,
+    "sandbox_rollback": 300,
+    # 视觉 / 检索
+    "ask_image": 300,
+    "web_search": 120,
+}
+
+
+def timeout_for(name: str) -> int:
+    """单次工具调用的超时秒数（B6 的唯一来源）。"""
+    override = TOOL_TIMEOUT_SECONDS.get(name)
+    if override is not None:
+        return int(override)
+    try:
+        env = int(os.getenv("FORGE_TOOL_TIMEOUT", "") or 0)
+    except ValueError:
+        env = 0
+    return env if env > 0 else _TOOL_TIMEOUT_DEFAULT
 
 
 # 工具目录：name -> (category, risk, side_effect, destructive, idempotent)
@@ -79,6 +126,12 @@ TOOL_CATALOG: dict[str, tuple[str, str, bool, bool, bool]] = {
     "edit_project_file": ("filesystem", "medium", True, False, False),
     # 技能
     "scan_dependencies": ("utility", "low", False, False, True),
+    # P1-13（2026-09-22）：补齐两个已注册但漏登记的零副作用工具。
+    # 未登记工具会被 spec_for 保守判 side_effect=True（fail-closed 默认），
+    # 后果是「零副作用的 think 在 DISCOVERABLE/NEEDS_USER 状态下被 Readiness 门拦掉」
+    # —— 新功能被目录漂移静默废掉。有 tests/test_tool_catalog_consistency.py 守住。
+    "think": ("utility", "low", False, False, True),
+    "search_sources": ("rag", "low", False, False, True),
 }
 
 
@@ -176,7 +229,7 @@ def spec_for(
             side_effect=True,
             destructive=False,
             idempotent=False,
-            timeout_seconds=30,
+            timeout_seconds=timeout_for(name),
             source=source,
         )
     category, risk, side_effect, destructive, idempotent = entry
@@ -190,6 +243,6 @@ def spec_for(
         side_effect=side_effect,
         destructive=destructive,
         idempotent=idempotent,
-        timeout_seconds=30,
+        timeout_seconds=timeout_for(name),
         source=source,
     )

@@ -18,7 +18,9 @@ import json
 import os
 from typing import Any
 
+from runtime.audit import redact_value
 from runtime.errors import AgentError
+from runtime.spec import TOOL_CATALOG
 from runtime.task import Task
 
 #: 能力风险分类（Approval 针对“实际能力”，不只是表面工具名）
@@ -31,9 +33,37 @@ DESTRUCTIVE_TOOLS = {"sandbox_rollback", "forget_memory", "schedule_remove"}
 REAL_FILE_EDIT_TOOLS = {"write_project_file", "edit_project_file"}
 """MUTATING（真实文件编辑，非 FORGE 数据目录）：仅在 APPROVAL_GATED_TOOLS=all/* 时纳入。"""
 
-#: 默认审批清单 = 执行类 + 破坏/恢复类 + 真实文件编辑类
+#: 默认审批清单 = 执行类 + 破坏/恢复类 + 真实文件编辑类 + **目录派生的副作用工具**
 #: （P1-1：真实文件编辑默认纳管，防止 APPROVAL 默认开时无人值守静默写盘）
-GATED_DEFAULT = EXECUTION_TOOLS | DESTRUCTIVE_TOOLS | REAL_FILE_EDIT_TOOLS
+#
+# P0-2（2026-09-22）：名单不再手工枚举，改为由 runtime/spec.py 的 ``side_effect``
+# 元数据动态派生 —— 手工名单与真实副作用分类之间没有机械关联，必然逐步漂移
+# （修复前实测有 14 个写/副作用工具可无审批持久写盘 / 联网落盘）。
+# 手工名单退化为「豁免表」，只允许**减**，不允许静默「加漏」。
+#: 有副作用但按设计不打断交互（豁免必须有理由；有测试断言豁免表非空且逐项在目录内）：
+#: - save_note / save_word_doc / save_excel_workbook / save_ppt_deck：
+#:   用户显式请求的产出物本身，落盘位置受 FileScope 约束在 FORGE 数据目录内；
+#:   「要保存你刚让我生成的文档吗？」是纯 UX 税，无安全增益。
+#: - index_workspace / sandbox_snapshot：可逆的内部缓存 / 快照。
+#: - remember：有界的记忆写入（删除记忆 forget_memory 仍在门内）。
+#: - schedule_add / schedule_set_enabled：新增/启停定时任务不破坏既有状态
+#:   （移除定时任务 schedule_remove 仍在门内）。
+SIDE_EFFECT_EXEMPT: frozenset[str] = frozenset({
+    "save_note", "save_word_doc", "save_excel_workbook", "save_ppt_deck",
+    "index_workspace", "sandbox_snapshot", "remember",
+    "schedule_add", "schedule_set_enabled",
+})
+
+#: 由工具目录派生：所有声明 side_effect=True 的工具默认需审批（减去显式豁免）。
+#: 目录外工具（MCP / 技能）走 register_gated_names 或 APPROVAL_GATED_TOOLS 显式登记。
+SIDE_EFFECT_GATED: frozenset[str] = frozenset(
+    name for name, entry in TOOL_CATALOG.items()
+    if entry[2] and name not in SIDE_EFFECT_EXEMPT
+)
+
+GATED_DEFAULT = (
+    EXECUTION_TOOLS | DESTRUCTIVE_TOOLS | REAL_FILE_EDIT_TOOLS | set(SIDE_EFFECT_GATED)
+)
 
 #: P2-6（2026-09-16）：APPROVAL_GATED_TOOLS 支持前缀匹配（如 "run_*,sandbox_*"）。
 #: 精确名保持原语义；带 * 的条目按前缀匹配。默认仍为 GATED_DEFAULT。
@@ -72,7 +102,20 @@ DENY_TEXT = "【审批拒绝】用户已拒绝执行该操作，请向用户说�
 
 
 def _args_key(arguments: dict[str, Any]) -> str:
-    return json.dumps(arguments, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+    """参数指纹（审批匹配 + 重复调用守卫的等值键）。
+
+    P0-5（2026-09-22）：**先脱敏再序列化**。此前它直接把参数 json.dumps 出来，
+    于是一份密钥在四个出口里唯独这一路是明文：
+      - tool_calls.arguments（入库时已 redact）
+      - tool.invocation.normalized_args（已 redact）
+      - 内存账本的 args_key ← 本函数
+      - approvals.args_key（**持久化**，且 arguments_json 已 redact，只有它没脱）
+    脱敏后它仍然是确定性的等值键（同参数 → 同键、跨进程稳定），只是不再区分
+    「两个不同的密钥」——对审批与去重而言这是安全方向：万一旧的持久化行因为
+    键值变化匹配不上，结果是**再次询问用户**（fail-closed），绝不会误放行。
+    """
+    return json.dumps(redact_value(dict(arguments or {})),
+                      ensure_ascii=False, sort_keys=True, separators=(",", ":"))
 
 
 class _RunGateState:

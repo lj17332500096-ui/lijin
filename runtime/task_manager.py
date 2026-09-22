@@ -21,6 +21,7 @@ PRAGMA：WAL / synchronous=NORMAL / busy_timeout。上层不直接写 SQL——
 """
 
 import json
+import logging
 import sqlite3
 import time
 import uuid
@@ -31,6 +32,8 @@ from typing import Any, Iterator
 from runtime.errors import AgentError
 from runtime.state_machine import RESUMABLE_FROM, assert_transition
 from runtime.task import RunBudget, Task, TaskEvent, TaskState, TaskUsage, utcnow_iso
+
+_logger = logging.getLogger(__name__)
 
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "agent.db"
 FORGE_DATA_DIR = Path(__file__).resolve().parent.parent / "forge_data"
@@ -402,6 +405,74 @@ def _migrate_v3(conn: sqlite3.Connection) -> None:
     conn.execute("PRAGMA user_version = 3")
 
 
+def _repair_multi_active_runs(conn: sqlite3.Connection, active_states: tuple[str, ...]) -> int:
+    """把「同一容器下多个活跃 Run」收敛为一个，返回被收敛的行数。
+
+    B4（P1-5，2026-09-22）：这不是新加的业务规则，而是**修历史漏洞留下的脏数据**。
+    旧谓词漏掉 ``waiting_user``，于是「一个 waiting_user + 一个新 Run」可以共存在
+    同一容器里。唯一索引一旦把 waiting_user 纳入，CREATE 会因重复键直接失败
+    → TaskManager 构造抛异常 → 整个服务起不来。所以必须先消冲突再建索引。
+
+    收敛策略：**保留最新的那个 Run**（它是用户此刻真正在等的那一个），其余置为
+    ``cancelled``。选 cancelled 而不是 failed 的理由：这些 Run 既没有执行失败，也
+    不是用户主动取消，而是被同容器里更新的 Run 取代了 —— 从「还能不能继续」的
+    角度它与 cancelled 同义（不再可恢复），而 failed 会污染失败率统计。
+    每一次收敛都留一条 ``run.superseded`` 事件，说明是迁移修复而非真实业务动作。
+    """
+    if not active_states or not _table_exists(conn, "runs"):
+        return 0
+    ph = ",".join("?" for _ in active_states)
+    dupes = conn.execute(
+        f"SELECT task_id FROM runs WHERE task_id IS NOT NULL AND state IN ({ph}) "
+        "GROUP BY task_id HAVING COUNT(*) > 1",
+        active_states,
+    ).fetchall()
+    if not dupes:
+        return 0
+    now = utcnow_iso()
+    repaired = 0
+    for row in dupes:
+        container_id = row["task_id"]
+        keeper = conn.execute(
+            f"SELECT id FROM runs WHERE task_id = ? AND state IN ({ph}) "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            (container_id, *active_states),
+        ).fetchone()
+        if keeper is None:  # pragma: no cover - 与上面的查询互斥
+            continue
+        stale = conn.execute(
+            f"SELECT id, state FROM runs WHERE task_id = ? AND state IN ({ph}) AND id <> ?",
+            (container_id, *active_states, keeper["id"]),
+        ).fetchall()
+        for s in stale:
+            conn.execute(
+                "UPDATE runs SET state = 'cancelled', updated_at = ?, completed_at = ? "
+                "WHERE id = ? AND state = ?",
+                (now, now, s["id"], s["state"]),
+            )
+            conn.execute(
+                "UPDATE approvals SET status = 'expired', decided_at = ? "
+                "WHERE task_id = ? AND status = 'pending'",
+                (now, s["id"]),
+            )
+            conn.execute(
+                "INSERT INTO task_events (task_id, event_type, payload_json, created_at) "
+                "VALUES (?,?,?,?)",
+                (s["id"], "run.superseded", json.dumps({
+                    "run_id": s["id"],
+                    "container_id": container_id,
+                    "from": s["state"],
+                    "to": "cancelled",
+                    "reason": "single_active_run_migration",
+                    "kept_run_id": keeper["id"],
+                    "note": "同容器只允许一个活跃 Run；本 Run 被更新的 Run 取代"
+                            "（B4 索引迁移修复，非业务动作）",
+                }, ensure_ascii=False), now),
+            )
+            repaired += 1
+    return repaired
+
+
 def _backfill_containers(conn: sqlite3.Connection) -> None:
     """runs.task_id IS NULL 的行（含迁移前遗留）→ 按 session_id 归并进容器。"""
     if not _table_exists(conn, "runs"):
@@ -469,6 +540,20 @@ class TaskManager:
             _ensure_columns(conn, "tool_calls", {"invocation_id": "TEXT"})
             # v5: approvals.executed — exactly-once execution tracking (Phase 38)
             _ensure_columns(conn, "approvals", {"executed": "INTEGER NOT NULL DEFAULT 0"})
+            # B7（P1-8，2026-09-22）：tool_calls 补 4 列。此前这张表只有
+            # (tool_name, arguments, status, result_excerpt)，无法回答「这次调用花了多久 /
+            # 属于哪一轮模型 / 参数是否与上次同形 / 结果是否与上次同形」——
+            # 也就是 benchmark 与收敛分析真正需要的三个维度：
+            #   latency_ms          单次调用耗时（同步工具卡死时长只能靠它发现）
+            #   turn_number         产生该调用的模型轮次
+            #   normalized_arguments 规范化参数（脱敏后），用于「同形不同值」判定
+            #   fingerprint         结果指纹（sha1 前 16 位），用于「换词绕过去重」判定
+            _ensure_columns(conn, "tool_calls", {
+                "latency_ms": "INTEGER",
+                "turn_number": "INTEGER",
+                "normalized_arguments": "TEXT",
+                "fingerprint": "TEXT",
+            })
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_calls_invocation "
                 "ON tool_calls(invocation_id) WHERE invocation_id IS NOT NULL"
@@ -480,10 +565,21 @@ class TaskManager:
                 " PRIMARY KEY (container_id, client_message_id))"
             )
             # P1：同容器单 Active Run 的 DB 级兜底（并发双发也只会有一个成功）
-            conn.execute(
-                "CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_single_active ON runs(task_id) "
-                "WHERE state IN ('submitted','running','waiting_approval','paused')"
-            )
+            # B4：谓词由 ACTIVE_RUN_STATES 派生；旧定义（漏 waiting_user）必须先 DROP
+            # 再建 —— CREATE ... IF NOT EXISTS 对已存在的索引是 no-op，不会更新谓词。
+            # 建索引前先消冲突，否则历史脏数据会让 CREATE 抛异常、整个服务起不来。
+            try:
+                _repaired = _repair_multi_active_runs(conn, self.ACTIVE_RUN_STATES)
+                if _repaired:
+                    _logger.warning(
+                        "B4 迁移：收敛同容器多活跃 Run %d 条（保留最新，其余置 cancelled）",
+                        _repaired)
+                conn.execute("DROP INDEX IF EXISTS idx_runs_single_active")
+                conn.execute(self._single_active_index_sql())
+            except Exception:
+                # 兜底不能阻止服务启动；但必须留下明确信号 —— 此时 DB 级「单活跃」
+                # 约束失效，只剩 find_active_run 的代码级检查。
+                _logger.exception("B4：单活跃 Run 唯一索引重建失败，DB 级约束未生效")
             try:
                 if _ensure_sources_tables is not None:
                     _ensure_sources_tables(conn)  # Sources RAG 表（无条件确保，幂等）
@@ -751,7 +847,11 @@ class TaskManager:
                         task.agent_name,
                         task.goal,
                         task.state.value,
-                        json.dumps(task.budget.__dict__ if hasattr(task.budget, "__dict__") else {}),
+                        # B9（2026-09-22）：此前是 `task.budget.__dict__ if hasattr(..., "__dict__")`，
+                        # 而 RunBudget 是 slots=True 的 dataclass（无 __dict__）→ 恒落 "{}"，
+                        # budget_json 成了只写不读的死列。改用显式 to_dict()。
+                        json.dumps(task.budget.to_dict() if hasattr(task.budget, "to_dict") else {},
+                                   ensure_ascii=False),
                         "{}",
                         json.dumps(task.metadata, ensure_ascii=False),
                         task.created_at,
@@ -812,10 +912,29 @@ class TaskManager:
     # ---------- Run 语义（容器） ----------
 
     #: 视为“容器正在处理中”的 Run 状态（同容器新 Run 应被拒绝/排队）
-    ACTIVE_RUN_STATES: tuple[str, ...] = ("submitted", "running", "waiting_approval", "paused")
+    #:
+    #: B4（P1-5，2026-09-22）：补入 ``waiting_user``。
+    #: 旧的 4 元组漏了它 —— 而 waiting_user 既不是终态、也不在活跃集，语义上悬空，
+    #: 后果是「追问态下再发一条消息」可以并起第二个 Run，两个 Run 共享同一份会话
+    #: 历史 ⇒ 消息交错、状态互相覆盖（多标签页 / 双击时真实可复现）。
+    #: 它与 waiting_approval 同属「等外部输入」的挂起态，本来就该同等对待。
+    #:
+    #: **这是唯一来源**：DB 侧的部分唯一索引谓词由本元组派生（见 ``_single_active_index_sql``），
+    #: 不再手抄第二份字符串 —— 二者漂移过一次，正是这个 bug 的成因。
+    ACTIVE_RUN_STATES: tuple[str, ...] = (
+        "submitted", "running", "waiting_approval", "waiting_user", "paused",
+    )
+
+    def _single_active_index_sql(self) -> str:
+        """由 ``ACTIVE_RUN_STATES`` 派生的部分唯一索引 DDL。"""
+        values = ",".join("'%s'" % s for s in self.ACTIVE_RUN_STATES)
+        return (
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_runs_single_active ON runs(task_id) "
+            f"WHERE state IN ({values})"
+        )
 
     def find_active_run(self, container_id: str) -> Task | None:
-        """返回同容器内仍在处理的 Run（SUBMITTED/RUNNING/WAITING_APPROVAL/PAUSED）。"""
+        """返回同容器内仍在处理的 Run（ACTIVE_RUN_STATES 中的任一状态）。"""
         if not container_id:
             return None
         placeholders = ",".join("?" for _ in self.ACTIVE_RUN_STATES)
@@ -914,23 +1033,56 @@ class TaskManager:
         *,
         reason: str | None = None,
     ) -> Task:
-        task = self.get_task(task_id)
-        if task is None:
-            raise AgentError(f"task not found: {task_id}")
-        assert_transition(task.state, target)
+        """Run 状态流转的唯一写入口。
 
+        B1（P0-6a，2026-09-22）：改为 CAS（compare-and-swap）。
+
+        旧实现是「先读 → 校验 → 凭空写 ``state=?``」的两步非原子操作，而且读与写
+        用的还是**两条不同连接**：并发的 cancel 与 fail 可以各自通过
+        ``assert_transition``，随后后写的一方直接覆盖先写的一方 —— 终态被篡改
+        （典型症状：用户取消的 Run 显示成 failed，或 failed 被 completed 覆盖）。
+
+        现在把「取写锁 → 读当前状态 → 校验 → 带旧状态条件写」收进单个
+        ``BEGIN IMMEDIATE`` 事务：
+        - ``BEGIN IMMEDIATE`` 让并发写在**读之前**就排队，而不是先读一份陈旧快照
+          再尝试升级锁（后者在 SQLite 下会 SQLITE_BUSY 或读到过期状态）；
+        - ``WHERE id=? AND state=<刚读到的旧状态>`` 让「写」对「读」负责：若状态
+          在两者之间被动过，rowcount 就是 0，而不是安静地覆盖掉别人的终态。
+
+        事件写入与回读放在事务**之外**：``add_event`` 自己开连接，若在上面的写事务
+        内调用会自我阻塞到 busy_timeout（SQLite 单写者）。
+        """
         now = utcnow_iso()
-        sets = ["state = ?", "updated_at = ?"]
-        params: list = [target.value, now]
-        if target == TaskState.RUNNING and task.started_at is None:
-            sets.append("started_at = ?")
-            params.append(now)
-        if target in (TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELLED):
-            sets.append("completed_at = ?")
-            params.append(now)
-        params.append(task_id)
+        old_state: TaskState
         with self._connect() as conn:
-            conn.execute(f"UPDATE runs SET {', '.join(sets)} WHERE id = ?", params)
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT * FROM runs WHERE id = ?", (task_id,)).fetchone()
+            if row is None:
+                raise AgentError(f"task not found: {task_id}")
+            current = self._row_to_task(row)
+            old_state = current.state
+            assert_transition(old_state, target)
+
+            sets = ["state = ?", "updated_at = ?"]
+            params: list = [target.value, now]
+            if target == TaskState.RUNNING and current.started_at is None:
+                sets.append("started_at = ?")
+                params.append(now)
+            if target in (TaskState.COMPLETED, TaskState.FAILED, TaskState.CANCELLED):
+                sets.append("completed_at = ?")
+                params.append(now)
+            params.extend([task_id, old_state.value])
+            cur = conn.execute(
+                f"UPDATE runs SET {', '.join(sets)} WHERE id = ? AND state = ?", params
+            )
+            if cur.rowcount != 1:
+                # 持 IMMEDIATE 写锁期间不可能有其它写者插进来；走到这里说明同一进程内
+                # 有嵌套/重入的写（例如在 transition 事务里又调用了 transition）。
+                # 宁可显式失败，也不要静默覆盖状态。
+                raise AgentError(
+                    f"状态流转冲突：{task_id} {old_state.value} → {target.value} "
+                    f"未生效（并发修改或事务嵌套）"
+                )
             # P2（状态一致性）：进入不可继续终态时，未决审批必须关闭，
             # 否则 failed/cancelled run 会继续显示“等待用户批准”。
             if target in (TaskState.FAILED, TaskState.CANCELLED, TaskState.COMPLETED):
@@ -940,7 +1092,8 @@ class TaskManager:
                     (now, task_id),
                 )
 
-        self.add_event(task_id, f"task.{target.value}", {"from": task.state.value, "reason": reason})
+        self.add_event(task_id, f"task.{target.value}",
+                       {"from": old_state.value, "reason": reason})
         updated = self.get_task(task_id)
         assert updated is not None
         return updated
@@ -1123,10 +1276,12 @@ class TaskManager:
         P2（状态一致性）：默认同时回收崩溃于 create→transition 之间的 stale SUBMITTED；
         正常排队中的 Run 由调用方显式指定 states 过滤（排队时间远小于阈值即不受影响）。
 
-        P1（比例回收阈值）：budget_relative=True 时，阈值 = min(max_age_seconds,
+        P1/B9（比例回收阈值）：budget_relative=True 时，阈值 = max(max_age_seconds,
         Run 预算的 2 倍)。复杂任务（如 3000s 预算的 run）用固定 900s 会被误判为崩溃
-        而强制 failed；相对阈值让"预算内未推进"成为更合理的判据。调用方（auto_recover）
-        显式 opt-in，保持向后兼容默认。
+        而强制 failed；相对阈值让"预算内未推进"成为更合理的判据。调用方
+        （auto_recover）显式 opt-in，保持向后兼容默认。
+        注：初版写成 min()，方向是反的 —— 对 3000s 预算仍然只给 900s，修复等于
+        没生效（详见下方逐行阈值处的注释）。
         """
         import datetime as _dt
 
@@ -1171,7 +1326,17 @@ class TaskManager:
                     if rel_budget <= 0:
                         threshold = max_age_seconds
                     else:
-                        threshold = min(max_age_seconds, rel_budget * 2)
+                        # B9 修正（2026-09-22）：这里原本是 min()，方向是反的 ——
+                        # 对 3000s 预算的 Run，min(900, 6000) 仍然等于 900，
+                        # 与「固定 900s」完全等价，等于修复从未生效（一个 3000s
+                        # 预算的 Run 只要 901s 没动 updated_at 就会被误判崩溃并强制
+                        # failed，而它本来还有 2000s 可跑）。
+                        # 正确判据：Run 合法的「最长无进展时长」上界就是它的墙钟预算
+                        # （到点 runner 自己会中止），所以阈值应随预算**放大**，
+                        # max_age_seconds 只作为「预算未知」时的兜底下限。
+                        # 代价方向是安全的：阈值偏大只会让僵尸 Run 多留一会儿，
+                        # 而不是把还活着的长跑任务杀掉。
+                        threshold = max(max_age_seconds, rel_budget * 2)
                     try:
                         upd = _dt.datetime.fromisoformat(r["updated_at"])
                         if upd.tzinfo is None:
@@ -1194,7 +1359,13 @@ class TaskManager:
                     })
             except Exception:
                 pass
-            self.transition(task_id, TaskState.FAILED, reason="stale/recovery")
+            try:
+                self.transition(task_id, TaskState.FAILED, reason="stale/recovery")
+            except AgentError:
+                # B1 之后 transition 是 CAS：状态在两次调用之间被改（例如另一个进程
+                # 已经恢复过这一行）会抛冲突。这种情况本就无需再收口 —— 逐个吞掉，
+                # 不能让一行冲突中断整个启动恢复流程。
+                continue
             was = str(row["state"])
             self.add_event(task_id, "task.recovered", {"reason": f"进程重启恢复：{was} 超时未推进"})
             recovered.append(task_id)
@@ -1528,6 +1699,10 @@ class TaskManager:
         status: str = "succeeded",
         result_excerpt: str | None = None,
         invocation_id: str | None = None,
+        latency_ms: int | None = None,
+        turn_number: int | None = None,
+        normalized_arguments: str | None = None,
+        fingerprint: str | None = None,
     ) -> str:
         from runtime.audit import redact_text, redact_value
 
@@ -1536,13 +1711,22 @@ class TaskManager:
             existing = self.find_tool_call_by_invocation(task_id, invocation_id)
             if existing is not None:
                 return existing["id"]  # 幂等：同一 invocation 只保留一行
+        _args_json = json.dumps(redact_value(arguments or {}), ensure_ascii=False)[:8000]
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO tool_calls (id, task_id, tool_name, arguments_json, status, "
-                "result_excerpt, invocation_id, created_at) VALUES (?,?,?,?,?,?,?,?)",
-                (row_id, task_id, str(tool_name)[:200],
-                 json.dumps(redact_value(arguments or {}), ensure_ascii=False)[:8000], status,
-                 redact_text(result_excerpt or "")[:1000], invocation_id, utcnow_iso()),
+                "result_excerpt, invocation_id, latency_ms, turn_number, "
+                "normalized_arguments, fingerprint, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (row_id, task_id, str(tool_name)[:200], _args_json, status,
+                 redact_text(result_excerpt or "")[:1000], invocation_id,
+                 int(latency_ms) if latency_ms is not None else None,
+                 int(turn_number) if turn_number is not None else None,
+                 # B7：normalized_arguments 是独立入口，必须自己走脱敏（同一份敏感
+                 # 数据不得因为「换了列」而丢掉防护）。调用方若没给就沿用 arguments。
+                 redact_text(normalized_arguments)[:8000] if normalized_arguments
+                 else _args_json,
+                 fingerprint, utcnow_iso()),
             )
         return row_id
 
@@ -1558,7 +1742,8 @@ class TaskManager:
     def list_tool_calls(self, task_id: str, limit: int = 200) -> list[dict]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id, tool_name, arguments_json, status, result_excerpt, invocation_id, created_at "
+                "SELECT id, tool_name, arguments_json, status, result_excerpt, invocation_id, "
+                "latency_ms, turn_number, normalized_arguments, fingerprint, created_at "
                 "FROM tool_calls WHERE task_id = ? ORDER BY rowid ASC LIMIT ?",
                 (task_id, max(1, min(int(limit), 2000))),
             ).fetchall()
@@ -2321,8 +2506,13 @@ def auto_recover(db_path: str | Path | None = None) -> list[str]:
 
     同时把崩溃遗留的 Sources 半成品索引（parsing/indexing/pending）收口为 failed
     （不自动重建；避免状态永久卡住与"failed 却仍可检索"的不一致）。
+
+    B9（P2-7，2026-09-22）：显式开启 ``budget_relative=True``。此前这个能力虽然实现
+    了，调用点却没开，默认固定 900s 阈值 —— 任何预算大于 450s 的 Run 只要 900s 没
+    刷新 updated_at 就会被判定为「崩溃遗留」并强制 failed，而它可能完全健康地在跑
+    （例如一次长网页抓取）。相对阈值以 Run 自己的墙钟预算为判据，避免这种误杀。
     """
-    recovered = TaskManager(db_path).recover_stale_tasks()
+    recovered = TaskManager(db_path).recover_stale_tasks(budget_relative=True)
     try:
         from sources.indexer import recover_interrupted_indexes
 

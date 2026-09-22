@@ -47,6 +47,37 @@ def redact_text(text: str) -> str:
     return out
 
 
+def _text_fingerprint(text: object, length: int = 16) -> str:
+    """结果指纹（B7）：同一份结果的稳定短哈希。
+
+    用途是回答「这次调用的结果是不是和上次同形」—— 换词/换序绕过去重守卫时，
+    名称与参数都不同，只有结果指纹能证明它其实是同一件事。
+    """
+    import hashlib
+
+    try:
+        return hashlib.sha1(
+            str(text)[:300].encode("utf-8", "replace")
+        ).hexdigest()[:length]
+    except Exception:
+        return ""
+
+
+def _args_fingerprint_text(arguments: object) -> str:
+    """规范化参数文本（B7）：排序后的紧凑 JSON，用于「同形不同值」判定。
+
+    入参应已脱敏（调用点传的是 ``redact_value`` 的结果），这里只做规范化，
+    不再重复脱敏 —— 重复脱敏无害但会掩盖「调用方忘了脱敏」这一类问题。
+    """
+    import json
+
+    try:
+        return json.dumps(arguments or {}, ensure_ascii=False, sort_keys=True,
+                          separators=(",", ":"))[:8000]
+    except Exception:
+        return ""
+
+
 #: 成功路径 ingest 时把“被审批门/文件边界拦下”的调用标为 blocked，而不是 succeeded
 _BLOCKED_MARKERS = ("【需要审批】", "【仍在等待审批】", "【审批拒绝】", "运行时文件边界")
 
@@ -121,6 +152,22 @@ class AuditCollector:
         self.on_token_note: Callable[[int, int], None] | None = None
         self.task_id = task_id
 
+    def _turn_number_snapshot(self) -> int | None:
+        """当前 Run 已成功返回的模型轮次（B7：tool_calls.turn_number 的来源）。
+
+        与 ``model_calls.turn_number``（= raw_responses 的序号）口径不同：后者在
+        ingest 时按响应列表重新编号，这里记录的是「产生这次工具调用时模型已经
+        走了几轮」。两者都保留 —— 一个是事后清单序号，一个是调用现场的事实。
+        """
+        try:
+            from runtime.runctx import current as _cur
+
+            ctx = _cur()
+            turns = int(getattr(ctx, "model_turns", 0) or 0) if ctx is not None else 0
+            return turns or None
+        except Exception:
+            return None
+
     def ingest(self, result: Any) -> dict:
         """把一次 run 的明细写库；返回 {model_calls, tool_calls, input_tokens, output_tokens}。"""
         totals = {"model_calls": 0, "tool_calls": 0, "input_tokens": 0, "output_tokens": 0}
@@ -162,14 +209,22 @@ class AuditCollector:
             elif raw_type in ("function_call_output", "function_output", "tool_output", "function_call_result"):
                 output = _output_text(raw)
                 if pending:
-                    call_raw, _started = pending.pop(0)
+                    call_raw, started = pending.pop(0)
+                    # B7：这里本来就记了 started，却从未使用 —— latency_ms 一直是空的。
+                    # 这是「采集到了却丢掉」的典型：数据在手，只是没人写下去。
+                    latency_ms = max(0, int((time.monotonic() - started) * 1000))
+                    args = redact_value(_tool_args(call_raw))
                     self.manager.insert_tool_call(
                         task_id=self.task_id,
                         tool_name=_tool_name(call_raw),
-                        arguments=redact_value(_tool_args(call_raw)),
+                        arguments=args,
                         status=status_for_tool_output(output),
                         result_excerpt=redact_text(output[:1000]),
                         invocation_id=_tool_call_id(call_raw),
+                        latency_ms=latency_ms,
+                        turn_number=self._turn_number_snapshot(),
+                        normalized_arguments=_args_fingerprint_text(args),
+                        fingerprint=_text_fingerprint(output),
                     )
                     totals["tool_calls"] += 1
         # 没有配对输出的调用（异常/被拒），仍记录状态

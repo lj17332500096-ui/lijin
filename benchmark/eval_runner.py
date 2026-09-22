@@ -312,6 +312,14 @@ def _pin_workspace_root() -> str:
     """
     project_root = Path(__file__).resolve().parent.parent
     os.environ["WORKSPACE_ROOT"] = str(project_root)
+    # P1-14（2026-09-22）：评测专用配置写在**评测器**里，不再写进生产 .env。
+    # 受信代码根是评审专用免审批通道，只有显式声明评测模式的进程才会读取
+    # （code_exec._trusted_code_roots）。此前它被直接写进生产 .env 指向
+    # benchmark_fixture，等于让生产进程对 fixture 目录下的代码执行完全免审批。
+    os.environ.setdefault("FORGE_EVAL_MODE", "1")
+    _fixture = project_root / "benchmark_fixture"
+    if _fixture.is_dir():
+        os.environ.setdefault("FORGE_TRUSTED_CODE_ROOTS", str(_fixture))
     return str(project_root)
 
 

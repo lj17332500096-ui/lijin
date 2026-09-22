@@ -462,6 +462,20 @@ async def _run_attempt(
     )
 
 
+def _format_retry_max() -> int:
+    """输出格式闸允许的重跑次数（L3 重试预算）。默认 1。
+
+    这是「一轮用户请求内」重试叠乘的最后一层：每次重跑都会完整走一遍 agent loop，
+    因此会重新消耗 provider 层的尝试预算（`FORGE_PROVIDER_MAX_TOTAL_ATTEMPTS`）。
+    旧实现写死 `while attempt < 3` + `if attempt == 1: raise`——第 3 次永远到不了，
+    读代码的人会以为有 3 次机会，实际只有 1 次（名册漂移）。现在次数只声明一处。
+    """
+    try:
+        return max(0, int((os.getenv("FORGE_FORMAT_RETRY_MAX") or "").strip() or 1))
+    except ValueError:
+        return 1
+
+
 async def execute_turn(
     mode: str,
     message: str,
@@ -476,7 +490,9 @@ async def execute_turn(
 ) -> object:
     """按指定执行方式跑一轮对话，返回 final_output。
 
-    输出格式闸拦截时自动携带原因重试一次（长文档/长回复偶发被截断时能自愈）。
+    输出格式闸拦截时自动携带原因重试（次数 = FORGE_FORMAT_RETRY_MAX，默认 1 次；
+    长文档/长回复偶发被截断时能自愈）。这是重试叠乘的最外层，见 provider_gateway 模块
+    docstring 的「重试与超时的归属」。设为 0 则首轮不通过即刻收口。
     agent 可传模型路由克隆的实例；不传则用当前全局 Agent。
     audit 可选：AuditCollector，成功时自动落每次模型调用/工具调用明细。
     stream_events_cb 可选：实时过程回调（工具/增量文本），供 web SSE 转发。
@@ -487,8 +503,9 @@ async def execute_turn(
 
     current = message
     overflow_compacted = False
+    max_reruns = _format_retry_max()
     attempt = 0
-    while attempt < 3:
+    while attempt <= max_reruns:
         try:
             result = await _run_attempt(
                 mode, current, session, run_config, max_turns, debug=debug, agent=agent,
@@ -503,7 +520,7 @@ async def execute_turn(
                     pass  # 审计失败不影响主流程
             return result.final_output
         except OutputGuardrailTripwireTriggered as exc:
-            if attempt == 1:
+            if attempt >= max_reruns:
                 # 执行（工具/文件/验证）与「最终回复」分离：第二次仍失败不再以 SDK 内部
                 # 异常上抛，改抛 FinalResponseFailed（携带面向用户的友好原因），
                 # 由 Runner 根据真实执行证据决定收口（完成+降级说明 / 真失败）。
@@ -1043,6 +1060,11 @@ def main() -> None:
     except Exception:
         pass
 
+    # B8：--trace 与 FORGE_TRACE 收敛为同一开关 —— Runtime（_ensure_tracing）也读它，
+    # 否则「CLI 开了追踪」与「Runtime 认为自己没开」会各说一套；Web/定时入口也能用
+    # 同一个环境变量打开追踪，而不必各自加一个 CLI 参数。
+    if args.trace:
+        os.environ["FORGE_TRACE"] = "1"
     trace_path = install_local_tracing(args.trace)
     if trace_path:
         print(f"🛰️ 本地追踪已开启：{trace_path}")

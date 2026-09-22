@@ -242,9 +242,16 @@ class ApprovalConvergenceWhilePendingTests(unittest.TestCase):
             asyncio.run(gate.check("run_tests", {"project": "fixture"}, run_id=task.id))
 
         # Convergence level should not be TERMINALIZE just because of approval
-        from runtime.runctx import RunContext, bind as _bind
-        ctx = RunContext(request_text="test")
-        _bind(ctx)
+        # 注意：RunContext 绑定必须还原。它落在 contextvar 上，会**跨用例、跨文件**
+        # 存活；不解绑会让后续用例里任何「复用当前上下文」的代码（例如
+        # _execute_approved_invocation）拿到这个 run_id 为空的残影，把证据记到
+        # 不存在的 Run 上（2026-09-22 定位到该泄漏导致 test_approval_execution_parity
+        # 在本文件之后运行时 7 条证据断言失败）。
+        from runtime.runctx import RunContext, bind as _bind, current as _cur
+
+        _prev_ctx = _cur()
+        self.addCleanup(_bind, _prev_ctx)
+        _bind(RunContext(request_text="test"))
         # After approval blocked, the run should be in WAITING_APPROVAL, not converged
         self.assertTrue(bool(gate.pending_for(task.id)))
 

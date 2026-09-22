@@ -13,6 +13,41 @@ import uuid
 from datetime import datetime, timezone
 
 from runtime.completion import VERIFY_TOOLS, WRITE_TOOLS, verification_outcome_of
+from runtime.task import TaskState
+
+#: 控制事件名白名单 = 由 TaskState 枚举派生（``run.<state>``）+ 传输别名 + 非状态类控制帧。
+#:
+#: P0-3（2026-09-22 修复方向）：白名单此前是**手工字符串集合**，只认
+#: ``run.waiting_for_user``，而 ``finish()`` 按 ``"run." + state`` 产出
+#: ``run.waiting_user`` —— 生产端与闸口各写一份名单，一旦分叉就静默丢事件。
+#: 改为从枚举派生后，"所有 ``run.<state>`` 都能过闸口"成为结构性保证（有测试守）。
+LEGACY_RUN_KINDS: frozenset[str] = frozenset({"run.waiting_for_user"})
+_RUN_STATE_KINDS: frozenset[str] = frozenset(f"run.{s.value}" for s in TaskState)
+_OTHER_CONTROL_KINDS: frozenset[str] = frozenset({
+    "runtime.done", "runtime.error", "approval.required", "assistant.reply", "source.not_ready",
+    # run.started 不是 TaskState 成员（TaskState 无 STARTED），但它是既有传输名，
+    # 由 webapp._start_run_session 直接 feed；漏掉会被闸口静默丢弃。
+    "run.started",
+})
+ALLOWED_CONTROL_KINDS: frozenset[str] = (
+    _RUN_STATE_KINDS | LEGACY_RUN_KINDS | _OTHER_CONTROL_KINDS
+)
+
+#: 控制帧 status 的确定性推导（此前 cancelled/waiting_user/done 会被算成 running）。
+_CONTROL_STATUS: dict[str, str] = {
+    "done": "completed", "reply": "completed",
+    "error": "failed", "failed": "failed",
+    "completed": "completed", "cancelled": "cancelled",
+    "submitted": "running", "running": "running", "started": "running",
+    "paused": "waiting_for_user", "waiting_user": "waiting_for_user",
+    "waiting_for_user": "waiting_for_user", "waiting_approval": "waiting_for_user",
+}
+
+
+def control_status_of(kind: str) -> str:
+    if "approval" in kind:
+        return "waiting_for_user"
+    return _CONTROL_STATUS.get(kind.rsplit(".", 1)[-1], "running")
 
 SECRET = re.compile(
     r"(?i)(?:\b(?:api[_ -]?key|access[_ -]?token|refresh[_ -]?token|password|secret|"
@@ -300,7 +335,7 @@ class RunActivityProjector:
             self.flush()
             self.closed = True
             return
-        status = "completed" if state == "completed" else "cancelled" if state == "cancelled" else "failed"
+        status = control_status_of("run." + state)
         for row in self.rows:
             if row["status"] == "running":
                 row["status"] = "interrupted"
@@ -368,11 +403,11 @@ def public_wire(run_id, name, payload):
     # Compatibility control records never carry provider errors, logs, or args.
     kind = {"done": "runtime.done", "error": "runtime.error", "approval": "approval.required",
             "reply": "assistant.reply"}.get(name, name)
-    if kind not in {"runtime.done", "runtime.error", "approval.required", "assistant.reply", "run.started", "run.completed", "run.failed", "run.cancelled", "run.waiting_approval", "run.waiting_for_user", "source.not_ready"}:
+    if kind not in ALLOWED_CONTROL_KINDS:
         return None
     envelope = {"event_id": uuid.uuid4().hex, "run_id": run_id, "type": kind,
                 "timestamp": datetime.now(timezone.utc).isoformat(), "visibility": "public",
-                "channel": "control", "status": "waiting_for_user" if "approval" in kind else "failed" if kind.endswith("failed") else "completed" if kind.endswith("completed") else "running",
+                "channel": "control", "status": control_status_of(kind),
                 "label": "", "metadata": {}}
     if kind == "assistant.reply":
         envelope["metadata"] = {"content": public_text(payload.get("content")), "kind": payload.get("kind", "answer")}

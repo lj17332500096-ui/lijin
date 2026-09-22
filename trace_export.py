@@ -105,7 +105,13 @@ def _load_messages(container_id: str, run_id: str, db_path: str) -> list[dict]:
 
 
 def _load_spans(run_id: str, jsonl_path: str | None) -> list[dict]:
-    """从 OTel JSONL 按 trace_id 过滤 span。"""
+    """从 OTel JSONL 按 Run id 过滤 span。
+
+    B8（P1-6，2026-09-22）：过滤键是 ``run_id`` 而不是 ``trace_id``。
+    旧实现拿 Run id 去比 SDK 生成的 OTel ``trace_id``，两者从无关联，
+    条件恒为假 —— 导出结果里 ``spans`` 永远是空的（"跨层追踪"实际不存在）。
+    新记录都带 ``run_id`` 字段；``trace_id`` 作为旧文件的回退，保持向后兼容。
+    """
     if not jsonl_path or not Path(jsonl_path).exists():
         return []
     out = []
@@ -116,7 +122,7 @@ def _load_spans(run_id: str, jsonl_path: str | None) -> list[dict]:
             rec = json.loads(line)
         except Exception:
             continue
-        if str(rec.get("trace_id") or "") == run_id:
+        if str(rec.get("run_id") or rec.get("trace_id") or "") == run_id:
             out.append(rec)
     return out
 

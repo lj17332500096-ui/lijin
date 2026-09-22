@@ -69,6 +69,17 @@ def classify_exception(exc: BaseException) -> TerminalReason:
     except Exception:
         pass
 
+    # 进程级退出信号（SystemExit 被 budget 层拦下后转成的普通异常）
+    if name == "ProcessExitInterrupted":
+        _code = getattr(exc, "exit_code", None)
+        _orig = getattr(exc, "original_type", "SystemExit")
+        return TerminalReason(
+            KIND_BOUNDED_FAILURE, TaskState.FAILED,
+            f"本轮执行被进程级退出信号中断（{_orig}"
+            + (f"，code={_code}" if _code is not None else "")
+            + "），已停止；已发生的操作仍然保留。",
+        )
+
     # 墙钟预算 / 超时
     if name in ("BudgetExceeded", "TimeoutError") or "超过墙钟预算" in text:
         # BudgetExceeded 区分来源：reason == "token_budget" → 专走 KIND_TOKEN_BUDGET

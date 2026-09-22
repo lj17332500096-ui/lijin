@@ -172,7 +172,10 @@ class TurnRenderer:
             self._write(theme.err(f"  ✗ 运行失败：{self.error_message}") + "\n")
         elif etype == "run.waiting_approval":
             self.terminal_state = "waiting_approval"
-        elif etype == "run.waiting_for_user":
+        elif etype in ("run.waiting_for_user", "run.waiting_user"):
+            # P0-3：状态机枚举是 waiting_user，事件白名单历史别名是 waiting_for_user。
+            # 两个名字都接受，避免「生产端发 waiting_user、渲染器只认 waiting_for_user」
+            # 这类手工名单分叉导致追问态在 CLI 上表现为「什么都没发生」。
             self.terminal_state = "waiting_user"
         elif etype == "run.cancelled":
             self.terminal_state = "cancelled"

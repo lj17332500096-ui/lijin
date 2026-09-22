@@ -170,12 +170,27 @@ class TaskManagerTests(unittest.TestCase):
             task2.id,
             self.manager.recover_stale_tasks(budget_relative=True, max_age_seconds=4500),
         )
-        # 而把 Run 再拨老到 4000s（>3600s）则命中
+        # B9 修正（2026-09-22）：阈值口径从 min 改为 max。
+        # 旧 min(4500, 1800*2)=3600 意味着「只要 max_age_seconds 比预算大，预算就完全
+        # 不参与判定」—— 对 3000s 预算的 Run，min(900, 6000) 仍然等于 900，与固定阈值
+        # 等价，修复等于从未生效（见 task_manager 里逐行阈值处的注释）。
+        # 正确口径：阈值 = max(max_age_seconds, 2×预算)，即预算为下界、max_age 只兜底。
+        # 本 Run 的阈值 = max(4500, 3600) = 4500，故 4000s 仍未到期。
         older = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(seconds=4000)).isoformat(
             timespec="seconds"
         )
         with self.manager._connect() as conn:
             conn.execute("UPDATE runs SET updated_at = ? WHERE id = ?", (older, task2.id))
+        self.assertNotIn(
+            task2.id,
+            self.manager.recover_stale_tasks(budget_relative=True, max_age_seconds=4500),
+        )
+        # 再拨老到超过阈值（5000s > 4500s）则命中
+        oldest = (_dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(seconds=5000)).isoformat(
+            timespec="seconds"
+        )
+        with self.manager._connect() as conn:
+            conn.execute("UPDATE runs SET updated_at = ? WHERE id = ?", (oldest, task2.id))
         self.assertIn(
             task2.id,
             self.manager.recover_stale_tasks(budget_relative=True, max_age_seconds=4500),
@@ -190,7 +205,14 @@ class TaskManagerTests(unittest.TestCase):
             timespec="seconds"
         )
         with self.manager._connect() as conn:
-            conn.execute("UPDATE runs SET updated_at = ? WHERE id = ?", (old, task.id))
+            # B9：必须**显式**清空 budget_json 才叫「无预算」。
+            # 此前这里不清也能过，因为 create_task 存在 __dict__ 兜底陷阱
+            # （RunBudget 是 slots dataclass → budget_json 恒为 '{}'），
+            # 等于所有 Run 都「无预算」。该陷阱已修，所以这里要如实构造前提。
+            conn.execute(
+                "UPDATE runs SET updated_at = ?, budget_json = '{}' WHERE id = ?",
+                (old, task.id),
+            )
         # 无 budget_json、无 goal 文本 → 回落 max_age_seconds
         self.assertIn(
             task.id,

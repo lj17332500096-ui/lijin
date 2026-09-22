@@ -17,6 +17,9 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 os.environ["TOOL_ROUTER"] = "on"
+#: P1-14（2026-09-22）：受信代码根是评测/测试专用免审批通道，只有显式声明
+#: FORGE_EVAL_MODE/FORGE_TEST_MODE=1 的进程才会读取（code_exec._trusted_code_roots）。
+os.environ.setdefault("FORGE_TEST_MODE", "1")
 
 from runtime import tool_router as tr
 from runtime.readiness_gate import required_questions, missing_required_fields
@@ -33,6 +36,9 @@ class TrustedRootSecurityTests(unittest.TestCase):
         self.root.mkdir()
         (self.root / "tests").mkdir()
         (self.root / "tests" / "t.py").write_text("print(1)", encoding="utf-8")
+        # P1-14：受信代码根是评测/测试专用免审批通道，只有显式声明测试模式才会生效。
+        # 每个用例都重设一次（其他测试文件可能 del 掉该变量）。
+        os.environ["FORGE_TEST_MODE"] = "1"
         os.environ["FORGE_TRUSTED_CODE_ROOTS"] = str(self.root)
         import importlib
         import code_exec

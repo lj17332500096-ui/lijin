@@ -385,7 +385,7 @@ def _terminal_sse_events(run_id: str) -> list[tuple[str, dict]]:
     if state == "waiting_approval":
         return [("approval", _approval_payload_pub(run_id)), ("done", {})]
     if state == "waiting_user":
-        return [("run.waiting_for_user", {"run_id": run_id}), ("done", {})]
+        return [("run.waiting_user", {"run_id": run_id}), ("done", {})]
     if state == "cancelled":
         evs: list[tuple[str, dict]] = [
             ("run.started", {"run_id": run_id, "task_id": container_id, "state": "running"}),
@@ -443,7 +443,7 @@ async def _synthesize_run_end(run_id: str, session_obj: _LiveRunSession) -> None
         return
     state = run.state.value
     if state == "waiting_user":
-        session_obj.feed("run.waiting_for_user", {"run_id": run_id})
+        session_obj.feed("run.waiting_user", {"run_id": run_id})
         session_obj.feed("done", {})
         session_obj.finished = True
         session_obj.closed_at = time.time()
@@ -459,7 +459,7 @@ async def _synthesize_run_end(run_id: str, session_obj: _LiveRunSession) -> None
         err = (run.error_message or "任务失败")[:300]
         session_obj.feed("run.failed", {"run_id": run_id, "message": err})
         session_obj.feed("task.failed", {"task_id": run_id, "state": "failed", "message": err})
-    else:  # completed
+    elif state == "completed":  # P0-4：显式枚举，不再用 else 兜底猜 completed
         try:
             container_id = runtime.tasks.get_run_container_id(run_id)
             if container_id:
@@ -479,6 +479,10 @@ async def _synthesize_run_end(run_id: str, session_obj: _LiveRunSession) -> None
         except Exception:
             pass
         session_obj.feed("run.completed", {"run_id": run_id})
+    else:
+        # P0-4：不得把未知/中间态默认当 completed 广播（伪 optimistic UI）。
+        # 真实中间态（submitted/running/paused）按 ``run.<state>`` 如实下发。
+        session_obj.feed(f"run.{state}", {"run_id": run_id})
     session_obj.feed("done", {})
     session_obj.finished = True
     session_obj.closed_at = time.time()
@@ -520,6 +524,11 @@ def _start_run_session(run_id: str) -> _LiveRunSession | None:
               session_id=session_id,
               mode="stream",
               max_turns=max_turns,
+              # P0-4：必须把已建好的 Run id 传下去（resume 语义），否则 run_turn 会走
+              # 「新建 Run」分支：第 3 步建好的 Run 永远停在 submitted 无终态，而 SSE
+              # 侧把非终态一律当 completed 广播 —— 用户看到「已完成」但 DB 是 submitted。
+              # 对齐 main.py:711 / benchmark/eval_runner.py:108 的既有正确用法。
+              task_id=run_id,
               metadata={"channel": "web"},
               stream_events_cb=_cb,
           )

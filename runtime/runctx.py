@@ -153,6 +153,18 @@ class RunContext:
     # ---- Phase 5：TERMINALIZE 强制收口（一次收口机会，之后 break SDK 工具循环）----
     terminalize_announced: bool = False
     convergence_forced: bool = False
+    # ---- B7：模型轮次计数（tool_calls.turn_number 的真实来源）----
+    # 语义：本 Run 内**成功返回**的模型响应条数（从 1 开始计）。
+    # 只由 provider 网关在尝试记录 kind ∈ {"success", "ok"} 时递增 —— 重试/限流不算一轮，
+    # 因为它们没有产出任何模型输出，也就不会产生工具调用。
+    # ⚠️ 生产侧写的是 "success"（见 provider_gateway.record_attempt 的 kind 取值）；
+    #    "ok" 只是历史/兜底写法，判据必须同时认这两个，否则本字段恒为 0（静默失效）。
+    model_turns: int = 0
+
+    def note_model_turn(self) -> int:
+        """记一次成功返回的模型响应，返回递增后的轮次。"""
+        self.model_turns = int(self.model_turns or 0) + 1
+        return self.model_turns
 
     def note_think(self, text: str) -> int:
         """记一条 think 笔记到 Run 级 scratchpad，返回当前条数。

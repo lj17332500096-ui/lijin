@@ -29,7 +29,7 @@ from agents.tool import FunctionTool
 from runtime.approval import ApprovalGate
 from runtime.artifacts import ArtifactTracker
 from runtime.audit import AuditCollector
-from runtime.budget import resolve_budget, run_with_wall_limit
+from runtime.budget import _convert_process_exit, resolve_budget, run_with_wall_limit
 from runtime.broker import ToolBroker
 from runtime.checkpoint import save_failure_checkpoint, save_success_checkpoint
 from runtime.completion import (
@@ -80,6 +80,30 @@ def _mutation_result_ok(name: str, result_text: str) -> str:
     if any(m in t for m in _MUTATION_SUCCESS_MARKERS):
         return "COMMITTED"
     return "UNKNOWN"
+
+
+#: agents SDK ``default_tool_error_function`` 的确定性兜底文案前缀（.venv agents/tool.py）。
+#: 参数校验失败 / ModelBehaviorError 会被 SDK 的 failure_error_function **吞成普通字符串**
+#: 返回而不抛异常；若不识别，这类「假结果」会被记为 TOOL_EXECUTED 并进入 Completion Gate
+#: 的执行证据 —— 模型可在零次成功执行下被判定为已完成。
+_SDK_TOOL_FAILURE_MARKERS = (
+    "An error occurred while running the tool",
+    "An error occurred while parsing tool arguments",
+)
+
+
+def _sdk_tool_failure_text(result: object) -> str:
+    """识别被 SDK 吞掉的工具失败（返回错误文案而非异常）→ 返回该文案，否则空串。
+
+    P0-1（2026-09-22）：只匹配 SDK 自产的确定性前缀，不猜业务侧文案
+    （工具内部 ``except → return "错误：…"`` 属另一类问题，单独跟踪）。
+    """
+    if not isinstance(result, str):
+        return ""
+    head = result[:200]
+    if any(marker in head for marker in _SDK_TOOL_FAILURE_MARKERS):
+        return result
+    return ""
 
 
 def obligation_gate_enabled() -> bool:
@@ -137,6 +161,7 @@ from runtime.errors import (
     ConvergenceTerminated,
     FinalResponseFailed,
     NeedsUserInputTerminated,
+    ProcessExitInterrupted,
 )
 from runtime.registry import ToolBinding, ToolRegistry, discover_from_agent
 from runtime.readiness_gate import (
@@ -162,7 +187,7 @@ from runtime.readiness_gate import (
     normalize_missing,
 )
 from runtime.router import agent_for, route_profile
-from runtime.spec import spec_for
+from runtime.spec import spec_for, timeout_for
 from runtime.task import RunBudget, Task, TaskState
 from runtime.task_manager import DEFAULT_DB_PATH, TaskManager
 from runtime.terminalization import (
@@ -232,6 +257,27 @@ def _assistant_parts(final_output: object | None) -> tuple[str, str]:
     return content, kind
 
 
+def _kill_cancelled_side_effects(run_id: str | None) -> None:
+    """取消路径：停掉该 Run 已登记的子进程树（审计 P1-2）。
+
+    取消是「同步工具经 ``asyncio.to_thread`` 执行、无法被 cancel 打断」这一结构性限制
+    的进程级补偿：工具在等待子进程时把 killer 登记进 ``runtime.cancel_scope``，这里统一
+    触发，让 pytest / 沙箱脚本的整棵进程树立刻死掉，而不是跑完再丢结果。
+
+    只覆盖**已启动的子进程**；纯 Python 的同步计算在线程里无法被安全中止（见
+    ``cancel_scope`` 模块 docstring 的能力边界）。
+
+    任何异常都必须吞掉：这是 ``CancelledError`` 的传播路径，多抛一个异常会把取消原因
+    掩盖成别的东西。
+    """
+    try:
+        from runtime.cancel_scope import kill_run
+
+        kill_run(run_id)
+    except Exception:
+        pass
+
+
 @dataclass(slots=True)
 class AgentRuntime:
     """个人 Agent 运行时。"""
@@ -244,6 +290,8 @@ class AgentRuntime:
     artifact_dirs: tuple[Path, ...] = field(default_factory=lambda: DEFAULT_ARTIFACT_DIRS)
     _initialized: bool = False
     _tools_patched: bool = False
+    #: B8：本地追踪是否已按需安装（幂等标记，避免重复替换 SDK 的 trace processors）
+    _tracing_ready: bool = False
     _agent_cache: dict = field(default_factory=dict)
 
     # 真实工具执行账本：按 run_id 隔离（P1-C 并发安全；Completion Gate 证据源）。
@@ -290,6 +338,34 @@ class AgentRuntime:
         if self.approval is None:
             self.approval = ApprovalGate(self.tasks)
         self._patch_agent_tools()
+        self._ensure_tracing()
+
+    def _ensure_tracing(self) -> None:
+        """把本地追踪从「CLI 私有能力」提升为 Runtime 能力（B8 / P1-6）。
+
+        旧状况：``install_local_tracing`` 只在 ``main.py`` 的 ``--trace`` 分支里调用，
+        经 Web / CLI app / 定时任务进入的 Run **从不产生任何 span** —— 所谓
+        「run_id = trace_id」的跨层追踪在活动路径上并不存在。
+
+        为什么仍然保持 opt-in（env ``FORGE_TRACE``，与 CLI ``--trace`` 同义）而不
+        无条件开启：``install_local_tracing`` 会全局替换 SDK 的 trace processors
+        （``set_trace_processors``）并**无条件追加写入** JSONL 文件。把它变成
+        「构造 AgentRuntime」的副作用，等于让每个进程（含全部测试）都开始写
+        ``traces/``，既无界增长磁盘，也是典型的全局状态污染。需要时显式开启：
+            FORGE_TRACE=1 python main.py --web
+        幂等：重复调用只安装一次。
+        """
+        if self._tracing_ready:
+            return
+        self._tracing_ready = True
+        if os.getenv("FORGE_TRACE", "").strip().lower() not in ("1", "true", "on", "yes"):
+            return
+        try:
+            from observability import install_local_tracing
+
+            install_local_tracing(True)
+        except Exception:
+            _logger.exception("本地追踪安装失败（不影响运行）")
 
     def _patch_agent_tools(self) -> None:
         """给 Agent 的每个工具加同一道包装：审批门检查 + 真实执行记账。
@@ -929,6 +1005,14 @@ class AgentRuntime:
 
                 activity = current_activity()
                 activity_call = activity.tool_started(name, effective_args, invocation_id) if activity else None
+                # B7：为这次真实执行计时（同步工具卡死多久，只有 latency_ms 能回答）。
+                _t_started = time.monotonic()
+                # B6：单次工具调用的超时（spec.timeout_seconds 此前是没人读的死字段）。
+                _tool_timeout = timeout_for(name)
+
+                def _elapsed_ms() -> int:
+                    return int((time.monotonic() - _t_started) * 1000)
+
                 try:
                     # MCP 网络工具（_mcp_source == "mcp"）走并发限流池：
                     # 单 Run 最多 FORGE_TOOL_MAX_CONCURRENT（默认 3）个 MCP 工具并行；
@@ -946,14 +1030,47 @@ class AgentRuntime:
                         ):
                             result = original.on_invoke_tool(ctx, args_json)
                             if asyncio.iscoroutine(result):
-                                result = await result
+                                result = await asyncio.wait_for(result, timeout=_tool_timeout)
                     else:
                         result = original.on_invoke_tool(ctx, args_json)
                         if asyncio.iscoroutine(result):
-                            result = await result
+                            result = await asyncio.wait_for(result, timeout=_tool_timeout)
+                except (asyncio.TimeoutError, TimeoutError):
+                    # B6：把「谁卡住了」变成一条可诊断的证据，而不是让这轮一直挂着直到
+                    # 把整轮墙钟预算耗光（旧行为：判据只剩"超过墙钟预算"，看不出是哪一步，
+                    # 且后面本该执行的步骤全部饿死）。
+                    # 注意：只对**异步**工具有效 —— 同步工具是在事件循环里直接跑的，
+                    # wait_for 无法打断它（那需要进程级取消，见 B5）。
+                    if activity:
+                        activity.tool_finished(activity_call, error=True)
+                    _to_msg = (f"工具 {name} 执行超过 {_tool_timeout} 秒上限，已中止。"
+                               f"请缩小本次调用的范围，或改用更小的输入重试。")
+                    self._record_tool(name, effective_args, TOOL_ERROR, _to_msg,
+                                      invocation_id=invocation_id, latency_ms=_elapsed_ms())
+                    if rctx is not None:
+                        try:
+                            rctx.note_progress(name, effective_args, None,
+                                               status="error", error_class="ToolTimeout")
+                        except Exception:
+                            pass
+                    if wa_applied and self.tasks is not None:
+                        try:
+                            self.tasks.update_tool_call_status(
+                                run_rid, invocation_id, status="error",
+                                result_excerpt=_to_msg)
+                        except Exception:
+                            pass
+                    # 返回给模型（而不是抛）：与参数校验失败的处理一致 —— 让模型知道
+                    # 发生了什么并自行调整，而不是拿到一个笼统的 tool error。
+                    return _to_msg
                 except asyncio.CancelledError:
                     if activity:
                         activity.tool_finished(activity_call, error=True)
+                    # P1-2：同步工具在 worker 线程里跑，取消 Future 打不断它 —— 它拉起的
+                    # 子进程树必须在这里显式杀掉，否则「已取消」之后 pytest / 脚本仍会跑完，
+                    # 写文件、跑测试的副作用照样落盘，取消语义对用户就是谎言。
+                    # kill_run 幂等（命中的登记项调用前即摘除），重复调用安全。
+                    _kill_cancelled_side_effects(run_rid)
                     if wa_applied and self.tasks is not None:
                         try:
                             self.tasks.update_tool_call_status(
@@ -966,7 +1083,7 @@ class AgentRuntime:
                     if activity:
                         activity.tool_finished(activity_call, error=True)
                     self._record_tool(name, effective_args, TOOL_ERROR, str(exc)[:400],
-                                      invocation_id=invocation_id)
+                                      invocation_id=invocation_id, latency_ms=_elapsed_ms())
                     if rctx is not None:
                         try:
                             rctx.note_progress(name, effective_args, None,
@@ -984,6 +1101,31 @@ class AgentRuntime:
                     raise
                 if activity:
                     activity.tool_finished(activity_call, result)
+                # P0-1：SDK 把参数校验失败 / ModelBehaviorError 吞成普通字符串返回。
+                # 若按普通结果记账，会同时污染 Completion Gate 证据、预算与 benchmark
+                # （模型可在零次成功执行下被判完成）。这里按「未执行成功」收口：
+                # TOOL_ERROR + progress=error，且**不推进** mutation epoch
+                # （失败不得创建 verification_due），最后把原文返回给模型，
+                # 保持「模型能看到错误并自行纠正」的既有行为不变。
+                _fail_text = _sdk_tool_failure_text(result)
+                if _fail_text:
+                    self._record_tool(name, effective_args, TOOL_ERROR, _fail_text[:400],
+                                      invocation_id=invocation_id, latency_ms=_elapsed_ms())
+                    if rctx is not None:
+                        try:
+                            rctx.note_progress(name, effective_args, None,
+                                               status="error",
+                                               error_class="ToolArgumentOrBehaviorError")
+                        except Exception:
+                            pass
+                    if wa_applied and self.tasks is not None:
+                        try:
+                            self.tasks.update_tool_call_status(
+                                run_rid, invocation_id, status="error",
+                                result_excerpt=_fail_text[:400])
+                        except Exception:
+                            pass
+                    return result
                 # Phase 23/24/26：mutation 成功后才推进 epoch / mutation_seen。
                 # 失败/未知 mutation 不得创建 verification_due。
                 # code_loop 使用双结果语义（mutation_effect + verification_result）。
@@ -1010,7 +1152,7 @@ class AgentRuntime:
                         _mut_outcome = _mutation_result_ok(name, result)
 
                 self._record_tool(name, effective_args, TOOL_EXECUTED, str(result)[:400],
-                invocation_id=invocation_id)
+                invocation_id=invocation_id, latency_ms=_elapsed_ms())
                 if rctx is not None:
                     try:
                         rctx.note_executed(name)
@@ -1131,7 +1273,8 @@ class AgentRuntime:
     # ---------- 真实执行账本（Completion Gate 证据源） ----------
 
     def _record_tool(self, name: str, arguments: dict, status: str, output_head: str,
-                     invocation_id: str | None = None) -> None:
+                     invocation_id: str | None = None,
+                     latency_ms: int | None = None) -> None:
         """把一次工具调用的真实结果记入对应 Run 的账本（run-scoped，并发安全）。"""
         rid = None
         try:
@@ -1142,9 +1285,23 @@ class AgentRuntime:
         except Exception:
             rid = None
         if not rid:
+            # 兜底：RunContext 缺失时退到「本进程当前活跃 Run」。
+            # 解析不到任何 Run 时用 "?" 占位 —— 但这条路径意味着**这次工具调用的
+            # 事件证据不会被写进任何 Run**（下面的 `rid != "?"` 守卫），是「静默丢
+            # 证据」的典型入口。显式告警，避免再出现「工具跑了、审计里查不到」而
+            # 完全无迹可寻（2026-09-22 由跨文件测试顺序依赖暴露）。
             rid = self._active_run_id or "?"
+            if rid == "?":
+                _logger.warning(
+                    "工具调用 %s 无法解析 run_id（RunContext 未绑定且无活跃 Run）："
+                    "本次调用不会写入 task_events 证据", name,
+                )
         try:
-            args_note = json.dumps(arguments, ensure_ascii=False)[:600]
+            # P1-7：task_events 的 normalized_args 与 tool_calls.arguments 是同一份敏感
+            # 数据的两个出口，必须走同一套脱敏（此前只有 tool_calls 侧做了 redact）。
+            from runtime.audit import redact_value as _redact_value
+
+            args_note = json.dumps(_redact_value(arguments), ensure_ascii=False)[:600]
         except Exception:
             args_note = str(arguments)[:600]
         try:
@@ -1154,10 +1311,23 @@ class AgentRuntime:
         except Exception:
             key = args_note
         ledger = self._ledgers.setdefault(rid, [])
+        # B7：账本同时承载 tool_calls 的扩展列（latency_ms / turn_number），
+        # 供 _backfill_failure_audit 落库时使用（内存账本是失败路径的事实源）。
+        _turn_no: int | None = None
+        try:
+            from runtime.runctx import current as _rc_turn
+
+            _ctx_turn = _rc_turn()
+            if _ctx_turn is not None and int(getattr(_ctx_turn, "model_turns", 0) or 0) > 0:
+                _turn_no = int(_ctx_turn.model_turns)
+        except Exception:
+            _turn_no = None
         ledger.append(
             {"name": str(name)[:200], "args": args_note, "args_key": key,
              "status": status, "invocation_id": invocation_id,
-             "output_head": str(output_head)[:1500]}
+             "output_head": str(output_head)[:1500],
+             "latency_ms": int(latency_ms) if latency_ms is not None else None,
+             "turn_number": _turn_no}
         )
         # P0-3：移除 FIFO 驱逐。早期 tool_calls 行是 resume 证据重放、dup-guard
         # 与完成门的事实源，不能被挤掉；单 run 内调用数本就有界（预算上限），
@@ -1199,6 +1369,20 @@ class AgentRuntime:
                 progress_event = ""
             from datetime import datetime, timezone
 
+            # P0-5（2026-09-22）：同一份敏感数据在审计事件里必须**全部**出口脱敏。
+            # 此前只有 normalized_args 走了 redact，而 progress_event（= 原始参数签名，
+            # action_signature 会把 args 拼进字符串）、result_summary / blocked_reason
+            # （= 工具输出前 200 字符，可能回显密钥）都还是明文 —— 等于同一事件里
+            # 「脱了一半」。
+            # redact_text 只替换密钥形状的子串，因此 progress_event 仍是确定性的
+            # 等值签名（同参数 → 同签名），评测侧（evaluator 比对同一条事件的字段）
+            # 不受影响。
+            try:
+                from runtime.audit import redact_text as _redact_text
+            except Exception:  # pragma: no cover
+                def _redact_text(_t: str) -> str:
+                    return _t
+
             if self.tasks is not None and rid and rid != "?":
                 self.tasks.add_event(rid, "tool.invocation", {
                     "run_id": rid,
@@ -1206,15 +1390,19 @@ class AgentRuntime:
                     "tool_name": name,
                     "tool_capability": capability_of(name),
                     "normalized_args": args_note,
-                    "canonical_target": canonical_target_of(name, arguments),
+                    "canonical_target": _redact_text(str(canonical_target_of(name, arguments) or "")),
                     "workspace_epoch": epoch,
                     "mutation_revision": epoch,
                     "blocked": blocked,
-                    "blocked_reason": str(output_head)[:200] if blocked else "",
+                    "blocked_reason": _redact_text(str(output_head)[:200]) if blocked else "",
                     "execution_status": status,
                     "result_fingerprint": fp,
-                    "progress_event": progress_event,
-                    "result_summary": str(output_head)[:200],
+                    # B7：耗时与模型轮次一并入事件（事件是 trace/评测的读取面，
+                    # 让它与 tool_calls 表口径一致，避免"表里有、事件里没有"的漂移）
+                    "latency_ms": int(latency_ms) if latency_ms is not None else None,
+                    "turn_number": _turn_no,
+                    "progress_event": _redact_text(progress_event),
+                    "result_summary": _redact_text(str(output_head)[:200]),
                     "evidence_kind": status,
                     "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 })
@@ -1255,13 +1443,20 @@ class AgentRuntime:
         # Restore original RunContext if available; otherwise minimal fallback
         _prev_ctx = _cur_ctx()
         _restore_ctx = None
-        if _prev_ctx is not None:
-            # We are already inside a run_turn — the original context is still bound.
-            # This happens when _execute_approved_invocation is called from within
-            # the run_turn loop (the normal resume path at line ~2057).
+        # B5-adjacent（2026-09-22，测试顺序依赖暴露）：**只在上下文确实属于同一个 Run
+        # 时**才复用它。旧代码只要「当前有上下文」就无条件复用，于是任何残留/外来
+        # 上下文（run_id 为空或指向别的 Run）都会让本次执行的证据被记到那个 Run 上 ——
+        # 表现是「工具确实执行了，但 tool.invocation / ledger 证据凭空消失」（因为
+        # _record_tool 解析出的 rid 为 "?"，事件被守卫跳过）。
+        # 触发条件比想象中容易：同线程里任何一次未解绑的 RunContext（例如某个只调
+        # gate.check 的测试）都会留下残影。按 run_id 校验后，证据归属不再依赖
+        # 「调用前恰好没有别的东西绑过上下文」。
+        if _prev_ctx is not None and getattr(_prev_ctx, "run_id", None) == run_rid:
+            # We are already inside the run_turn loop for this very Run
+            # (the normal resume path).
             _restore_ctx = _prev_ctx
         else:
-            # Fallback: minimal context for run_id resolution
+            # 外来/空上下文：重建一个指向本次 Run 的最小上下文。
             _restore_ctx = RunContext(run_id=run_rid, request_text="approved_resume")
         _bind_ctx(_restore_ctx)
         try:
@@ -1615,8 +1810,13 @@ class AgentRuntime:
 
         只标记/取消，DB 终态由 run_turn 的 CancelledError 收口统一完成
         （不会出现 CANCELLED 后又跑到 COMPLETED 的竞态）。
+
+        P1-2：这里额外先停掉该 Run 已登记的子进程树。``CancelledError`` 必须等到最内层
+        await 才会被抛出，而同步工具正阻塞在 worker 线程的 ``communicate()`` 上 —— 光标记
+        不会让它的副作用停下。先杀树（幂等）才让「取消」名副其实。
         """
         self._cancel_requested.add(task_id)
+        _kill_cancelled_side_effects(task_id)
         task = self._run_tasks.get(task_id)
         if task is not None and not task.done():
             task.cancel()
@@ -1786,6 +1986,39 @@ class AgentRuntime:
             # P1（同容器单 Active Run）：新建前检查容器内是否已有在处理的 Run
             try:
                 active = self.tasks.find_active_run(container_id)
+                if active is not None and active.state == TaskState.WAITING_USER:
+                    # B4 修正（2026-09-22）：审计建议把 waiting_user 直接并入
+                    # 「容器忙」集合，但那会**打断项目既有的追问闭环** ——
+                    # 用户在追问态直接回一句，本来就是开新一轮（
+                    # test_needs_user_inherited_by_next_run 记录了该设计：新一轮
+                    # 继承上一轮未决的 NEEDS_USER）。若一律拒绝，追问就永远答不上。
+                    # 审计真正要挡的是「**并发**共享同一份会话历史」。所以这里采取
+                    # 「取代」而不是「拒绝」：先把被取代的追问态 Run 收口为 cancelled
+                    # （它不是执行失败，也不是用户显式取消，而是被更新的一轮取代，
+                    # 故留 run.superseded 事件说明），再建新 Run。
+                    # 继承逻辑（_inherited_readiness）本就接受 CANCELLED 状态的最近
+                    # Run，因此追问上下文不会丢。
+                    try:
+                        self.tasks.transition(
+                            active.id, TaskState.CANCELLED,
+                            reason="superseded_by_new_run",
+                        )
+                        self.tasks.add_event(active.id, "run.superseded", {
+                            "run_id": active.id,
+                            "container_id": container_id,
+                            "from": "waiting_user",
+                            "to": "cancelled",
+                            "reason": "superseded_by_new_run",
+                            "note": "同容器只允许一个活跃 Run；用户已发出新消息，"
+                                    "本 Run 不再可继续（非执行失败）",
+                        })
+                        active = None
+                    except Exception:
+                        # 取代失败（例如并发已把它改掉）→ 退回「拒绝新 Run」的保守路径，
+                        # 绝不带着一个仍活跃的旧 Run 去建第二个。
+                        _logger.warning("取代追问态 Run %s 失败，退回拒绝新 Run",
+                                        active.id, exc_info=True)
+                        active = self.tasks.find_active_run(container_id)
                 if active is not None:
                     raise AgentError(
                         f"容器 {container_id} 已有正在处理的 Run（{active.id}，状态 "
@@ -2290,6 +2523,10 @@ class AgentRuntime:
                             status=call.get("status", "executed"),
                             result_excerpt=call.get("output_head", "")[:400],
                             invocation_id=call.get("invocation_id") or None,
+                            # B7：失败路径同样要留下耗时与轮次（这张表此前只有名字和状态）
+                            latency_ms=call.get("latency_ms"),
+                            turn_number=call.get("turn_number"),
+                            normalized_arguments=call.get("args"),
                         )
             except Exception:
                 pass
@@ -2398,9 +2635,19 @@ class AgentRuntime:
                         except Exception:
                             pass
 
-                self._context_prep = await prepare_session_context(
-                    session, progress=_context_progress
+                # P0-6b：本段位于终态 finally 覆盖范围之外（Run 已建、主 try 未进），
+                # 是唯一一处「会 await 但不被终态兜底覆盖」的点。用同一个转换器包住，
+                # 避免 SystemExit 在这里穿透后把 Run 留在 running。
+                self._context_prep = await _convert_process_exit(
+                    prepare_session_context(session, progress=_context_progress)
                 )
+            except ProcessExitInterrupted as _pe_prep:
+                # 转换只为了让 SystemExit 变成可被这里接住的普通异常；
+                # KeyboardInterrupt 不归这段管，原样穿透（此处位于主 try 之前，
+                # 强行在这里收口反而会吞掉 Ctrl-C）。
+                if _pe_prep.must_reraise:
+                    raise _pe_prep.original from None
+                self._context_prep = None
             except Exception:
                 self._context_prep = None
 
@@ -2419,6 +2666,11 @@ class AgentRuntime:
                     _rctx_pre.enter_needs_user_input(_pre_qs)
             except Exception:
                 pass
+
+        # P0-6b：需要「清理完成后才重新抛出」的原始异常（当前只有 KeyboardInterrupt）。
+        # 在 try 之前声明，保证 finally 一定能读到（不能在 except 里 `raise` —— 那样
+        # 终态收口虽然也会跑，但语义分散在多条 return 路径上，容易漏）。
+        _pending_reraise: BaseException | None = None
 
         try:
             # Phase 18：拆分 repair 语义——obligation feedback（按 deficit signature，独立额度）
@@ -2947,6 +3199,11 @@ class AgentRuntime:
                 exc_orig=exc, terminal_kind=KIND_FINAL_RESPONSE_FAILED,
             )
         except Exception as exc:
+            # P0-6b：进程级异常被 budget 层转成普通异常后落到这里。终态收口照常走
+            # （下面的 _fail），但 KeyboardInterrupt 的 Ctrl-C 语义必须保住 ——
+            # 记下来，等 finally 把状态写完后再抛（见 finally 尾部）。
+            if isinstance(exc, ProcessExitInterrupted) and exc.must_reraise:
+                _pending_reraise = exc.original
             # ---- Provider/网关错误：分类、0/有限重试已由 provider_gateway 处理；
             # 这里负责把 401/503 等转换成友好文案 + provider.failure 审计，绝不进入 stalled 语义 ----
             text = str(exc)
@@ -2986,3 +3243,68 @@ class AgentRuntime:
             tr = classify_exception(exc)
             return _fail(text, resp=final_output, assistant_text=None, exc_orig=exc,
                          terminal_kind=tr.kind)
+
+        finally:
+            # P0-6b（2026-09-22）：``except Exception`` 接不住 BaseException
+            # （SystemExit / KeyboardInterrupt / MemoryError）。这类异常穿透时，
+            # Run 会永久卡在 running 且没有任何终态写入，只能等下次进程启动的
+            # auto_recover（其 900s 阈值还会误杀长跑任务）。
+            # 兜底原则：**离开 run_turn 时若仍处于「本应正在执行」的状态，就补写终态**。
+            # waiting_user / waiting_approval / paused 是合法的挂起态（可跨 Run 恢复），
+            # submitted 也可能被 create→transition 之间的异常留下，故一并收口。
+            #
+            # 例外（必须显式让位）：**取消**。取消的终态由 spawn_run_task →
+            # finalize_cancelled 收口为 CANCELLED；若这里抢先强标 FAILED，会把
+            # 「用户取消」变成「执行失败」（回归 test_production_closure 的取消语义）。
+            _cancelling = False
+            try:
+                _cancelling = bool(self.is_cancel_requested(task.id))
+            except Exception:
+                _cancelling = False
+            if not _cancelling:
+                try:
+                    _cur_task = asyncio.current_task()
+                except Exception:
+                    _cur_task = None
+                if _cur_task is not None and getattr(_cur_task, "cancelling", None) is not None:
+                    try:
+                        _cancelling = bool(_cur_task.cancelling())
+                    except Exception:
+                        pass
+            if not _cancelling:
+                # 注意：finally 里绝不能 return（会吞掉在飞异常，把取消变成「静默成功」）。
+                try:
+                    _final = self.tasks.get_task(task.id)
+                    if (_final is not None
+                            and _final.state in (TaskState.SUBMITTED, TaskState.RUNNING)):
+                        self.tasks.transition(
+                            task.id, TaskState.FAILED,
+                            reason="abnormal exit (BaseException in run_turn)",
+                        )
+                        try:
+                            self.tasks.add_event(task.id, "run.terminal", {
+                                "run_id": task.id, "kind": KIND_BOUNDED_FAILURE,
+                                "state": "failed", "reason": "abnormal_exit",
+                            })
+                        except Exception:
+                            pass
+                        try:
+                            self.tasks.add_message(
+                                container_id, "assistant",
+                                "本轮执行被非预期中断（进程级异常），未继续执行后续操作。",
+                                run_id=task.id,
+                                meta={"kind": "raw", "run_state": "failed"},
+                            ) if container_id else None
+                        except Exception:
+                            pass
+                except (Exception, SystemExit):
+                    # 兜底本身绝不能再冒泡，否则会掩盖原始异常
+                    pass
+
+            # P0-6b 尾步：状态已经写完，此时才把 KeyboardInterrupt 交还给上层，
+            # 让 Ctrl-C 语义（main.py / cli 的顶层处理器）与「Run 不卡 running」同时成立。
+            # 注意：这是 finally 里唯一的 raise，且只在有挂起异常时执行 ——
+            # 与「finally 里绝不 return」同源：不能用返回值掩盖在飞异常。
+            if _pending_reraise is not None:
+                _exc_to_raise, _pending_reraise = _pending_reraise, None
+                raise _exc_to_raise

@@ -5,6 +5,32 @@
 
 审计：每次尝试写 run-scoped 尝试记录（不存 key）：kind/status/model/provider/used_fallback/latency；
 由 runner 在读点统一转成 task 事件（provider.model_attempts / provider.failure）。
+
+── 重试与超时的归属（审计 P0-8 / P1-15，2026-09-22）──────────────────────────────
+修复前是四层各自为政，最坏叠加 36 次 HTTP / 用户一轮，且 SDK 那两层对审计完全不可见：
+
+  L0 SDK 内建重试   `max_retries=2` ⇒ 每次「尝试」= 1 + 2 = 3 次 HTTP（静默、不记录）
+  L1 Provider 重试  本模块（原为 `local_attempts < 6`，与 `retry_policy` 的真实上限漂移）
+  L1 fallback       A→B 一次；切换时 `local_attempts` 被重置 ⇒ 上限翻倍
+  L3 格式闸重跑     `main.execute_turn` 的 `while attempt < 3`
+
+现在把「谁负责重试」显式收口到 L1：
+
+  L0 关闭     每次尝试 = 恰好 1 次 HTTP（`_sdk_max_retries()`，默认 0），
+              SDK 的 HTTP 次数以 `sdk_http_attempts` 写进每条尝试记录 ⇒ 可审计；
+  L1 显式上限 单 provider `_provider_max_attempts()`，primary + fallback 合计
+              `_provider_max_total_attempts()`（默认 6）—— 天花板由本模块保证，
+              不再依赖 `retry_policy` 表里的 MAX_RETRIES 恰好取到什么值；
+  L3 显式上限 `main._format_retry_max()`（默认 1 次重跑），与 L1 相乘即该轮最坏值。
+
+超时同样分层显式声明（不再吃 SDK 默认的 `Timeout(timeout=600, connect=5.0)` ——
+它的 read 与总预算等值，一次挂死请求就能吃掉整个 provider 预算）：
+
+  connect = 5s            `_http_timeout()`（客户端底层握手）
+  read    = 总预算 / 3    `_http_timeout()`（单次 HTTP 不产出就强制失败）
+  首 token = 90s          `FORGE_STREAM_FIRST_TOKEN_TIMEOUT_SECONDS`
+  空闲    = 120s          `FORGE_STREAM_IDLE_TIMEOUT_SECONDS`
+  总墙钟  = 600s          `_total_timeout_seconds()`（只在尝试之间检查，是最后兜底）
 """
 
 from __future__ import annotations
@@ -21,7 +47,7 @@ from urllib.parse import urlparse
 from openai import AsyncOpenAI
 import httpx2
 from agents.models.interface import Model
-from agents.models.openai_provider import OpenAIProvider
+from agents.models.openai_provider import OpenAIProvider, shared_http_client
 
 from runtime.provider_errors import (
     ProviderErrorKind,
@@ -32,6 +58,11 @@ from runtime.provider_errors import (
 
 _PRIMARY_TAG = "primary"
 _FALLBACK_TAG = "fallback"
+
+# 成功尝试的 kind 标记。生产侧写 "success"；测试与 runner 的落库兜底用 "ok"。
+# 两者都必须算作「一轮模型响应」，否则 note_model_turn() 静默失效，
+# tool_calls.turn_number 会恒为 NULL（迁移加了列却永远取不到值）。
+_SUCCESS_ATTEMPT_KINDS = frozenset({"success", "ok"})
 
 # run-scoped 尝试记录（进程内；由 runner 在 execute 后取走并清空）
 _ATTEMPTS: dict[str, list[dict[str, Any]]] = {}
@@ -122,6 +153,22 @@ def _persist_reset(run_id: str) -> None:
 def record_attempt(run_id: str, meta: dict[str, Any]) -> None:
     if not run_id:
         return
+    # B7：只有「成功返回」的模型响应才构成一轮（重试/限流没有产出，也就不会产生
+    # 工具调用）。工具调用的 turn_number 由此得到，避免用「尝试次数」冒充轮次。
+    if str(meta.get("kind") or "").strip().lower() in _SUCCESS_ATTEMPT_KINDS:
+        try:
+            from runtime.runctx import current as _rc_turn
+
+            _ctx_turn = _rc_turn()
+            if _ctx_turn is not None:
+                _ctx_turn.note_model_turn()
+        except Exception:
+            pass
+    # P0-8：把"这一层乘了多少倍"随每条记录一起留证。修复前 SDK 的 max_retries=2
+    # 对 provider.model_attempts 完全不可见——审计看到的尝试次数只有真实 HTTP 的 1/3。
+    # 现在每条记录都自带 SDK 的 HTTP 次数与 L1 的总尝试预算，乘法关系自证。
+    meta.setdefault("sdk_http_attempts", 1 + _sdk_max_retries())
+    meta.setdefault("provider_attempt_budget", _provider_max_total_attempts())
     _ATTEMPTS.setdefault(run_id, []).append(meta)
     _persist_append(run_id, meta)
 
@@ -184,16 +231,28 @@ def config_summary() -> dict[str, str]:
     base = _env("OPENAI_BASE_URL") or "OpenAI 直连"
     key_set = bool(_env("OPENAI_API_KEY"))
     fb = _env("FORGE_FALLBACK_MODEL")
+    to = _http_timeout()
     parts = [
         f"Provider=网关(base={base})" if _env("OPENAI_BASE_URL") else "Provider=OpenAI 直连",
         f"Model={model}",
         f"Key={'已配置 ' + _env('OPENAI_API_KEY')[-4:] if key_set else '未配置'}",
         f"fallback={'已配置 ' + fb if fb else '未配置'}",
+        # P0-8/P1-15：把分层声明摊在状态页上，避免"重试归属"再次变成隐性约定
+        f"重试=SDK {_sdk_max_retries()} 次/单 provider {_provider_max_attempts()} 次"
+        f"/合计 {_provider_max_total_attempts()} 次",
+        f"超时=connect {to.connect:g}s·read {to.read:g}s·总 {_total_timeout_seconds():g}s",
     ]
     return {"provider": "openai-gateway" if _env("OPENAI_BASE_URL") else "openai",
             "model": model, "base_url": base, "api_key_set": str(key_set).lower(),
             "api_key_tail": _env("OPENAI_API_KEY")[-4:] if key_set else "",
-            "fallback_model": fb or "", "text": " · ".join(parts)}
+            "fallback_model": fb or "",
+            "sdk_max_retries": str(_sdk_max_retries()),
+            "provider_max_attempts": str(_provider_max_attempts()),
+            "provider_max_total_attempts": str(_provider_max_total_attempts()),
+            "connect_timeout_seconds": f"{to.connect:g}",
+            "read_timeout_seconds": f"{to.read:g}",
+            "provider_total_timeout_seconds": f"{_total_timeout_seconds():g}",
+            "text": " · ".join(parts)}
 
 
 def _env_float(name: str, default: float) -> float:
@@ -219,6 +278,96 @@ def _deadline_exceeded(started: float, limit: float) -> bool:
 
 def _deadline_message(limit: float) -> str:
     return f"模型响应超时：provider 累计耗时超过 {limit:.4g}s，已停止重试。"
+
+
+def _budget_message(limit: int, base: str = "") -> str:
+    """总尝试预算耗尽时的用户可读文案。
+
+    保留最后一次失败的具体原因（用户最需要的那句），只在后面补上"已经试了几次"，
+    避免把"限流，请稍后再试"这种可执行提示替换成笼统的"服务不可用"。
+    """
+    tail = f"已连续尝试 {limit} 次仍未成功，已停止重试。"
+    return f"{base}（{tail}）" if base else f"模型服务持续失败：{tail}"
+
+
+# ── P0-8：重试归属 ──────────────────────────────────────────────────────────
+def _sdk_max_retries() -> int:
+    """SDK（openai 客户端）内建重试次数。默认 0。
+
+    `openai._constants.DEFAULT_MAX_RETRIES = 2`：SDK 会自己重试 2 次，且对
+    `provider.model_attempts` 完全不可见——审计看到的尝试次数只有真实 HTTP 的 1/3。
+    重试是 L1 的职责（分类 / 退避 / fallback / 用户可读文案都在这里），L0 必须关掉。
+    """
+    try:
+        return max(0, int(os.getenv("FORGE_SDK_MAX_RETRIES", "").strip() or 0))
+    except ValueError:
+        return 0
+
+
+def _provider_max_attempts() -> int:
+    """单个 provider（primary 或 fallback）最多发起的尝试次数（含首次）。默认 3。
+
+    判据是 `local_attempts + 1 < max_attempts`：`local_attempts` 记录的是**已发起的
+    重试次数**，所以"此刻已经打了 local_attempts + 1 次"，再重试一次就是 +2 次。
+    旧代码写成 `local_attempts < 6`，语义上等于"最多 7 次尝试"——同一个数字在两个
+    地方（代码 vs `provider_errors.MAX_RETRIES`）各说各话，这里只留一处定义。
+
+    3 与 `provider_errors.MAX_RETRIES` 的实际语义对齐（RATE_LIMITED=2/UNAVAILABLE=2
+    ⇒ 3 次尝试；NO_CHANNEL/TIMEOUT/NETWORK=1 ⇒ 2 次）。
+    """
+    try:
+        return max(1, int(os.getenv("FORGE_PROVIDER_MAX_ATTEMPTS", "").strip() or 3))
+    except ValueError:
+        return 3
+
+
+def _provider_max_total_attempts() -> int:
+    """单次模型调用的总尝试预算（primary + fallback 合并计数）。默认 6。
+
+    旧实现里 fallback 会把 `local_attempts` 重置为 0，所以「6」只约束单个 provider，
+    合计可到 12；再乘 SDK 的 3 与格式闸的 2 就是报告里的 36 次 HTTP。现在这个值是
+    **跨 provider 的硬上限**：primary 用掉几次，fallback 只剩剩余额度。
+    """
+    try:
+        return max(2, int(os.getenv("FORGE_PROVIDER_MAX_TOTAL_ATTEMPTS", "").strip() or 6))
+    except ValueError:
+        return 6
+
+
+# ── P1-15：分层超时 ─────────────────────────────────────────────────────────
+def _http_timeout() -> httpx2.Timeout:
+    """显式分层超时（connect / read / write / pool），不再吃 SDK 默认值。
+
+    SDK 默认是 `httpx2.Timeout(timeout=600, connect=5.0)`——read 恰好等于
+    `FORGE_PROVIDER_TOTAL_TIMEOUT_SECONDS`，于是「单次请求永久挂住」就能吃满整个
+    provider 预算，而总墙钟只在两次尝试之间检查，等于没有兜底。这里把 read 收到
+    总预算的 1/3，让一次挂死最多花掉 1/3 预算，剩下 2/3 留给重试与 fallback。
+    """
+    connect = _env_float("FORGE_PROVIDER_CONNECT_TIMEOUT_SECONDS", 5.0) or 5.0
+    total = _total_timeout_seconds()
+    default_read = max(30.0, total / 3.0) if total > 0 else 200.0
+    read = _env_float("FORGE_PROVIDER_READ_TIMEOUT_SECONDS", default_read) or default_read
+    write = _env_float("FORGE_PROVIDER_WRITE_TIMEOUT_SECONDS", read) or read
+    pool = _env_float("FORGE_PROVIDER_POOL_TIMEOUT_SECONDS", connect) or connect
+    return httpx2.Timeout(connect=connect, read=read, write=write, pool=pool)
+
+
+def _build_sdk_client(*, api_key: str | None, base_url: str | None,
+                      http_client: httpx2.AsyncClient | None = None) -> AsyncOpenAI:
+    """构造显式配置的 AsyncOpenAI：关掉内建重试 + 分层超时。
+
+    必须自建实例才能显式声明这两项——`agents.models.openai_provider` 的构造签名
+    不接受 `max_retries`/`timeout`，走它自己的懒加载只会拿到 SDK 默认值。
+    """
+    kwargs: dict[str, Any] = {
+        "api_key": api_key or "local-no-key",
+        "base_url": base_url,
+        "max_retries": _sdk_max_retries(),
+        "timeout": _http_timeout(),
+    }
+    if http_client is not None:
+        kwargs["http_client"] = http_client
+    return AsyncOpenAI(**kwargs)
 
 
 class ResilientModel(Model):
@@ -262,6 +411,12 @@ class ResilientModel(Model):
         first_tok_timeout = _env_float("FORGE_STREAM_FIRST_TOKEN_TIMEOUT_SECONDS", 90.0)
         idle_timeout = _env_float("FORGE_STREAM_IDLE_TIMEOUT_SECONDS", 120.0)
         total_timeout = _total_timeout_seconds()
+        # P0-8：次数天花板只声明一次（不依赖 retry_policy 表恰好取到什么值），
+        # 且 primary + fallback 合并计数 —— 旧实现的 fallback 会重置 local_attempts，
+        # 使"每个 provider 6 次"变成"合计 12 次"。
+        max_attempts = _provider_max_attempts()
+        max_total_attempts = _provider_max_total_attempts()
+        total_attempts = 0
 
         def _timeout_for(first: bool) -> float | None:
             return (first_tok_timeout if first else idle_timeout) or None
@@ -283,7 +438,23 @@ class ResilientModel(Model):
                     _d_exc = ProviderTransportError(_deadline_message(total_timeout))
                 raise _mark(_d_exc, ProviderErrorKind.TIMEOUT,
                             _deadline_message(total_timeout), last_rid)
+            if total_attempts >= max_total_attempts:
+                # P0-8 总尝试预算：primary + fallback 合并，防止 fallback 重置计数后翻倍
+                record_attempt(run_id, {
+                    "kind": "attempt_budget_exhausted", "tag": tag,
+                    "attempt": local_attempts, "total_attempts": total_attempts,
+                    "attempt_budget": max_total_attempts, "tokens_output": False,
+                    "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+                })
+                _b_exc = last_exc
+                if _b_exc is None:  # pragma: no cover - 只有预算被外部改小才可能到这
+                    from runtime.provider_errors import ProviderTransportError
+
+                    _b_exc = ProviderTransportError(_budget_message(max_total_attempts))
+                raise _mark(_b_exc, last_kind,
+                            _budget_message(max_total_attempts, last_public), last_rid)
             attempt_start = time.monotonic()
+            total_attempts += 1
             emitted = False
             stream = None
             try:
@@ -301,7 +472,7 @@ class ResilientModel(Model):
                         "tokens_output": False,
                     })
                     wait = retry_policy(kind, local_attempts, headers=getattr(exc, "headers", None))
-                    if wait is not None and local_attempts < 6:
+                    if wait is not None and local_attempts + 1 < max_attempts:
                         local_attempts += 1
                         await asyncio.sleep(wait)
                         continue
@@ -359,7 +530,7 @@ class ResilientModel(Model):
                             "latency_ms": round((time.monotonic() - attempt_start) * 1000, 1),
                         })
                         wait = retry_policy(kind, local_attempts, headers=None)
-                        if wait is not None and local_attempts < 6:
+                        if wait is not None and local_attempts + 1 < max_attempts:
                             local_attempts += 1
                             await asyncio.sleep(wait)
                             outcome = "retry"
@@ -395,7 +566,7 @@ class ResilientModel(Model):
                         })
                         wait = retry_policy(kind, local_attempts,
                                             headers=getattr(exc, "headers", None))
-                        if wait is not None and local_attempts < 6:
+                        if wait is not None and local_attempts + 1 < max_attempts:
                             local_attempts += 1
                             await asyncio.sleep(wait)
                             outcome = "retry"
@@ -450,6 +621,10 @@ class ResilientModel(Model):
         last_public = ""
         last_rid = None
         last_exc: BaseException | None = None
+        # P0-8：次数天花板只声明一次，且 primary + fallback 合并计数（见 _provider_max_*）
+        max_attempts = _provider_max_attempts()
+        max_total_attempts = _provider_max_total_attempts()
+        total_attempts = 0
 
         try:
             while True:
@@ -466,7 +641,20 @@ class ResilientModel(Model):
                     # 覆盖上一次失败的文案：真正的原因是没有及时拿到结果，而非那次错误本身
                     last_public = _deadline_message(total_timeout)
                     break
+                if total_attempts >= max_total_attempts:
+                    # P0-8 总尝试预算：primary + fallback 合并，防止 fallback 重置计数后翻倍
+                    record_attempt(run_id, {
+                        "kind": "attempt_budget_exhausted", "tag": tag,
+                        "attempt": local_attempts, "total_attempts": total_attempts,
+                        "attempt_budget": max_total_attempts,
+                        "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+                    })
+                    # 保留最后一次失败的分类与原因：用户需要的是"限流"这类可执行提示，
+                    # 而不是被替换成笼统的"服务不可用"。
+                    last_public = _budget_message(max_total_attempts, last_public)
+                    break
                 attempt_start = time.monotonic()
+                total_attempts += 1
                 try:
                     result = await active.get_response(*args, **kwargs)
                     record_attempt(run_id, {
@@ -487,7 +675,7 @@ class ResilientModel(Model):
                     })
                     wait = retry_policy(kind, local_attempts,
                                         headers=getattr(exc, "headers", None))
-                    if wait is not None and local_attempts < 6:
+                    if wait is not None and local_attempts + 1 < max_attempts:
                         local_attempts += 1
                         await asyncio.sleep(wait)
                         continue
@@ -522,27 +710,34 @@ class ResilientProvider(OpenAIProvider):
 
     def __init__(self, *, api_key: str | None = None, base_url: str | None = None,
                  use_responses: bool | None = None, **kwargs: Any) -> None:
-        """为回环地址的本地模型禁用系统代理。
+        """为回环地址的本地模型禁用系统代理；为两种地址都关闭 SDK 内建重试。
 
         llama.cpp 等本地 OpenAI 兼容服务常绑定在 localhost。若 Python 继承了代理
         配置，HTTP 客户端可能把这类请求送往本地代理端口，导致服务端返回 502；
-        回环地址不应经过代理。远程网关仍保留原来的代理行为。
+        回环地址不应经过代理。远程网关仍保留原来的代理行为（沿用 SDK 的共享
+        连接池）。
+
+        P0-8/P1-15：两条分支都必须**自建** `AsyncOpenAI` —— 只有自建实例才能显式
+        声明 `max_retries=0` 与分层超时。走 `agents` 的懒加载只会拿到 SDK 默认值
+        （重试 2 次、read timeout 600s），那正是报告里 36 次 HTTP 的来源。
         """
         parsed = urlparse(base_url or "")
         hostname = (parsed.hostname or "").lower()
         is_loopback = hostname in {"localhost", "127.0.0.1", "::1"}
         self._owned_http_client: httpx2.AsyncClient | None = None
-        if is_loopback and "openai_client" not in kwargs:
-            self._owned_http_client = httpx2.AsyncClient(trust_env=False)
-            kwargs["openai_client"] = AsyncOpenAI(
-                api_key=api_key or "local-no-key",
-                base_url=base_url,
-                http_client=self._owned_http_client,
-            )
-            super().__init__(use_responses=use_responses, **kwargs)
+        if "openai_client" in kwargs:
+            # 调用方自带 client：尊重之。重试/超时属于该 client 的责任，本层不改它。
+            super().__init__(api_key=api_key, base_url=base_url,
+                             use_responses=use_responses, **kwargs)
             return
-        super().__init__(api_key=api_key, base_url=base_url,
-                         use_responses=use_responses, **kwargs)
+        if is_loopback:
+            self._owned_http_client = httpx2.AsyncClient(trust_env=False)
+            http_client: httpx2.AsyncClient | None = self._owned_http_client
+        else:
+            http_client = shared_http_client()
+        kwargs["openai_client"] = _build_sdk_client(
+            api_key=api_key, base_url=base_url, http_client=http_client)
+        super().__init__(use_responses=use_responses, **kwargs)
 
     def _fallback_config(self) -> dict[str, Any] | None:
         model = _env("FORGE_FALLBACK_MODEL")
@@ -564,10 +759,18 @@ class ResilientProvider(OpenAIProvider):
         if cfg is None:
             return None
         try:
+            # 这里刻意用裸 OpenAIProvider 而不是 ResilientProvider：后者会让 fallback
+            # 自己再重试、再 fallback，两层乘法叠加（旧实现最坏 36 次 HTTP 的一半原因）。
+            # client 仍自建 —— 至少在 L0 上把 SDK 的静默重试关掉。
+            fb_base = cfg["base_url"]
+            fb_host = (urlparse(fb_base or "").hostname or "").lower()
+            fb_http = (httpx2.AsyncClient(trust_env=False)
+                       if fb_host in {"localhost", "127.0.0.1", "::1"}
+                       else shared_http_client())
             provider = OpenAIProvider(
-                api_key=cfg["api_key"],
-                base_url=cfg["base_url"],
                 use_responses=False,
+                openai_client=_build_sdk_client(
+                    api_key=cfg["api_key"], base_url=fb_base, http_client=fb_http),
             )
             self._fallback_model_cache = provider.get_model(cfg["model"])
         except Exception:
