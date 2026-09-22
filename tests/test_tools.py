@@ -122,5 +122,44 @@ class LongTermMemoryToolTests(unittest.TestCase):
         )
 
 
+class RepeatGuardRunIsolationTests(unittest.TestCase):
+    """D4：重复调用护栏按 Run 隔离（审计 Phase D 验收）。
+
+    旧实现用进程级 _last_repeat_calls，跨 Run 污染：
+    一个 Run 里调用过 web_search("foo")，下一个 Run 的第一次调用会被误判为重复。
+    新实现优先取 runtime.runctx.current()（RunContext），无 Run 时回退进程级。
+    """
+
+    def setUp(self) -> None:
+        tools._last_repeat_calls.clear()
+
+    def tearDown(self) -> None:
+        tools._last_repeat_calls.clear()
+
+    def test_repeat_call_isolated_per_run(self) -> None:
+        from runtime.runctx import RunContext
+        r1 = RunContext(run_id="run-1")
+        self.assertFalse(r1.note_repeat_call("web_search", "foo"))
+        self.assertTrue(r1.note_repeat_call("web_search", "foo"))
+        # 新 Run 的第一次同参调用不能被旧 Run 污染（旧实现此处为 True）
+        r2 = RunContext(run_id="run-2")
+        self.assertFalse(r2.note_repeat_call("web_search", "foo"))
+        self.assertEqual(len(r1.repeat_calls), 1)
+        self.assertEqual(len(r2.repeat_calls), 1)
+
+    def test_window_expires(self) -> None:
+        from runtime.runctx import RunContext
+        r = RunContext(run_id="run-3")
+        self.assertFalse(r.note_repeat_call("read_workspace_file", "a.py", now=1000.0))
+        self.assertTrue(r.note_repeat_call("read_workspace_file", "a.py", now=1005.0))
+        self.assertFalse(r.note_repeat_call("read_workspace_file", "a.py", now=1020.0))
+
+    def test_fallback_to_process_level_without_run(self) -> None:
+        # 无 RunContext（测试/脚本直调）时走进程级回退，行为与旧实现一致
+        self.assertFalse(tools._too_repetitive("web_search", "z"))
+        self.assertTrue(tools._too_repetitive("web_search", "z"))
+        self.assertIn("web_search", tools._last_repeat_calls)
+
+
 if __name__ == "__main__":
     unittest.main()

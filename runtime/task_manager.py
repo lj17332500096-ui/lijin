@@ -35,6 +35,9 @@ from runtime.task import RunBudget, Task, TaskEvent, TaskState, TaskUsage, utcno
 
 _logger = logging.getLogger(__name__)
 
+# 审计 D3：结构化日志代理（opt-in，FORGE_STRUCTURED_LOG=1）。
+from runtime.structured_log import slog
+
 DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "agent.db"
 FORGE_DATA_DIR = Path(__file__).resolve().parent.parent / "forge_data"
 
@@ -574,6 +577,7 @@ class TaskManager:
                     _logger.warning(
                         "B4 迁移：收敛同容器多活跃 Run %d 条（保留最新，其余置 cancelled）",
                         _repaired)
+                    slog.warning("B4 迁移收敛多活跃 Run", repaired=_repaired)
                 conn.execute("DROP INDEX IF EXISTS idx_runs_single_active")
                 conn.execute(self._single_active_index_sql())
             except Exception:

@@ -1034,7 +1034,7 @@ if not (ROOT / "web" / "runtime" / "types.js").exists():
 - **Evidence**：`spec.py:168-181`；`tools.py:687`（think 明确"零副作用"）；实测 `think → allowed=False`
 - **Impact**：P0-C 刚落地的 think 工具在 DISCOVERABLE/NEEDS_USER 状态下不可用 —— **新功能被目录漂移废掉**。
 - **Root Cause**：`TOOL_CATALOG` 手工维护，与 `agent.tools` 无一致性校验；文档记的工具数（37/41）与实测（38）三处不一致。
-- **Recommended Fix**：加 `tests/test_tool_contract.py`，断言 `set(TOOL_CATALOG) == set(注册工具名) == set(审批名单 ∪ 豁免) == set(FileScope 名单)`；先补 `think`/`search_sources` 条目。
+- **Recommended Fix**：加 `tests/test_tool_roster_consistency.py`，断言 `set(TOOL_CATALOG) == set(注册工具名) == set(审批名单 ∪ 豁免) == set(FileScope 名单)`；先补 `think`/`search_sources` 条目。
 
 ---
 
@@ -1108,7 +1108,7 @@ if not (ROOT / "web" / "runtime" / "types.js").exists():
 | A3 | **P0-4** `webapp.py:517` 补 `task_id=run_id` | **1 行** | 新增测试（冻结层内）：建 Run → 终态非 `submitted` |
 | A4 | **P0-6b** `run_turn` 加 `finally` 兜底 | 1 处 | 注入 `SystemExit` → 断言落到 `failed` 而非卡 `running` |
 | A5 | **P0-2** 审批名单由 `spec_for().side_effect` 派生 | 1 处 + 豁免表 | 新增测试：所有 side_effect 工具 ⊆ 审批 ∪ 豁免 |
-| A6 | **P1-13** 补 `think`/`search_sources` 目录条目 | 2 行 + 1 条一致性测试 | `test_tool_contract.py` 通过 |
+| A6 | **P1-13** 补 `think`/`search_sources` 目录条目 | 2 行 + 1 条一致性测试 | `test_tool_roster_consistency.py` 通过 |
 | A7 | **P1-14** 生产 `.env` 清空 `FORGE_TRUSTED_CODE_ROOTS` + 加 `FORGE_EVAL_MODE` 门禁 | 配置 + 1 处判断 | 生产环境下 `trusted_root_for` 返回 None |
 | A8 | **P1-7** `runner.py:1147` 改用 `redact_value` | 1 行 | 新增测试：`task_events.normalized_args` 无密钥命中 |
 | A9 | **P1-3** `budget.py:31` 改为 `if limit <= 0:` | 1 行 | 单测：3600 → 仍设防 |

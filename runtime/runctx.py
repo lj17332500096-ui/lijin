@@ -160,11 +160,38 @@ class RunContext:
     # ⚠️ 生产侧写的是 "success"（见 provider_gateway.record_attempt 的 kind 取值）；
     #    "ok" 只是历史/兜底写法，判据必须同时认这两个，否则本字段恒为 0（静默失效）。
     model_turns: int = 0
+    # ---- D4：重复调用护栏状态（原 tools._last_repeat_calls 是**进程级全局**）----
+    # 语义：tool_name -> {"key": 关键参数指纹, "ts": 时间戳, "count": 次数}
+    # 为什么必须 Run 级：进程级全局会让 A 轮搜过的关键词把 B 轮的**第一次**调用判成重复
+    # （跨 Run 污染）；测试里得手动 `tools._last_repeat_calls.clear()` 就是征兆。
+    # 为什么**不落库**：它是纯过程状态——只在 10 秒窗口内有意义，Run 结束后无任何审计价值；
+    # resume 会产生新 run_id，计数本就该重置。落库只会引入 schema 变更与无用的写放大。
+    repeat_calls: dict[str, dict] = field(default_factory=dict, repr=False)
 
     def note_model_turn(self) -> int:
         """记一次成功返回的模型响应，返回递增后的轮次。"""
         self.model_turns = int(self.model_turns or 0) + 1
         return self.model_turns
+
+    def note_repeat_call(self, tool_name: str, key: str, *,
+                         window: float = 10.0, now: float | None = None) -> bool:
+        """记一次工具调用，并按「同工具 + 同关键参数 + 时间窗口」判定是否构成重复。
+
+        返回 True = 构成重复，调用方应拒绝执行并回 `_REPEAT_HINTS`。
+        状态是 **Run 级**，跨 Run 不共享。
+
+        `now` 仅供测试注入时间，生产不传（取 time.time()）。
+        """
+        import time as _time
+
+        ts = _time.time() if now is None else float(now)
+        rec = self.repeat_calls.get(tool_name)
+        if rec is not None and rec.get("key") == key and ts - rec.get("ts", 0.0) < window:
+            rec["count"] = int(rec.get("count", 0)) + 1
+            rec["ts"] = ts
+            return rec["count"] >= 2
+        self.repeat_calls[tool_name] = {"key": key, "ts": ts, "count": 1}
+        return False
 
     def note_think(self, text: str) -> int:
         """记一条 think 笔记到 Run 级 scratchpad，返回当前条数。

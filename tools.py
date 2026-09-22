@@ -69,6 +69,10 @@ def _project_manager():
 
     return TaskManager(_MEMORY_DB_PATH)
 
+#: D4 回退状态：**只**在无 RunContext 时使用（直接调用、旧测试）。
+#: 有 RunContext 时状态在 `RunContext.repeat_calls`（Run 级），不会跨 Run 污染。
+#: 历史问题：本 dict 曾是唯一存储，于是 A 轮搜过的关键词会把 B 轮第一次调用判成重复；
+#: 且注释写的是「同一轮」，实现却是进程级 —— 记录层漂移，已于 2026-09-22 修正。
 _last_repeat_calls: dict[str, dict] = {}
 _REPEAT_HINTS = {
     "web_search": "你已经在同一轮用相同关键词调用过联网搜索。请直接基于已返回的结果作答；若确实没有结果，就直接说明没找到，不要重复调用本工具。",
@@ -80,7 +84,21 @@ _REPEAT_HINTS = {
 
 
 def _too_repetitive(tool_name: str, key: str, window: float = 10.0) -> bool:
-    """检测同一工具 + 同一关键参数在短时间窗口内被重复调用，防止模型空转耗尽循环上限。"""
+    """检测同一工具 + 同一关键参数在短时间窗口内被重复调用，防止模型空转耗尽循环上限。
+
+    状态优先落在 **RunContext**（Run 级，跨 Run 不共享）；无 RunContext 时回退进程级
+    `_last_repeat_calls` 以兼容直接调用与旧测试。回退路径是历史行为，**不要**把新逻辑
+    加在那边。
+    """
+    try:
+        from runtime.runctx import current as _rc
+
+        ctx = _rc()
+    except Exception:
+        ctx = None
+    if ctx is not None and hasattr(ctx, "note_repeat_call"):
+        return bool(ctx.note_repeat_call(tool_name, key, window=window))
+
     now = time.time()
     rec = _last_repeat_calls.get(tool_name)
     if rec is not None and rec["key"] == key and now - rec["ts"] < window:

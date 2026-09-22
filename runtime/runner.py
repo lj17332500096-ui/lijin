@@ -24,6 +24,10 @@ from typing import Any, ClassVar
 
 _logger = logging.getLogger("runtime.runner")
 
+# 审计 D3：结构化日志代理（opt-in，FORGE_STRUCTURED_LOG=1）。
+# run_id 由 formatter 自动从 RunContext.current() 注入，调用点无需手工传。
+from runtime.structured_log import slog
+
 from agents.tool import FunctionTool
 
 from runtime.approval import ApprovalGate
@@ -142,6 +146,9 @@ def _log_obligation_block(runtime, task, rc, deficits, *, where: str = "",
         "义务门拦截 where=%s task=%s kind=%s missing=%s ledger=%s signature=%s request=%r",
         where, task_id, kind, list(deficits), ledger, signature, request,
     )
+    slog.warning("义务门拦截", where=where, task=task_id, kind=kind,
+                 missing=list(deficits), ledger=ledger, signature=signature,
+                 request=request)
     if not emit_event:
         return
     payload = {"where": where, "missing": list(deficits), "ledger": ledger,
@@ -1296,6 +1303,8 @@ class AgentRuntime:
                     "工具调用 %s 无法解析 run_id（RunContext 未绑定且无活跃 Run）："
                     "本次调用不会写入 task_events 证据", name,
                 )
+                slog.warning("工具调用 run_id 解析失败", tool=name,
+                             run_id="?", reason="runctx_missing_no_active")
         try:
             # P1-7：task_events 的 normalized_args 与 tool_calls.arguments 是同一份敏感
             # 数据的两个出口，必须走同一套脱敏（此前只有 tool_calls 侧做了 redact）。
@@ -1675,6 +1684,7 @@ class AgentRuntime:
                     "C2 熔断：会话 %s 连续 %d 次命中 0 目标工具，升级全量工具",
                     session_key, streak,
                 )
+                slog.info("C2 熔断升级全量工具", session=session_key, streak=streak)
                 return chosen  # 全量工具
         else:
             # 命中目标工具 → 重置该会话的连续计数
@@ -1969,6 +1979,7 @@ class AgentRuntime:
                     if expired:
                         _logger.info("P1 approval TTL: %d stale pending approval(s) auto-denied on resume %s",
                                   len(expired), task_id)
+                        slog.info("P1 approval TTL 过期", task=task_id, denied=len(expired))
                 except Exception:
                     _logger.exception("P1 approval TTL check failed for %s", task_id)
             task = self.tasks.transition(task_id, TaskState.RUNNING, reason="resume")
@@ -2018,6 +2029,8 @@ class AgentRuntime:
                         # 绝不带着一个仍活跃的旧 Run 去建第二个。
                         _logger.warning("取代追问态 Run %s 失败，退回拒绝新 Run",
                                         active.id, exc_info=True)
+                        slog.warning("取代追问态 Run 失败", run=active.id,
+                                     container=container_id, fallback="reject_new_run")
                         active = self.tasks.find_active_run(container_id)
                 if active is not None:
                     raise AgentError(
@@ -2467,6 +2480,8 @@ class AgentRuntime:
                     # 判定异常不得静默放行：打日志后再降级放行，避免"明明做完了却失败"无法归因
                     _logger.warning("义务门判定异常，按无义务放行 task=%s",
                                     getattr(task, "id", None), exc_info=True)
+                    slog.warning("义务门判定异常，按无义务放行",
+                                 task=getattr(task, "id", None), where="succeed")
                     _def2 = []
                 if _def2:
                     _log_obligation_block(self, task, _rc_ob2, _def2,
@@ -2894,6 +2909,8 @@ class AgentRuntime:
                     except Exception:
                         _logger.warning("义务门判定异常，按无义务放行 task=%s",
                                         getattr(task, "id", None), exc_info=True)
+                        slog.warning("义务门判定异常，按无义务放行",
+                                     task=getattr(task, "id", None), where="succeed_2")
                         _deficits = []
                     if _deficits:
                         # 事件由下方 add_event 发出（带 attempt 维度），此处只补结构化日志

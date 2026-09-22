@@ -61,11 +61,23 @@ _JSON_CONTENT_TYPE = "application/json"
 
 
 def _request_id(request: Request) -> str:
-    """请求标识：优先沿用调用方的 X-Request-Id，否则本层生成。"""
+    """请求标识：优先沿用调用方的 X-Request-Id，否则本层生成。
+
+    同时绑定到当前 context（审计 D3）：后续该请求触发的所有结构化日志行
+    （runner / task_manager / provider_gateway 的 slog）都会带上同一个 id，
+    用 grep `request_id=...` 即可把一次 HTTP 请求的全链路日志串起来。
+    """
     rid = (request.headers.get("x-request-id") or "").strip()
     if rid:
-        return rid[:64]
-    return "llmb-" + uuid.uuid4().hex[:12]
+        rid = rid[:64]
+    else:
+        rid = "llmb-" + uuid.uuid4().hex[:12]
+    try:
+        from runtime.structured_log import _request_id as _bind_rid
+        _bind_rid.set(rid)
+    except Exception:
+        pass
+    return rid
 
 
 def _error(request: Request, status: int, message: str, *,

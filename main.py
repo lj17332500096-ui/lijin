@@ -501,6 +501,14 @@ async def execute_turn(
     await ensure_mcp()
     run_config = _run_config(history_limit, session, provider=provider)
 
+    # 审计 D3：本 turn 绑定一个 request_id（非 HTTP 入口自行生成），
+    # 后续该轮触发的所有 slog 行自动带上它。
+    try:
+        from runtime.structured_log import new_request_id
+        new_request_id("turn")
+    except Exception:
+        pass
+
     current = message
     overflow_compacted = False
     max_reruns = _format_retry_max()
@@ -976,6 +984,13 @@ async def run_scheduled_task_once(task_id: str, max_turns: int) -> int:
 
 def main() -> None:
     ensure_utf8_console()
+    # 审计 D3：结构化日志（opt-in，FORGE_STRUCTURED_LOG=1）。默认不挂 handler，
+    # 调用点 slog.* 静默；开启后 stdout 出 JSON 行（run_id / request_id 自动注入）。
+    try:
+        from runtime.structured_log import install_structured_logging
+        install_structured_logging()
+    except Exception:
+        pass
     parser = argparse.ArgumentParser(description="全能助手 - 通用个人单 Agent")
     parser.add_argument("--session", default="personal", help="会话名称，用于区分不同主题的对话记忆")
     parser.add_argument(
