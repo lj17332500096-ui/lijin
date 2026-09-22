@@ -9,7 +9,7 @@
 漏 `run_tests` 有真实后果：`benchmark/evaluator.py` 的判据是
 「执行了不在 `tools_allowed` 里的工具 → checks['tools_allowed']=False → hard_fail」，
 于是**只要模型真跑一次测试，coding 类 case 就被硬判失败**。
-实测（`delivery/probe_benchmark_roster_audit.py`，重放 8 个历史 run 目录）：
+实测（`archive/delivery-20260919/probe_benchmark_roster_audit.py`，重放 8 个历史 run 目录）：
 
     臂        n=100   修正前      修正后     Δ
     A 基线            39.0%  →  43.0%    +4.0pp
@@ -53,7 +53,7 @@ if str(ROOT) not in sys.path:
 
 _SKIP_DIRS = {
     ".venv", "venv", "__pycache__", ".git", "logs", "runs_eval", "node_modules",
-    ".workbuddy", "code_sandbox", "exports", "notes", "tests", "delivery",
+    ".workbuddy", "code_sandbox", "exports", "notes", "tests", "archive",
     "skills",  # skills 下的 tools.py 是技能自身实现，其函数名由技能白名单负责
 }
 

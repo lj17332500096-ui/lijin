@@ -389,14 +389,6 @@ class AgentRuntime:
 
         def _make_invoke(original: Any, name: str):
             async def invoke(ctx: Any, args_json: str) -> Any:
-                # DEBUG: log all tool invocations
-                try:
-                    import sys as _sys
-                    if name in ("read_workspace_file", "list_workspace_files", "run_tests", "edit_project_file"):
-                        _sys.stderr.write(f"[TOOL_INV] {name}\n")
-                        _sys.stderr.flush()
-                except Exception:
-                    pass
                 try:
                     arguments = json.loads(args_json or "{}")
                 except json.JSONDecodeError:

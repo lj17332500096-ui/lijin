@@ -71,3 +71,6 @@ report_*.json
 runs_*.log
 *.sqlite-shm
 *.sqlite-wal
+# benchmark 运行 churn：inline 工具产物，不入库
+benchmark_fixture/_inline_*.py
+benchmark_fixture/__pycache__/

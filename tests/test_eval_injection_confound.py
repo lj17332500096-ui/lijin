@@ -10,7 +10,7 @@ tool_router 第 1 条规则是「查询里出现工具名 → 必选」，而 ep
 - router on 时，注入确实改变工具集（哨兵，记录已知现象，防止有人以为是 bug 而"顺手修好"）；
 - 固定工具集后，注入前后必须完全一致（修法 1 的核心保证）。
 
-事实源：delivery/probe_injection_confound.py、报告 §10。
+事实源：archive/delivery-20260919/probe_injection_confound.py、报告 §10。
 """
 
 from __future__ import annotations
