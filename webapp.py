@@ -24,6 +24,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import webbrowser
 from pathlib import Path
@@ -140,6 +141,25 @@ app = Starlette(
     ]
 )
 
+#: 非回环监听必须显式 opt-in：本进程暴露会执行工具 / 跑 agent turn 的端点。
+ALLOW_NONLOCAL_ENV = "FORGE_ALLOW_NONLOCAL_UI"
+_TRUTHY = {"1", "true", "yes", "on", "y"}
+
+
+def _is_loopback_host(host: str) -> bool:
+    """监听地址是否为回环（用 ipaddress 判定，覆盖 127.0.0.0/8 整段与 ::1）。"""
+    h = (host or "").strip()
+    if h.startswith("[") and h.endswith("]"):
+        h = h[1:-1]
+    if h.lower() in ("localhost", "::1"):
+        return True
+    try:
+        import ipaddress
+
+        return ipaddress.ip_address(h).is_loopback
+    except ValueError:
+        return False
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="全能助手 - 本地网页界面（已冻结，见 ui_frozen.py）")
@@ -155,6 +175,24 @@ def main() -> None:
     # 冻结层门禁：未显式开启时拒绝启动，避免「只优化后端」阶段被 UI 意外带起来。
     if not require_ui_enabled(sys.argv[1:]):
         raise SystemExit(2)
+
+    # 绑定断言（API 接口层审计 C6）：llama_bridge 暴露 `/tools`（直接执行工具）与
+    # `/v1/chat/completions`（跑完整 agent turn，内部同样执行工具），故本进程只应监听
+    # 回环地址。非回环必须显式 opt-in —— 否则"顺手 --host 0.0.0.0"就等于把工具执行面
+    # 开进局域网。该断言与 llama_bridge 的 Content-Type 守卫互补：一个管"谁能连进来"，
+    # 一个管"同机浏览器里的其它页面能否借道"（CSRF）。
+    if not _is_loopback_host(args.host):
+        if os.getenv(ALLOW_NONLOCAL_ENV, "").strip().lower() not in _TRUTHY:
+            print(
+                f"[UI] 拒绝以非回环地址 {args.host!r} 启动：本进程的 /tools 与 "
+                "/v1/chat/completions 会执行工具与 agent turn。\n"
+                f"     确实需要对外监听时，请显式设置 {ALLOW_NONLOCAL_ENV}=1"
+                "（并自行在反代层加鉴权），或改用默认的 127.0.0.1。",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        print(f"[UI] 警告：已按 {ALLOW_NONLOCAL_ENV}=1 以非回环地址 {args.host} 启动，"
+              "请确认外层已有鉴权。", file=sys.stderr)
 
     for stream in (sys.stdout, sys.stderr):
         try:

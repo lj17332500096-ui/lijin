@@ -15,6 +15,27 @@ run_turn 内部已跑完整工具循环，浏览器无需回灌 tool_calls；只
 
 会话隔离：session_id 按「用户标识 + model」构造（Authorization Bearer /
 X-Forge-User / body.user_id），避免多用户共用同一 SQLiteSession 历史串台。
+
+错误结构（2026-09-22，API 接口层审计 C3）
+----------------------------------------
+非 2xx 一律走 `_error()`，产出 OpenAI 标准信封：
+    {"error": {"message", "type", "code", "retryable"}, "request_id": "<id>"}
+形状不是自定的，而是由前端取错函数 `kIe()` 的**首选**分支决定（`r?.error?.message`）。
+**200 响应不要用这个信封**：工具结果走 `plain_text_response`（纯文本）；
+200 里若出现 `error`，它必须是**字符串**——前端对它做 `String(a.error)`，
+传对象会被渲染成 `[object Object]`。
+
+写操作守卫（2026-09-22，C6）
+---------------------------
+**会直接产生副作用**的 POST 端点（`/tools`、`/v1/chat/completions`、
+`/v1/chat/completions/control`）先过 `_require_json_content_type()`：非
+`application/json` 直接 415。这不是格式校验，而是反 CSRF，删掉即重新打开缺口——
+跨站 `fetch(url, {method:"POST", body:"..."})` 的 Content-Type 默认是 `text/plain`，
+属"简单请求"**不触发预检**、浏览器会直接投递，而 `await request.json()` **不校验**类型；
+强制 JSON 会让浏览器先发预检，而本服务不返回 CORS 头 → 实际 POST 被浏览器拦下。
+只读端点（`/props`、`/slots`、`/v1/models`、`/v1/streams/lookup`、`/models/*`）与
+无 body 的 GET/DELETE **不加**守卫（前端这些请求走 `A0()`，本就不带 Content-Type）。
+另：`webapp.main()` 有**绑定断言**——非回环监听需显式 `FORGE_ALLOW_NONLOCAL_UI=1`。
 """
 from __future__ import annotations
 
@@ -31,6 +52,80 @@ from starlette.responses import JSONResponse, Response, StreamingResponse
 from starlette.staticfiles import StaticFiles
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+# ---------------------------------------------------------------------------
+# 统一错误结构（C3）与 POST 守卫（C6）—— 2026-09-22 API 接口层审计
+# ---------------------------------------------------------------------------
+_JSON_CONTENT_TYPE = "application/json"
+
+
+def _request_id(request: Request) -> str:
+    """请求标识：优先沿用调用方的 X-Request-Id，否则本层生成。"""
+    rid = (request.headers.get("x-request-id") or "").strip()
+    if rid:
+        return rid[:64]
+    return "llmb-" + uuid.uuid4().hex[:12]
+
+
+def _error(request: Request, status: int, message: str, *,
+           code: str | None = None, err_type: str | None = None,
+           retryable: bool = False, **extra) -> JSONResponse:
+    """统一错误信封（C3）：`{"error": {message, type, code, retryable}, "request_id": ...}`。
+
+    形状选择**不是**自定的：前端取错的函数 `kIe()` 按此优先级读取——
+    `r?.error?.message` → `r?.error`（字符串）→ `r?.message` → HTTP 状态码表。
+    这里命中的是**第一优先分支**，因此采用 OpenAI 标准信封。
+    注意：信封不能反过来用于**200**响应——工具执行结果走 `_tool_payload()`，
+    那里 `error` 必须是**字符串**（前端对它做 `String(a.error)`，传对象会渲染成 `[object Object]`）。
+    """
+    body: dict[str, Any] = {
+        "error": {
+            "message": str(message),
+            "type": err_type or "invalid_request_error",
+            "code": code or f"http_{status}",
+            "retryable": bool(retryable),
+        },
+        "request_id": _request_id(request),
+    }
+    body.update(extra)
+    return JSONResponse(body, status_code=status)
+
+
+def _require_json_content_type(request: Request) -> JSONResponse | None:
+    """POST 必须带 `Content-Type: application/json`，否则 415（C6 反 CSRF）。
+
+    对本地前端**零影响**：实测 bundle 内 `Lb(){return{[ds.CONTENT_TYPE]:sv.JSON,...A0()}}`，
+    所有带 body 的请求（`JT` / `x_e` / 裸 `fetch(..., {headers:Lb()})`）都经它发出，
+    必带该类型。无 body 的 GET / DELETE 走 `A0()`，因此**本守卫只加在 POST 上**。
+
+    为什么这条能挡跨站请求（不是可有可无的格式校验，删掉即重新打开缺口）：
+    跨站 `fetch(url, {method:"POST", body:"..."})` 的 Content-Type 默认是 `text/plain`，
+    属"简单请求"**不触发预检**、浏览器会直接投递；而 `await request.json()`
+    **并不校验** Content-Type、照样解析 body。于是任意网页都能在用户浏览器里
+    触发本服务执行工具（响应用户读不到，但副作用已经发生）。
+    强制 JSON 类型会让浏览器先发预检，而本服务不返回 CORS 头 → 实际 POST 被浏览器拦下。
+    """
+    raw = (request.headers.get("content-type") or "").split(";")[0].strip().lower()
+    if raw != _JSON_CONTENT_TYPE:
+        return _error(
+            request, 415, "Content-Type 必须是 application/json",
+            code="unsupported_media_type",
+            err_type="invalid_request_error",
+        )
+    return None
+
+
+async def _json_body(request: Request, *,
+                     code: str = "invalid_json") -> tuple[dict | None, JSONResponse | None]:
+    """解析 JSON body，失败时返回统一错误（而不是让异常冒成 500）。"""
+    try:
+        body = await request.json()
+    except Exception as exc:
+        return None, _error(request, 400, f"请求体不是合法 JSON：{exc}", code=code)
+    if not isinstance(body, dict):
+        return None, _error(request, 400, "请求体必须是 JSON 对象", code=code)
+    return body, None
 
 
 def _model_name() -> str:
@@ -257,7 +352,8 @@ async def api_stream_resume(request: Request) -> Response:
 
     st = _stream_find(key)
     if st is None:
-        return JSONResponse({"error": "no such stream", "conv_id": key}, status_code=404)
+        # 统一错误信封（C3）；conv_id 作为附加上下文保留（前端也会读它做清理判断）。
+        return _error(request, 404, "no such stream", code="stream_not_found", conv_id=key)
 
     raw_from = request.query_params.get("from") or "0"
     try:
@@ -275,33 +371,49 @@ async def api_stream_resume(request: Request) -> Response:
 
 
 async def api_tools_execute(request) -> Response:
+    # C6：本端点是全桥唯一「直接执行工具、直接产生副作用」的入口，先过 Content-Type 守卫。
+    guard = _require_json_content_type(request)
+    if guard is not None:
+        return guard
+
     from runtime.runner import AgentRuntime
     rt = AgentRuntime.get_default()
     rt._ensure()
-    body = await request.json()
+    body, bad = await _json_body(request, code="invalid_tool_request")
+    if bad is not None:
+        return bad
     tool = body.get("tool") or body.get("name")
     params = body.get("params") or body.get("arguments") or {}
-    if not tool:
-        return JSONResponse({"error": "缺少 tool 字段"}, status_code=400)
+    # 工具名必须是字符串：非字符串会在 gate.should_gate 的集合查找里抛 TypeError，
+    # 变成 500 而不是可读的 400。
+    if isinstance(tool, str):
+        tool = tool.strip()
+    if not tool or not isinstance(tool, str):
+        return _error(request, 400, "缺少 tool 字段（需为非空字符串）", code="missing_tool")
 
     # ④ 写工具审批门：命中 ApprovalGate 的工具不直接执行，返回「需审批」状态。
     gate = _approval_gate()
     if gate is not None and gate.should_gate(tool):
         # 前端确认语义：body.confirmation_token 与本轮登记的 pending 匹配才放行
         # （与 run_turn 内部审批流一致；此处仅阻断「无人值守静默写盘」）
+        #
+        # 2026-09-22（API 接口层审计）：原先只回 {"approval_required":..., "approval":...}，
+        # 而 bundle 中 `approval_required` 与 `approval` 的命中数**均为 0** —— 前端根本没有
+        # 这个分支，只能落到 executeTool 的兜底 `JSON.stringify(a)`，用户看到一坨原始 JSON。
+        # 这里补一条 `error` **字符串**：前端 `kb.ERROR` 分支会 `String(a.error)` 并标红，
+        # 「被阻断」于是有了可读反馈。`error` 只能是字符串——传对象会被渲染成 `[object Object]`。
+        # 该分支仍保留 approval_required/approval，供实现了该语义的调用方使用。
+        reason = "该操作风险较高，需用户确认后才执行"
         return JSONResponse({
-            "plain_text_response": "",
+            "error": f"工具 {tool} 未执行：{reason}（状态：待审批）",
             "approval_required": True,
-            "approval": {
-                "tool": tool,
-                "reason": "该操作风险较高，需用户确认后才执行",
-                "status": "pending",
-            },
+            "approval": {"tool": tool, "reason": reason, "status": "pending"},
         }, status_code=200)
 
     try:
         result = await rt.broker.execute(tool, params)
     except Exception as e:
+        # 200 + plain_text_response：成功与失败都走文本结果，保持前端既有契约。
         return JSONResponse({"plain_text_response": f"工具执行失败：{type(e).__name__}: {e}"}, status_code=200)
     return JSONResponse({"plain_text_response": result or ""})
 
@@ -625,7 +737,13 @@ def _final_content_frames(model: str, run_id: str, streamed: str,
 
 
 async def api_chat_completions(request) -> Response:
-    payload = await request.json()
+    # C6：本端点会跑完整 agent turn（内部含工具执行），与 /tools 同级，同样过守卫。
+    guard = _require_json_content_type(request)
+    if guard is not None:
+        return guard
+    payload, bad = await _json_body(request, code="invalid_chat_request")
+    if bad is not None:
+        return bad
     message = _last_user_message(payload)
     stream = bool(payload.get("stream"))
     model = payload.get("model") or _model_name()
@@ -644,7 +762,9 @@ async def api_chat_completions(request) -> Response:
             queue.get_nowait()
         name, ev = end
         if name == "__error__":
-            return JSONResponse({"error": ev["error"]}, status_code=500)
+            # 统一错误信封（C3）：run 内部异常 → 500 + retryable。
+            return _error(request, 500, ev["error"], code="run_failed",
+                          err_type="server_error", retryable=True)
         content = ev.get("content") or ""
         kind = ev.get("kind", "answer")
         # ④ 审批门：若本轮需要审批，在 content 里带上标记让前端处理
@@ -739,13 +859,19 @@ async def api_chat_control(request: Request) -> Response:
     （收口 CANCELLED + interrupted 副作用），确保"取消后不再进入后续
     Model/Tool iteration"。
     """
+    guard = _require_json_content_type(request)
+    if guard is not None:
+        return guard
     from runtime.runner import AgentRuntime
     rt = AgentRuntime.get_default()
     rt._ensure()
-    body = await request.json()
+    body, bad = await _json_body(request, code="invalid_control_request")
+    if bad is not None:
+        return bad
     run_id = body.get("run_id") or body.get("id") or ""
     if not run_id:
-        return JSONResponse({"ok": False, "error": "缺少 run_id"}, status_code=400)
+        # 统一错误信封（C3）。保留 ok=False 供既有调用方按旧契约判断完成度。
+        return _error(request, 400, "缺少 run_id", code="missing_run_id", ok=False)
     cancelled = rt.cancel_run(run_id)
     return JSONResponse({
         "ok": True,
