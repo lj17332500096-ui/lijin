@@ -5,6 +5,9 @@
 ## 1. 架构与边界
 - 单 Agent + 单主链 + 极厚外围治理（harness 型）。入口：`main.py`（`--classic`/`--voice`/`--daemon`/`--tui`）+ `cli/`。
 - 前端 UI 层冻结（`webapp.py`/`llama_bridge.py`），仅 `FORGE_ENABLE_UI=1` 可起。
+  **`webapp.py` 自 2026-09-22 起只是「前端宿主」**（190 行）：3 条页面重定向 + llama_bridge
+  路由 + `/llama-ui` 静态挂载；原 63 条 `/api/*` 已归档。唯一对外协议 = llama_bridge 的
+  `/v1/*` + `/props` + `/tools` + `/slots` + `/models/*`。
 - 边界红线（`tests/test_ui_isolation.py`）：后端/CLI 不得 `import webapp|llama_bridge`。
 - 工具层：实测 37 个 native 工具。`_EXPLICIT_ONLY_TOOLS` 是**限制**表（在表内要命中语义才放行，不在表内永远放行）。
 - 技能两目录：`skills/`（运行时，27 个）｜`agent-skills/`（编译产物/安装源，10 个）。`gorden-ppt` 族有意不走高门槛。
@@ -77,9 +80,19 @@
   B5 取消杀同步工具进程树（**新增 `runtime/cancel_scope.py`**）、B6 `spec.timeout_seconds` 真正接线、
   B7 `tool_calls` 补耗时/轮次/归一化参数/指纹、B8 记录盖 `run_id` + 追踪改 opt-in、
   B9 `auto_recover` 阈值方向与 `budget_json` 死列。
-- **Phase C（C1–C8）/ Phase D（D1–D5）未开始**。C 的前置决定：`/api/*` 是"复活"还是"归档"
-  （报告建议归档 60+ 条无消费者的 `/api/*`，只保留 llama-bridge 的 `/v1/*`）；C 阶段必须一次性做完。
-- 执行记录与 4 条「审计结论被实施修正」的细节见报告新增的 **§19**。
+- **Phase C 前置决策已执行：`/api/*` 归档**（2026-09-22）。63 条路由 + 89 个专属定义整体删除，
+  `webapp.py` 2042→190 行。恢复点 **tag `archive/api-routes-pre-delete-20260922`**（→ `a2cb623`，
+  该点已含 Phase A/B 全部修复）。全量 1383 passed / 6 skipped / 0 failed，与归档前逐项一致（零回归）。
+  归档依据（可复核）：bundle 中 `"/api/"`、`assistant_delta`、`run_id`、`EventSource` 命中**均为 0**；
+  全仓无 HTTP 消费者；唯一测试消费者 `tests/test_webapp.py` 处于冻结跳过；`webapp.py` 默认拒绝启动。
+  连带清掉 3 个既有死代码（`_friendly_error`/`_LIVE_LOCK`/`_store_upload_bytes`）与 4 处记录层漂移。
+- **Phase C 归档后收缩为 C3 + C6**（对报告 §17 的实质修正）：C1（校验前置）/C4（字段重命名）
+  /C5（SSE `id:`）的作用面已随 `/api/*` 消失；C2 早已是 `pytest.skip` 空操作；C7（`/api/v1` 前缀）
+  与 C8（`ToolResult`）**会打断冻结前端**——llama-ui 的 fetch 多为相对路径，且按
+  `error`/`plain_text_response` 解析。剩下的 C3（统一错误结构）与 C6（`POST /tools` 绑定断言
+  + 只读白名单）**都落在 `llama_bridge.py` = 冻结层内**，与「只优化后端」约定冲突，需先决策。
+- **Phase D（D1–D5）未开始。**
+- 执行记录、归档依据与「审计结论被实施修正」的细节见报告 **§19**。
 
 ## 7. 待办
 - **n=200 对照**（4×n=50 各模型合并）检验 agnes-3.0 vs 2.5 的 −8pp 是否真实。
@@ -88,8 +101,20 @@
 - **T040 false_completion 单独立 case**：3.0 上该追问没追问，需补对抗用例。
 - **T008 评测口径复查**：`BLOCKED_NEEDS_USER_INPUT` 的期望终态是否应从 `completed` 改为 `waiting_user`。
 - **第二轮 A/B**：per-tool 预算 8→12 放宽或改为「仅对失败/低新颖度调用计数」。
-- **Phase C/D**：见 §6，未开始；C 需先定 `/api/*` 的去留。
-- **提交状态**：Phase A/B 全部改动**尚未提交**（工作区里 `runtime/*`、`main.py`、`code_exec.py`、
-  `webapp.py`、`.env.example`、`tests/test_api_layer_phase_{a,b}.py`、新增 `runtime/cancel_scope.py`
-  与报告 `FORGE-API-LAYER-AUDIT-2026-09-22.md` 均为 M/??）。更早的 P0~P2 改动已提交。
+- **Phase C 剩余（C3 + C6）需先决策**（两项都在冻结层内，见 §6）。C6 的可行性已实测：
+  前端 `Lb(){return{[ds.CONTENT_TYPE]:sv.JSON,...A0()}}` → 所有请求必带
+  `Content-Type: application/json`，故"强制 JSON 类型 + 回环地址断言"不会打断前端，
+  却能挡掉 `text/plain` 跨站简单请求（浏览器不发预检即投递，`await request.json()` 不校验类型）。
+- **`/tools` 审批分支是死分支**：`api_tools_execute` 命中审批门时返回 `{"approval_required",...}`，
+  而 bundle 中 `approval_required`/`approval` 命中**均为 0** → 前端无此分支，靠
+  `JSON.stringify(a)` 兜底把原始 JSON 显示给用户（不是静默失败，但也不说人话）。
+  与 B7 的 kind 漂移同族：**分支声称处理了某场景，对方从未实现**。修 C6 时一并处理。
+- **Phase D**：见 §6，未开始。
+- **提交状态**：Phase A/B + 审计报告 + 归档**均已入库**
+  （`a902658` → `a2cb623` → tag `archive/api-routes-pre-delete-20260922` → `352f321`）。
+  工作区残留**有意不提交**：`benchmark_fixture/_inline_*.py`×4（运行 churn）、
+  `code_sandbox/{auth_fix,fix_auth_calculate}/*`（沙箱产物）、
+  `delivery/EVAL-P0-12CASE-2026-09-21.md`（上次会话交付物，不混入本次提交）。
   `.env` 模型切换（agnes-3.0-flash）与运行产物不入库。
+- **可选清理（需用户决策，勿擅自回改历史）**：`benchmark_fixture/_inline_*.py` 已有 51 个同类入库
+  （时间戳随机名、每个 <1KB、benchmark harness 的运行残留），属 churn，建议 gitignore。

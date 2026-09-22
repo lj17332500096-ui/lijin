@@ -1306,8 +1306,79 @@ L1 上限判据是 `local_attempts + 1 < max_attempts`（`local_attempts` 记的
 （§18 已列为"丑但正确"）。被劫持的是**测试代码自己的** `shutil.rmtree`。
 后续在本机跑全量，建议用 `PYTHONPATH= .venv/Scripts/python.exe -m pytest tests/ -q`。
 
-### 19.5 尚未实施
+### 19.5 Phase C 前置决策已执行：`/api/*` 归档（2026-09-22）
 
-- **Phase C**（C1–C8）：动对外协议，需一次性做完；前置条件是先决定 `/api/*` 是"复活"还是
-  "归档"（报告 §17 建议归档 60+ 条无消费者的 `/api/*`，只保留 llama-bridge 的 `/v1/*`）。**未开始。**
-- **Phase D**（D1–D5）：连接复用/历史分页/结构化日志/`_too_repetitive` 迁 `RunContext`/补 4 类缺失测试。**未开始。**
+**决策**：归档（非复活），并按"直接删除 + git 历史恢复"落地。
+**恢复点**：`git tag archive/api-routes-pre-delete-20260922`（指向 `a2cb623`，该点 `webapp.py`
+仍含 66 条路由 / 63 条 `/api/*`，且已包含 Phase A/B 全部修复）。
+
+归档依据（本次实测重验，非沿用审计期结论）：
+
+| 检验项 | 实测值 |
+|---|---|
+| 生产 bundle（8.5MB）中 `"/api/"` 命中 | **0** |
+| bundle 中 `assistant_delta` / `run_id` / `EventSource` 命中 | **0 / 0 / 0** |
+| bundle 中 llama_bridge 协议命中 | `/v1/chat/completions`=2、`/v1/stream`=2、`/v1/models`=1、`/tools`=3、`/props`=7、`text/event-stream`=7 |
+| 全仓非 bundle 的 HTTP 消费者（`127.0.0.1.*/api`、`localhost.*/api`） | **0** |
+| `/api/*` 的唯一测试消费者 | `tests/test_webapp.py`，文件头 `skip_if_frozen()` 冻结跳过 |
+| `webapp.py` 默认能否启动 | 否（`require_ui_enabled` → `SystemExit(2)`） |
+| 旧页面 | `web/index.html.legacy.archive` 已归档；`web/runtime/` 已移除 |
+
+**落地范围**（提交 `352f321`，7 文件 +141/−1939）：
+
+- `webapp.py` **2042 → 190 行**。摘除 63 条 `/api/*` 路由与 89 个仅由它们引用的模块级定义。
+  可删集合用 `ast` 闭包计算（**注意**：种子里必须把 `/api` handler 从每一步展开中排除，
+  否则 `app = Starlette(...)` 这个赋值节点会把整个 `/api` 子图重新捞回来，造成 `可删=0` 的假阴性），
+  并对每个候删名字做全仓外部引用复查（命中 2 处：`_sse` 属待重写测试、`_start_run_session`
+  属 `runtime/public_activity.py` 的**注释**引用，非代码依赖）。
+- **连带清除 3 个既有死代码**（只定义、零引用，与本次归档无关但同属接口层垃圾）：
+  `_friendly_error`（13 行）、`_LIVE_LOCK`（1 行）、`_store_upload_bytes`（16 行）。
+  其中 `tests/test_webapp.py::test_friendly_error_classification` 一直在测这个不可达函数。
+- 连带修正 4 处**记录层漂移**（注释/文档在删除后变成假话）：
+  `runtime/public_activity.py`（`run.started` 的真实生产者是 `runtime/runner.py:2209`，
+  原注释指向已删的 `webapp._start_run_session`）、`tests/test_api_layer_phase_a.py`、
+  `tests/test_project_model.py`、`.learnings/ERRORS.md`（ERR-20260907-002 失效结案）。
+- `README.md`：「网页界面」整节重写（原描述依赖已不存在的 `web/runtime.html` 与
+  `web/index.html`）；「生成式 UI 交互卡片」加存续标注（`ui` 契约仍在后端生效——
+  `schemas.py` / `agent.py` / `runtime/reply_parser.py` / `guardrails.py`——渲染器随 UI 归档）。
+
+**验证**：全量 `1383 passed, 6 skipped, 0 failed`（415s），与归档前基线**逐项一致 → 零回归**；
+`FORGE_ENABLE_UI=1` 下 UI 冻结层 44 passed；路由实测 28 条 = 3 页面 + 24 桥 + 1 挂载，`/api/*` = 0。
+
+### 19.6 Phase C 归档后的逐项重新判定
+
+归档把 C 阶段的**作用面整体换掉了**——原 8 项里 4 项针对的是已删除的 `/api/*`，2 项会打断
+冻结的前端。逐项重判如下（这是对报告 §17 的实质性修正）：
+
+| 项 | 原目标 | 归档后判定 | 依据 |
+|---|---|---|---|
+| C1 | 校验前置到 `StreamingResponse` 之前（9 处） | **消灭** | 那 4 个流式 handler（`api_stream`/`api_run_stream`/`api_project_stream`/`api_task_stream`，约 16 个返回点）已随归档删除 |
+| C2 | 重写 `test_contract.py` | **已是空操作** | 该文件早已 `pytest.skip`（`web/runtime/` 已移除）；本轮另把 `test_webapp.py` 重写为归档断言 |
+| C3 | 统一错误结构 `{code,message,retryable,details,request_id}` | **仍有效**（落在 `llama_bridge`） | 桥层错误响应仍是 ad-hoc：`{"error": str}` + 400/404、`{"plain_text_response": ...}` + 200 |
+| C4 | 字段重命名 `task_id→run_id`、`status→state` | **消灭** | 这两个字段只存在于 `/api/*` 的 payload 里 |
+| C5 | SSE 加 `id:` + 15s 心跳 + `retry:` + `?since=<seq>` | **消灭且有害** | llama-ui 的续读是**字节偏移**语义：`Y1e={CONV_ID,FROM}`、`from=` 命中 20 次；`/v1/stream?conv_id=&from=` 按字节回放。加 `id:` 会改变字节计数、打断续读（且 `Last-Event-ID` 只是其 EventSource polyfill 的通用管道） |
+| C6 | `POST /tools` 加 127.0.0.1 绑定断言 + 只读白名单 | **仍有效，优先级上升** | 归档后 `/tools` 成为活协议：前端 `N2.executeTool/executeToolRaw/streamTool` 确实 POST `/tools`（`FO={EXECUTE:"/tools",LIST:"/tools"}`），服务端经 `rt.broker.execute` 执行任意工具，唯一保护是 `gate.should_gate` |
+| C7 | 引入 `/api/v1` 前缀 | **有害** | 前端 fetch 多为相对路径（`./props`、`./v1/chat/completions`），`/tools` 为绝对路径；加前缀会 404 |
+| C8 | 工具返回结构化为 `ToolResult` | **有害** | 前端按 `error` / `plain_text_response` 解析（`kb={ERROR:"error",PLAIN_TEXT:"plain_text_response"}`，无匹配则 `JSON.stringify` 兜底）；改结构会让渲染退化 |
+
+**结论**：Phase C 由"8 项全面整改"收缩为 **C3 + C6 两项**，且都落在 `llama_bridge.py`
+——即 `ui_frozen.py` 的冻结层内。这与"只优化后端"的阶段约定直接冲突，需先决策
+（为接口层开例外 / 先抽出协议层 / 暂缓）。
+
+**实施阶段新发现（不属于原 Phase C）**：`api_tools_execute` 的审批分支返回
+`{"approval_required": True, "approval": {...}}`，而 bundle 中 `approval_required` 与
+`approval` 命中均为 **0**——前端无此分支，只能靠兜底 `JSON.stringify(a)` 把原始 JSON 显示出来。
+它不是静默失败（兜底救了它），但**用户看到的是原始 JSON 而不是"需要确认"的人话**。
+这与 B7 的 `kind` 判据漂移、A2 的名单手抄同族：**一个分支声称处理了某场景，而对方从未实现**。
+
+**关于 C6 可行性的实测**（决定加固是否安全）：前端 `Lb(){return{[ds.CONTENT_TYPE]:sv.JSON,...A0()}}`
+→ 所有 `JT` 请求都带 `Content-Type: application/json`。因此"强制 JSON 类型 + 回环地址断言"
+不会打断前端，且能挡掉 `text/plain` 的跨站简单请求（浏览器不发预检即投递、而
+`await request.json()` 不校验类型）。
+
+### 19.7 尚未实施
+
+- **C3**（`llama_bridge` 错误结构统一）与 **C6**（`POST /tools` 绑定断言 + 只读白名单）：
+  均在冻结层内，待决策后实施（见 §19.6 结论）。
+- **Phase D**（D1–D5）：连接复用 / 历史分页 / 结构化日志 / `_too_repetitive` 迁 `RunContext` /
+  补 4 类缺失测试。**未开始。**
