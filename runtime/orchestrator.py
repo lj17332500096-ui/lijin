@@ -54,24 +54,25 @@ def decide(
     tool_recall_thr: float = 0.995,
     mutation_tools: Optional[frozenset] = None,
 ) -> Step:
-    """把 LayaDecision 转成唯一下一步指令（纯函数，可离线单测）。
+    """把 LayaDecision（三判别）转成唯一下一步指令（纯函数，可离线单测）。
+
+    intent 取值（与 classify() 三判别对齐）：
+      greeting / arith / tool_needed / ambiguous / None（降级）
 
     安全原则（P4 核心）：direct_tool 只对只读/发现类工具生效；
     凡命中 mutation 工具（write_*/save_*），强制走 need_llm（或由上层审批门接管），
     绝不由 Laya 直接触发写操作。
 
     优先级：
-    1. direct_text：intent 明确纯文本且高置信 → 0 工具
+    1. direct_text：intent 明确纯文本（greeting/arith）→ 0 工具
     2. direct_tool：需工具 + 自足 + 路由高置信 + 非 mutation → 直接派发
     3. need_llm：需工具但需补全（或命中 mutation）→ LLM 补全后派发
     4. llm_fallback：其余（置信度不足/降级）→ 全量 LLM 兜底
     """
     mutation = mutation_tools or frozenset()
 
-    # 1. 纯文本
-    if intent == "greeting" or intent == "arith":
-        return Step("direct_text")
-    if intent == "direct_text" and intent_conf >= conf_thr:
+    # 1. 纯文本（greeting/arith 是三判别的纯文本意图，无需看置信度）
+    if intent in ("greeting", "arith"):
         return Step("direct_text")
 
     # 2/3. 需工具
@@ -84,7 +85,7 @@ def decide(
         if completeness == "need_llm" or intent == "ambiguous":
             return Step("need_llm", tool=route)
 
-    # 4. 兜底
+    # 4. 兜底（intent=None 降级 / 置信度不足）
     return Step("llm_fallback")
 
 
