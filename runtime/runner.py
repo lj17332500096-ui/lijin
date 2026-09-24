@@ -1660,6 +1660,18 @@ class AgentRuntime:
         from runtime.tool_router import build_tool_catalog, BASE_TOOLS
 
         catalog = build_tool_catalog(tools)
+
+        # L1 Laya 前置二分类快筛（叠加在 select_tool_names 之前，不改现有路由）：
+        # 高置信度判 direct_text → 短路 0 工具（纯文本回答）；其余（tool_needed /
+        # 未装 laya / 置信度不足）一律回落现有 select_tool_names。C2 熔断不受影响。
+        # F1/F2 修复：用模块级函数（非类调用），返回 Agent（非 list）只清空工具面。
+        from runtime import laya_router
+        if laya_router.laya_router_enabled():
+            _laya_res = laya_router.laya_fast_screen(message)
+            if _laya_res == "direct_text":
+                slog.info("Laya 快筛短路 direct_text")
+                return chosen.clone(tools=[])  # 纯文本路径：0 工具，跳过 LLM 选工具
+
         names = select_tool_names(
             message, [t.name for t in tools], external=external or None, catalog=catalog
         )
