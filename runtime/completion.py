@@ -48,6 +48,10 @@ class GateVerdict(str, Enum):
     """回复包含具体外部事实（温度/价格/股价/比分/新闻/职位等），
     但本轮没有任何检索/查询工具证据支撑 → 不得作为完成收尾（撤回或说明限制）。"""
 
+    LOOP_EXHAUSTED = "loop_exhausted"
+    """编排循环达到硬上限（max_loops / token / 墙钟），需收口而非继续空转。
+    由 LoopGate 触发，编排器据此终止「再派发」回环。"""
+
 
 #: 能力盘点类问题（“有哪些 MCP/能力/工具/技能”）——答案属于“描述当前 Runtime
 #: 事实”（Capability Introspection 结果），不是“本轮已执行某任务”的完成声明。
@@ -792,6 +796,7 @@ _USER_TRUTH: dict[GateVerdict, str] = {
     GateVerdict.NO_PROGRESS: "这一轮没有取得实际进展。",
     GateVerdict.FACT_UNSUPPORTED: "你问到的一些具体事实当前没有可靠的查询依据，我不能给出确切数字。",
     GateVerdict.CLARIFICATION_VAGUE: "你刚才的追问太笼统，我需要点明具体缺失的信息。",
+    GateVerdict.LOOP_EXHAUSTED: "这个任务已经尝试了多轮仍未收敛，我先把它停在当前进度。",
 }
 _USER_TRUTH.setdefault(GateVerdict.CLAIM_UNSUPPORTED, "该任务尚未完成。")
 
@@ -810,6 +815,8 @@ _USER_FAIL_TEXT: dict[GateVerdict, str] = {
         "这一步暂时没有取得进展，我先安全停了下来。你可以换个思路，或补充更多信息后继续。",
     GateVerdict.CLARIFICATION_VAGUE:
         "你刚才的回复还需要更具体一些。请直接告诉我：你最关心的几个点分别是什么？",
+    GateVerdict.LOOP_EXHAUSTED:
+        "这个任务已经尝试了多轮，我先停在当前进度。你可以告诉我是否换个方向继续。",
 }
 _USER_FAIL_DEFAULT = (
     "这个任务还没有真正执行完成，我不会把它当成已完成。请告诉我还需要继续做什么，或补充必要的信息。"
