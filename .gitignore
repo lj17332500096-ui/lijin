@@ -63,6 +63,11 @@ runs_eval*/
 runs_*/
 code_sandbox/demo/
 code_sandbox/f1_fixture/
+# 沙箱 P0 验证产物（运行 churn，不入库；phase1_fixture 的夹具源码保持跟踪）
+code_sandbox/auth_fix/
+code_sandbox/fix_auth_calculate/
+# Laya 源码本地 fork 副本（依赖副本，用于读其 API，非项目代码）
+_laya_inspect/
 forge_data/
 exports/
 notes/
