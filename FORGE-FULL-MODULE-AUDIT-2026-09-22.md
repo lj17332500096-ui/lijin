@@ -45,7 +45,7 @@
 | `tools.py` | 910 | ✅保留 | 37 工具注册中心，活代码（D4 `note_repeat_call` 已接） |
 | `rag.py` | 795 | ⚙️优化 | `index_workspace`/`search_documents` 被 `agent.py` 注册活；PDF 索引依赖外部依赖，保留但可加惰性加载 |
 | `code_exec.py` | 668 | ✅保留 | 沙箱执行（`run_python`/`run_tests`），cancel_scope 依赖 |
-| `evaluate.py` | 612 | 🔀与 benchmark 重叠 | `benchmark/{coding_experiment,matrix,__main__}` 都 import 它，而 `benchmark/evaluator.py`+`eval_runner.py` 自成一套 → 双评测器重叠 |
+| `evaluate.py` | 612 | ✅保留（双入口，非硬耦合） | **核实修正**：`benchmark/*` 实际 import 的是 `benchmark/evaluator.py`，**不** import 顶层 `evaluate.py`。顶层 `evaluate.py` 是独立端到端评测脚本（真调模型+argparse 入口）。两套并列入口（`python evaluate.py` vs `python -m benchmark`）功能部分重叠但非代码硬耦合 → 低优先级，文档标注即可 |
 | `office_docs.py` | 496 | ✅保留 | Office 读写工具，活 |
 | `compact.py` | 391 | ✅保留 | 上下文裁剪（`/compact` 命令用） |
 | `mcp_bridge.py` | 380 | ✅保留 | MCP 桥 |
@@ -60,7 +60,7 @@
 | 文件 | 判定 | 理由 |
 |---|---|---|
 | `decision_qualification.py`(1327)/`bounded_window.py`(873)/`evaluator.py`(859)/`m3_closed_loop.py`(527)/`exposure_phase21.py`(494) | ⚙️优化 | 单次实验大文件，跑完即归档，不进 CI |
-| `evaluator.py` + `eval_runner.py` + 顶层 `evaluate.py` | 🔀合并 | 三套评测路径（`python evaluate.py` / `python -m benchmark evaluate` / delivery probe）重叠。建议保留 `benchmark/evaluator.py`+`eval_runner.py` 为权威，`evaluate.py` 退化为薄壳委托 |
+| `evaluate.py` + `benchmark/evaluator.py` | ✅保留 | **核实修正**：二者非硬耦合。顶层 `evaluate.py`（真调模型端到端）与 `benchmark/`（重放 raw run 判分）是**两套并列评测入口**，功能重叠但代码独立。保留两者，文档标注入口分工即可 |
 | `cases.py`(338)/`matrix.py`(210) | ✅保留 | 评测核心 |
 
 ## 六、cli/ + main.py（4.5k+1159）
@@ -85,7 +85,7 @@
 
 **合并（3）**
 5. `state_machine`/`budget`/`token_gate`/`netpolicy`/`public_response` → 可选合并为 `runtime/gates.py`
-6. 双评测器：`evaluate.py` 退化为 `benchmark/evaluator.py` 薄壳
+6. ~~双评测器~~ 已核实修正：`evaluate.py` 与 `benchmark/evaluator.py` 非硬耦合，保留两套并列入口
 7. `readiness_gate.result_overlap`/`saturation` 与 `tools._too_repetitive` 去重（D4 已部分解决）
 
 **优化（5）**
