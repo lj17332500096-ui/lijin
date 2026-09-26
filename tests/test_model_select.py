@@ -75,13 +75,29 @@ class ModelSelectTests(unittest.TestCase):
                   "FORGE_LOCAL_MODEL_API_KEY", "FORGE_MODEL_PREF"):
             os.environ.pop(k, None)
 
+    def _assert_gateway_provider(self, h):
+        """网关路径应显式传**网关侧** Provider。
+
+        2026-09-26 契约变更：旧实现网关路径不传 provider（由 execute_turn 内部取默认），
+        代价是 TUI 里切模型/改网关配置后必须重启才生效。现在统一显式传网关 Provider
+        （带 env 变化自动重建的缓存），所以这里断言"传的是网关 Provider"，
+        而不是旧断言"provider 为 None"。
+        """
+        from runtime.provider_gateway import ResilientProvider
+
+        gw = h.captured.get("provider")
+        self.assertIsInstance(gw, ResilientProvider,
+                              "网关路径应显式传网关 Provider（支持热切换）")
+        self.assertNotIn("127.0.0.1", str(getattr(gw, "base_url", "") or ""),
+                         "回落网关时不得传本地回环 Provider")
+
     def test_default_remains_gateway(self):
         h = ModelSelectHarness(self, local_env={})
         try:
             pid = h.manager.get_or_create_container("proj-default")["id"]
             res = h.run("1+1", container_id=pid)
             self.assertTrue(res.ok)
-            self.assertEqual(h.captured["provider"], None)  # 默认不传 provider → 全局网关
+            self._assert_gateway_provider(h)  # 默认走网关 Provider
             self.assertEqual(h.captured["agent_model"], os.getenv("AGENT_MODEL"))
         finally:
             h.close()
@@ -99,7 +115,7 @@ class ModelSelectTests(unittest.TestCase):
             res = h.run("1+1", container_id=pid)
             self.assertTrue(res.ok)
             self.assertEqual(h.captured["agent_model"], os.getenv("AGENT_MODEL"))
-            self.assertIsNone(h.captured["provider"])
+            self._assert_gateway_provider(h)
         finally:
             h.close()
 
@@ -110,7 +126,7 @@ class ModelSelectTests(unittest.TestCase):
             h.manager.update_project(pid, model_pref="local")
             res = h.run("1+1", container_id=pid)
             self.assertTrue(res.ok)
-            self.assertEqual(h.captured["provider"], None)  # 未配置→回退网关
+            self._assert_gateway_provider(h)  # 未配置本地 → 回退网关 Provider
             self.assertEqual(h.captured["agent_model"], os.getenv("AGENT_MODEL"))
         finally:
             h.close()

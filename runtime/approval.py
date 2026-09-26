@@ -204,9 +204,15 @@ class ApprovalGate:
             state = _RunGateState(channel)
             self._states[task_id] = state
         state.channel = channel
+        # 修复（2026-09-26）：
+        # - pending 审批 ID 列表：清旧（新 Run 或新 repair 轮不应继承上一轮的 ID）
+        # - denied：清旧（同上）
+        # - pending_tools：**保留**——"本 Run 内已为该工具申请过审批"的去重守卫
+        #   必须跨 repair 轮有效。此前每次 gate.begin 都清空，导致模型换参数重试
+        #   就能绕过守卫再建一条新审批 → 反复弹审批的根因之一。
         state.pending = []
         state.denied = []
-        state.pending_tools = set()
+        # state.pending_tools 有意不清空（本 Run 生命周期内积累）
         self._last_key = task_id
 
     def end(self) -> None:

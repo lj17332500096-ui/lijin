@@ -119,7 +119,7 @@ WRITE_TOOLS = {"write_project_file", "edit_project_file"}
 #: （fail closed：未登记权限策略的工具不得进入生产执行）。
 NON_FILE_TOOLS = {
     "save_note", "read_note", "list_notes",
-    "web_search", "get_current_datetime", "calculate",
+    "web_search", "get_current_datetime", "get_weather", "calculate",
     "remember", "recall_memory", "forget_memory",
     "schedule_add", "schedule_list", "schedule_remove", "schedule_set_enabled",
     "deep_research", "search_sources", "scan_dependencies",

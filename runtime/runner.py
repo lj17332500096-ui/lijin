@@ -1665,12 +1665,18 @@ class AgentRuntime:
         # 高置信度判 direct_text → 短路 0 工具（纯文本回答）；其余（tool_needed /
         # 未装 laya / 置信度不足）一律回落现有 select_tool_names。C2 熔断不受影响。
         # F1/F2 修复：用模块级函数（非类调用），返回 Agent（非 list）只清空工具面。
-        from runtime import laya_router
-        if laya_router.laya_router_enabled():
-            _laya_res = laya_router.laya_fast_screen(message)
-            if _laya_res == "direct_text":
-                slog.info("Laya 快筛短路 direct_text")
-                return chosen.clone(tools=[])  # 纯文本路径：0 工具，跳过 LLM 选工具
+        # Laya 快筛**跳过**已知需要工具的查询模式（天气/联网/搜索/保存/读写文件等）：
+        # 这类查询 Laya 高概率误判为 direct_text（"今天上海天气"→text、
+        # "算 123*456 然后保存成备忘录"→text），导致 get_weather/web_search/save_note
+        # 等工具被裁掉。护栏命中时直接走 select_tool_names（判据见 laya_screen_skip）。
+        from runtime.tool_router import laya_screen_skip
+        if not laya_screen_skip(message):
+            from runtime import laya_router
+            if laya_router.laya_router_enabled():
+                _laya_res = laya_router.laya_fast_screen(message)
+                if _laya_res == "direct_text":
+                    slog.info("Laya 快筛短路 direct_text")
+                    return chosen.clone(tools=[])  # 纯文本路径：0 工具，跳过 LLM 选工具
 
         names = select_tool_names(
             message, [t.name for t in tools], external=external or None, catalog=catalog
@@ -2001,7 +2007,14 @@ class AgentRuntime:
             # P1（同容器单 Active Run）：新建前检查容器内是否已有在处理的 Run
             try:
                 active = self.tasks.find_active_run(container_id)
-                if active is not None and active.state == TaskState.WAITING_USER:
+                # **只有等待人工介入的挂起态才允许被新 Run 取代**。
+                # waiting_user / waiting_approval 的语义是"卡在等人"，用户此时发来
+                # 新消息 = 放弃这一轮追问/审批，取代是安全的（见下方 B4 说明）。
+                # 而 submitted/running/paused 是**正在执行**的 Run：取代等于静默
+                # 取消用户正在跑的任务（并发保护失效），因此一律拒绝，不取代。
+                if active is not None and active.state in (
+                    TaskState.WAITING_USER, TaskState.WAITING_APPROVAL,
+                ):
                     # B4 修正（2026-09-22）：审计建议把 waiting_user 直接并入
                     # 「容器忙」集合，但那会**打断项目既有的追问闭环** ——
                     # 用户在追问态直接回一句，本来就是开新一轮（
@@ -2021,7 +2034,7 @@ class AgentRuntime:
                         self.tasks.add_event(active.id, "run.superseded", {
                             "run_id": active.id,
                             "container_id": container_id,
-                            "from": "waiting_user",
+                            "from": active.state.value,  # waiting_user / waiting_approval
                             "to": "cancelled",
                             "reason": "superseded_by_new_run",
                             "note": "同容器只允许一个活跃 Run；用户已发出新消息，"
@@ -2138,7 +2151,8 @@ class AgentRuntime:
             from agent import (local_model_configured as _lm_cfg,
                                local_model_instructions as _lm_instructions,
                                local_model_name as _lm_name,
-                               local_model_provider as _lm_provider)
+                               local_model_provider as _lm_provider,
+                               gateway_model_provider as _gw_provider)
             from main import current_assistant_agent as _current_agent
 
             model_pref = os.getenv("FORGE_MODEL_PREF", "").strip().lower() or "gateway"
@@ -2148,6 +2162,9 @@ class AgentRuntime:
                     model=_lm_name(), instructions=_lm_instructions(),
                 )
                 run_provider = _lm_provider()
+            else:
+                # 网关路径：动态获取 Provider（env 变化时自动重建）
+                run_provider = _gw_provider()
             selected_agent = self.route_agent(message, channel=channel, profile=profile,
                                               base_agent=base_agent)
         except Exception:
@@ -2158,6 +2175,16 @@ class AgentRuntime:
                                                   base_agent=_current_agent())
             except Exception:
                 selected_agent = self.route_agent(message, channel=channel, profile=profile)
+        # TUI 是本地可信消费者：允许把中间文本以 assistant_delta 实时转发给它渲染
+        # （main._run_attempt 只在 agent._public_stream=True 时才这么做）。
+        # 其余通道（Web SSE 等外部消费者）保持私有，中间推理文本不进公开事件流。
+        # 用 clone 打标记，避免污染 route_agent 的 _agent_cache 缓存对象。
+        try:
+            if str((metadata or {}).get("channel") or "") == "tui":
+                selected_agent = selected_agent.clone()
+                selected_agent._public_stream = True
+        except Exception:
+            pass  # 标记失败只损失 TUI 实时流式，不影响主链路
         requested_model = getattr(selected_agent, "model", None)
         if not isinstance(requested_model, str):
             requested_model = None
@@ -3225,6 +3252,55 @@ class AgentRuntime:
             # 记下来，等 finally 把状态写完后再抛（见 finally 尾部）。
             if isinstance(exc, ProcessExitInterrupted) and exc.must_reraise:
                 _pending_reraise = exc.original
+            # ---- 审批挂起兜底：SDK 工具执行框架可能把 ApprovalRequired 包装成
+            # UserError/ToolError 重新抛出，导致 3104 行的 except ApprovalRequired
+            # 接不住。这里按消息特征还原，走同样的 WAITING_APPROVAL 路径。----
+            _exc_text = str(exc)
+            _is_wrapped_approval = (
+                "需要审批" in _exc_text
+                or "approval" in _exc_text.lower()
+                and "required" in _exc_text.lower()
+            )
+            if _is_wrapped_approval:
+                _tool_name = ""
+                _arguments = {}
+                # 尝试从 exc 属性还原 tool 信息（SDK 包装可能保留原属性）
+                for _attr in ("tool_name", "tool"):
+                    _val = getattr(exc, _attr, None)
+                    if isinstance(_val, str) and _val:
+                        _tool_name = _val
+                        break
+                for _attr in ("arguments", "args"):
+                    _val = getattr(exc, _attr, None)
+                    if isinstance(_val, dict):
+                        _arguments = _val
+                        break
+                self._record_tool(_tool_name, _arguments, TOOL_BLOCKED, _exc_text)
+                try:
+                    self.tasks.add_event(task.id, "approval.suspended",
+                                         {"approval_id": getattr(exc, "approval_id", ""),
+                                          "tool": _tool_name,
+                                          "wrapped": True})
+                except Exception:
+                    pass
+                _waiting = self.tasks.transition(task.id, TaskState.WAITING_APPROVAL,
+                                                 reason="approval")
+                _note("本轮执行需要你的审批才能继续。请批准后让我继续。",
+                      kind="answer", run_state="waiting_approval")
+                _touch()
+                _emit_terminal(KIND_NEEDS_APPROVAL, "approval required (wrapped)")
+                _close_run()
+                _approvals = self.tasks.list_pending_approvals(task.id)
+                return RunResult(
+                    task=_waiting,
+                    final_output=None,
+                    ok=True,
+                    waiting_approval=True,
+                    approvals=_approvals,
+                    elapsed_seconds=_elapsed(),
+                    container_id=container_id,
+                    message_ids=message_ids,
+                )
             # ---- Provider/网关错误：分类、0/有限重试已由 provider_gateway 处理；
             # 这里负责把 401/503 等转换成友好文案 + provider.failure 审计，绝不进入 stalled 语义 ----
             text = str(exc)

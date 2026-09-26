@@ -84,6 +84,7 @@ TOOL_CATALOG: dict[str, tuple[str, str, bool, bool, bool]] = {
     "web_search": ("web", "low", False, False, True),
     "deep_research": ("research", "medium", True, False, False),
     "get_current_datetime": ("utility", "low", False, False, True),
+    "get_weather": ("utility", "low", False, False, True),
     "calculate": ("math", "low", False, False, True),
     # 工作区（只读）
     "read_workspace_file": ("filesystem", "low", False, False, True),
@@ -142,6 +143,7 @@ _CAPABILITY_BY_NAME: dict[str, str] = {
     "list_workspace_files": "DISCOVERY", "list_code_files": "DISCOVERY",
     "index_workspace": "DISCOVERY", "list_notes": "DISCOVERY",
     "list_sandbox_snapshots": "DISCOVERY", "get_current_datetime": "EXTERNAL_FACT",
+    "get_weather": "EXTERNAL_FACT",
     "read_workspace_file": "READ", "read_code_file": "READ", "read_note": "READ",
     "read_office_file": "READ", "read_spreadsheet": "READ",
     "recall_memory": "MEMORY", "remember": "MEMORY", "forget_memory": "MEMORY",

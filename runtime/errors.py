@@ -101,8 +101,14 @@ class PolicyDenied(AgentError):
     pass
 
 
-class ApprovalRequired(AgentError):
-    pass
+class ApprovalRequired(AgentError, _SDKAgentsException):
+    """审批门挂起：高风险工具需用户确认。
+
+    继承 AgentError（用于 run_turn 顶层捕获），
+    同时继承 _SDKAgentsException（让 agents SDK 工具执行层原样上抛，
+    而非包装成 tool error 字符串喂回模型 → 防止模型收到 BLOCK 文本后
+    换参数重试再触发新审批，造成频繁弹审批的循环）。
+    """
 
 
 class ModelError(AgentError):
