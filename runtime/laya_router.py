@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 import importlib.util
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any, Dict, Optional
 
 __all__ = [
     "laya_available",
@@ -35,6 +35,7 @@ __all__ = [
     "laya_router",
     "LayaDecision",
     "LayaRouter",
+    "laya_router_backend",
 ]
 
 # 默认置信度阈值：低于此值的判断一律回落现有 tool_router。
@@ -72,6 +73,16 @@ def laya_router_enabled() -> bool:
 
 def laya_router_confidence_threshold() -> float:
     return _env_conf()
+
+
+def laya_router_backend() -> str:
+    """当前 Laya 推理后端：'torch'（默认，进程内 laya.agent.Agent）或
+    'llama'（HTTP 调 llama.cpp 8099，Arc A770 GPU）。
+
+    env: FORGE_LAYA_BACKEND ∈ {torch, llama}，默认 torch。
+    llama 后端不可用（8099 未起）时 LayaRouter 自动回落 torch（绝不阻塞）。
+    """
+    return os.getenv("FORGE_LAYA_BACKEND", "torch").strip().lower() or "torch"
 
 
 # ---------------------------------------------------------------------------
@@ -152,36 +163,93 @@ class LayaRouter:
         self.last_decision: Optional[LayaDecision] = None
         self._preload = preload or _env_flag("FORGE_LAYA_PRELOAD")
         self._device = device
+        self._backend: Optional[str] = None
         # F3 修复：只有真正启用时才加载模型（此前不看开关就构造）。
         if self._preload and laya_available():
             self._init_router()
 
     # -- 懒加载（首次 screen/classify 时构建） --
     def _init_router(self) -> None:
+        if self._router is not None:
+            return
+        backend = laya_router_backend()
+        # llama 后端优先（若指定且可用），失败回落 torch
+        if backend == "llama":
+            try:
+                from runtime.laya_llama_bridge import LlamaBridgeRouter, laya_llama_bridge_available
+                if laya_llama_bridge_available():
+                    self._agent = LlamaBridgeRouter()
+                    self._router = self._agent
+                    self._backend = "llama"
+                    return
+                # 8099 不可用 → 回落 torch（不抛）
+            except Exception:
+                pass
+        # torch 后端（默认 / llama 回落）
         if not laya_available():
             return
         try:
             from laya import Router  # noqa: F401  (保留原接口，Router 仅作包装)
             from laya.agent import Agent
-            # 用 FORGE 微调 checkpoint（若存在）；否则回落英文默认。
+            # checkpoint 优先级：
+            # 1. FORGE_LAYA_CHECKPOINT 显式指定（可调未微调 english 或微调后产物）
+            # 2. 未指定 → 默认指向 5000 数据 XPU 修复后 + 算术口径翻转后微调 checkpoint
+            #    （真实判别头 98.0%，FP=0）。这是 P5 主攻路线当前最优产物。
             ckpt = os.getenv("FORGE_LAYA_CHECKPOINT", "").strip()
+            if not ckpt:
+                from pathlib import Path
+                arith_dir = Path(__file__).resolve().parent.parent / "data" / "laya_forge" / "forge_finetuned_5000_xpu_fixed_arith"
+                if arith_dir.exists():
+                    ckpt = str(arith_dir)
+                else:
+                    legacy_dir = Path(__file__).resolve().parent.parent / "data" / "laya_forge" / "forge_finetuned_5000_xpu_fixed"
+                    ckpt = str(legacy_dir) if legacy_dir.exists() else ""
             if ckpt:
                 self._agent = Agent(ckpt, device=self._device)
             else:
                 self._agent = Agent(device=self._device)
             self._router = self._agent  # system_one / predict 别名
+            self._backend = "torch"
         except Exception:
             # 加载失败：保持 _router=None，调用方回落，绝不抛。
             self._router = None
 
     def _ensure(self) -> None:
-        if self._router is None and laya_available():
+        if self._router is None and (laya_available() or laya_router_backend() == "llama"):
             self._init_router()
+
+    @property
+    def backend(self) -> Optional[str]:
+        """当前生效后端：'llama' / 'torch' / None（未加载）。"""
+        return self._backend
+
+    # -- 转发底层后端的 system_one / predict（LlamaBridgeRouter / laya Agent 都有）--
+    def system_one(self, state: Any, questions: Dict[str, Any]) -> Dict[str, Any]:
+        """转发到底层后端。未加载 → 空 answers。"""
+        self._ensure()
+        if self._router is None:
+            return {"answers": {}, "n_tokens": 0}
+        return self._router.system_one(state, questions=questions)
+
+    def predict(self, query: str, questions: Dict[str, Any]) -> Dict[str, Any]:
+        """转发到底层后端的 predict。"""
+        self._ensure()
+        if self._router is None:
+            return {"answers": {}, "n_tokens": 0}
+        return self._router.predict(query, questions=questions)
 
     def screen(self, query: str) -> Optional[str]:
         """对 query 做「需工具 vs 纯文本」二分类快筛（向后兼容旧接口）。
 
         返回 "direct_text" / "tool_needed" / None（回落）。
+
+        读取真实 Agent 的嵌套返回结构：
+        - 选中项：answers.needs_tool.choice（"text"/"tool"）
+        - 选中项置信度：answers.needs_tool.confidence（该 choice 的概率）
+        逻辑：choice=text 且 conf≥阈值 → direct_text；choice=tool 且 conf≥阈值 →
+        tool_needed；否则回落 None。confidence 是「选中项」概率（非 text 概率），
+        旧实现误把 confidence 当 text 概率用，已修正。
+        兼容 mock 的顶层 probabilities 结构（_extract_confidence 仍保留）。
         """
         self._ensure()
         if self._router is None:
@@ -197,6 +265,19 @@ class LayaRouter:
                 },
             }
             decision = self._router.predict(query, questions=questions)
+
+            # 优先读真实 Agent 的嵌套结构：answers.needs_tool.{choice, confidence}
+            ans = (decision.get("answers") or {}).get("needs_tool") if isinstance(decision, dict) else None
+            choice, conf = self._extract_choice_conf(ans)
+            if choice is not None and conf is not None:
+                if choice == "text" and conf >= thr:
+                    self.last_result = "direct_text"
+                    return "direct_text"
+                if choice == "tool" and conf >= thr:
+                    self.last_result = "tool_needed"
+                    return "tool_needed"
+                return None
+            # 回落到旧逻辑（mock 的顶层 probabilities 结构）
             text_conf = self._extract_confidence(decision, "text")
             if text_conf is None:
                 return None
@@ -209,6 +290,33 @@ class LayaRouter:
             return None
         except Exception:
             return None
+
+    @staticmethod
+    def _extract_choice_conf(ans: Optional[dict]) -> tuple[Optional[str], Optional[float]]:
+        """从 answers.needs_tool 块读 (choice, 选中项 confidence)。
+
+        真实 Agent 返回：
+            answers.needs_tool = {"type","choice","probabilities"{text,tool},
+                                  "confidence", "action"}
+        confidence 是「选中项」的概率（choice=text 时 confidence≈text 概率）。
+        读不到则返回 (None, None)，调用方回落。
+        """
+        if not isinstance(ans, dict):
+            return None, None
+        choice = ans.get("choice") or ans.get("label")
+        conf = ans.get("confidence")
+        if choice not in ("text", "tool"):
+            # 没有明确 choice，尝试从 probabilities 推断（兜底）
+            probs = ans.get("probabilities")
+            if isinstance(probs, dict):
+                tv = probs.get("text")
+                ov = probs.get("tool")
+                if isinstance(tv, (int, float)) and isinstance(ov, (int, float)):
+                    choice = "text" if tv >= ov else "tool"
+                    conf = max(tv, ov)
+        if choice not in ("text", "tool") or not isinstance(conf, (int, float)):
+            return None, None
+        return choice, float(conf)
 
     def classify(self, query: str) -> LayaDecision:
         """三判别：intent + completeness + route（route 头未训练前恒 None）。"""
