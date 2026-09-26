@@ -56,6 +56,52 @@ from runtime.provider_errors import (
     retry_policy,
 )
 
+# P5-修复：Windows 下 httpcore2 async connect_tcp 默认走 getaddrinfo 全量结果
+# （含 IPv6），而本机 IPv6 出站可能不通 → "All connection attempts failed"。
+# 注册一个只取 IPv4（AF_INET）的 resolver，让 httpcore2 始终走 IPv4 直连。
+def _force_ipv4_httpcore() -> None:
+    try:
+        import httpcore2._backends.auto as _auto
+        import socket as _socket
+
+        _orig = _auto._get_backend() if hasattr(_auto, "_get_backend") else None
+        # httpcore2 的 connect_tcp 走 backend；我们在模块级 patch 一个
+        # 只用 AF_INET 的 resolver 注入 socket.getaddrinfo 行为。
+        # 最简单可靠的方式：patch socket.getaddrinfo 让它只返回 AF_INET。
+        if not hasattr(_socket, "_getaddrinfo_orig_forge"):
+            _socket._getaddrinfo_orig_forge = _socket.getaddrinfo
+            def _v4_only_getaddrinfo(host, port, *args, **kwargs):
+                # 先试 AF_INET
+                results = _socket._getaddrinfo_orig_forge(host, port, _socket.AF_INET,
+                                                           _socket.SOCK_STREAM)
+                if results:
+                    return results
+                # 回落到全量（IPv6-only 主机）
+                return _socket._getaddrinfo_orig_forge(host, port, *args, **kwargs)
+            _socket.getaddrinfo = _v4_only_getaddrinfo
+    except Exception:
+        pass  # patch 失败不影响功能，只是可能回落到 IPv6
+
+_force_ipv4_httpcore()
+
+#: 进程级共享连接池（trust_env=False）。
+#: 背景：本机系统代理是 CC Switch 127.0.0.1:50106（端口不通），任何 trust_env=True 的
+#: client 都会把所有 LLM 请求打成 ConnectError；而 SDK 自带的 shared_http_client()
+#: 正是 trust_env=True，不可用。
+#: 但"每个 Provider 各建一个 client"会丢连接复用，也让"远程网关不持有 client"的
+#: 约定失效（_owned_http_client 应只在回环地址场景出现）。
+#: 所以这里维护**进程级共享**的 trust_env=False 池：既跳过坏代理，又保留连接复用。
+_SHARED_NO_PROXY_CLIENT: "httpx2.AsyncClient | None" = None
+
+
+def _shared_no_proxy_client() -> "httpx2.AsyncClient":
+    """返回（必要时创建）进程级共享的 trust_env=False 连接池。"""
+    global _SHARED_NO_PROXY_CLIENT
+    if _SHARED_NO_PROXY_CLIENT is None:
+        _SHARED_NO_PROXY_CLIENT = httpx2.AsyncClient(trust_env=False)
+    return _SHARED_NO_PROXY_CLIENT
+
+
 _PRIMARY_TAG = "primary"
 _FALLBACK_TAG = "fallback"
 
@@ -734,9 +780,15 @@ class ResilientProvider(OpenAIProvider):
             self._owned_http_client = httpx2.AsyncClient(trust_env=False)
             http_client: httpx2.AsyncClient | None = self._owned_http_client
         else:
-            http_client = shared_http_client()
+            # P5-修复：远程网关也不能走 SDK 的 shared_http_client()（trust_env=True
+            # → 读系统代理 CC Switch 127.0.0.1:50106，端口不通 → 全部 ConnectError）。
+            # 但不能每次都自建：那会丢连接复用，也让"远程网关不持有 client"的约定失效。
+            # 改为复用**进程级共享**的 trust_env=False 池（见 _shared_no_proxy_client）。
+            http_client = _shared_no_proxy_client()
         kwargs["openai_client"] = _build_sdk_client(
             api_key=api_key, base_url=base_url, http_client=http_client)
+        # openai_client 已内置 api_key/base_url（通过 _build_sdk_client 传入），
+        # 不能再传给父类——OpenAIProvider 对 openai_client + api_key 同时存在会 raise UserError。
         super().__init__(use_responses=use_responses, **kwargs)
 
     def _fallback_config(self) -> dict[str, Any] | None:
@@ -763,10 +815,8 @@ class ResilientProvider(OpenAIProvider):
             # 自己再重试、再 fallback，两层乘法叠加（旧实现最坏 36 次 HTTP 的一半原因）。
             # client 仍自建 —— 至少在 L0 上把 SDK 的静默重试关掉。
             fb_base = cfg["base_url"]
-            fb_host = (urlparse(fb_base or "").hostname or "").lower()
-            fb_http = (httpx2.AsyncClient(trust_env=False)
-                       if fb_host in {"localhost", "127.0.0.1", "::1"}
-                       else shared_http_client())
+            # 复用进程级共享池（trust_env=False，跳过系统代理），不每次新建。
+            fb_http = _shared_no_proxy_client()
             provider = OpenAIProvider(
                 use_responses=False,
                 openai_client=_build_sdk_client(
