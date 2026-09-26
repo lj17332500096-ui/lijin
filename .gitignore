@@ -59,6 +59,8 @@ web/llama-ui/
 # 运行产物（2026-09-19 收敛）：这些目录由 Agent/评测在运行时写入，
 # 跟踪它们会让每次运行都污染 git status，并重新堆积出本轮那 1555 个删除。
 # 注意 materials/ 是用户输入资料，必须保持跟踪，不在此列。
+# 历史评测产物统一归档（runs_*/reports/logs），不入库
+archive/
 runs_eval*/
 runs_*/
 code_sandbox/demo/
@@ -67,7 +69,7 @@ code_sandbox/f1_fixture/
 code_sandbox/auth_fix/
 code_sandbox/fix_auth_calculate/
 # Laya 源码本地 fork 副本（依赖副本，用于读其 API，非项目代码）
-_laya_inspect/
+laya/_laya_inspect/
 forge_data/
 exports/
 notes/

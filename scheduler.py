@@ -1,11 +1,11 @@
-"""定时任务：解析计划表达式、读写 tasks.json、计算下次运行时间。
+"""定时任务：解析计划表达式、读写 config/tasks.json、计算下次运行时间。
 
 支持三种写法：
   - 每天：            "08:30"
   - 指定星期：        "周一 09:00" / "Mon 09:00" / "星期天 08:00"
   - 标准 cron 五段：   "30 8 * * 1-5"（分 时 日 月 周，周 0/7=周日）
 
-本模块不依赖任何第三方库；tasks.json 默认放在项目根目录。
+本模块不依赖任何第三方库；tasks.json 默认放在项目根目录下的 config/。
 """
 
 from __future__ import annotations
@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any
 
 BASE_DIR = Path(__file__).resolve().parent
-TASKS_PATH = BASE_DIR / "tasks.json"
+TASKS_PATH = BASE_DIR / "config" / "tasks.json"
 
 _CN_WEEKDAYS = {"一": 0, "二": 1, "三": 2, "四": 3, "五": 4, "六": 5, "日": 6, "天": 6}
 _EN_WEEKDAYS = {

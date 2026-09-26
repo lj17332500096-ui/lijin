@@ -2,6 +2,9 @@
 
 > 2026-09-20 精简重写。只留跨会话可复用的结论；逐条排查过程见 `.workbuddy/memory/YYYY-MM-DD.md`。
 
+## 0. 路线铁律（用户强制）
+- **Laya 路线是主攻路线，永不放弃。** 任何诊断结果（包括负增益、坍缩、校准失败）都只能作为「当前 checkpoint/训练配置有问题」的证据，**不得**推导为「放弃 Laya 路线」。后续任何分析/建议中出现「放弃/停止/不再投入 Laya route 头」的措辞都是违规。
+
 ## 1. 架构与边界
 - 单 Agent + 单主链 + 极厚外围治理（harness 型）。入口：`main.py`（`--classic`/`--voice`/`--daemon`/`--tui`）+ `cli/`。
 - 前端 UI 层冻结（`webapp.py`/`llama_bridge.py`），仅 `FORGE_ENABLE_UI=1` 可起。
@@ -110,7 +113,17 @@
 - **Phase D（D1–D5）未开始。**
 - 执行记录、归档依据与「审计结论被实施修正」的细节见报告 **§19**。
 
-## 7. 待办
+## 7. Laya 路线当前状态（2026-09-25）
+- **GPU（8099 SYCL）关键词基线 = 74.2%**（`eval_route_head_gpu.py`，`/embedding` + 触发词双信号，19 秒 / 500 条）
+- **CPU 微调前 = 30%**（`eng_baseline_fallback.json`，真实二分类口径）
+- **CPU 微调 1 epoch = 15.43%**（坍缩）
+- **XPU 训练栈已配好**：`torch==2.14.0+xpu`（pip 直装，不需要 conda/oneAPI），Arc A770 可用
+- **XPU 5-epoch 训练进行中**（task GLpns0）：4000 条，输出到 `forge_finetuned_5000_xpu/`，预计 30~60min
+- **`eval_finetuned_5000.py` 已写好**：checkpoint 出来后跑三方对比（GPU 74.2% / CPU 30% / XPU 微调后 ?）
+- **训练脚本瓶颈已解**：之前 CPU 逐 item 前向+反向太慢（17~28h），XPU 用 Arc A770 GPU 加速 15~30 倍
+- **XPU 安装踩坑**：`pip install --force-reinstall "torch==2.14.0+xpu" --index-url https://download.pytorch.org/whl/xpu`（不需要 conda/oneAPI，wheel 内嵌 SYCL 运行时）
+
+## 8. 待办
 - **n=200 对照**（4×n=50 各模型合并）检验 agnes-3.0 vs 2.5 的 −8pp 是否真实。
 - **区间口径按 3.0 重新校准**：T001/T031/T023/T050 的 `min_tool_calls`/`max_tool_calls`
   是按 2.5 基线定的，3.0 的工具调用节奏不同，部分 case 区间需调整。
@@ -134,3 +147,10 @@
   `.env` 模型切换（agnes-3.0-flash）与运行产物不入库。
 - **可选清理（需用户决策，勿擅自回改历史）**：`benchmark_fixture/_inline_*.py` 已有 51 个同类入库
   （时间戳随机名、每个 <1KB、benchmark harness 的运行残留），属 churn，建议 gitignore。
+
+## Laya 接入层索引约定护栏（2026-09-25）
+- `laya/agent.py::predict` 把 argmax 的 idx 按 `crit` 字典序反查选项文本：`choice = keys[p.argmax()]`。
+- 训练侧 `build_training_items` 的 target 也严格按 `crit` 序逐位对齐（修复后 2000/2000）。
+- 两侧用同一套 `render_options`+`crit` 序，**方向天然一致**，接入层 `laya_router.py` 读 `answers.needs_tool.choice`（文本）无需改。
+- **铁律**：任何按 `render_options` 喂 target 的代码，索引必须动态解析渲染序，禁止硬编码 `[text, tool]`（曾因数据 crit 是 `{tool,text}` 序，硬编码 [text,tool] 导致 5 epoch 全押 tool、评测 0.2% 假象）。
+- `_fixed` 目录需拷 `rl_agent_config.json`（从 english）才能被 `Agent(dir)` 按目录加载。

@@ -21,25 +21,29 @@ my_creative_agent/
 ├── code_exec.py      # 代码执行沙箱：写/读/运行 Python（需 .env 开启 ALLOW_CODE_EXEC）
 ├── skills_loader.py  # 技能加载器：把 skills/<名>/ 的 SKILL.md 拼进人设、tools.py 工具自动注册
 ├── skills/           # 技能包目录（skills/<名>/SKILL.md + 可选 tools.py）
-├── skills-lock.json  # 技能资产锁定清单（版本/来源）
+├── config/           # 运行时配置：tasks.json（定时任务清单，自动创建）、skills-lock.json（技能资产锁定）、runtime_acceptance_suite.json
 ├── runtime/          # Agent Runtime 生产运行时（见下文 Agent Runtime 一节）
 ├── office_docs.py    # Office 文档：读 docx/xlsx/pptx、生成 Word/Excel/PPT、结构化读表格
 ├── project_edit.py   # 项目文件写/改工具（需 .env 开启 ALLOW_PROJECT_EDIT，自动备份）
 ├── compact.py        # 长会话自动摘要
-├── scheduler.py      # 定时任务：计划解析、tasks.json 读写、下次运行计算
+├── scheduler.py      # 定时任务：计划解析、config/tasks.json 读写、下次运行计算
 ├── voice.py          # 语音对话：Windows 本机语音识别 + 语音合成
 ├── webapp.py         # 本地网页聊天界面（Starlette + SSE）
 ├── web/              # 网页界面静态资源（index.html）
 ├── evaluate.py       # 端到端场景评估（真实调用模型）
 ├── main.py           # 终端聊天入口（含多轮记忆）
 ├── tests/            # 离线回归测试与评估报告
+├── docs/             # 架构 / 审计 / 验收报告文档（只读，含 PROVIDER_PAYLOAD_TRUTH.json）
+├── laya/             # Laya route-head：训练数据构建、评测脚本、XPU 训练环境说明
+├── annotation/       # 标注集构建与校验脚本
+├── scratch/          # 一次性小脚本（不计入生产链路）
+├── archive/          # 评测运行产物（已 gitignore，不入库）
 ├── requirements.txt
 ├── .env.example      # 环境变量样例
 ├── notes/            # Agent 保存文件产出（备忘/文章/方案）的地方（自动创建）
 ├── models/           # （可选）本地向量模型目录：放 bge-small-zh-v1.5/ 后 RAG 自动升级为语义检索
 ├── summaries/        # 长会话自动摘要记录（自动创建）
 ├── logs/             # 定时任务执行日志（自动创建）
-├── tasks.json        # 定时任务清单（自动创建）
 ├── sources/          # Project 资料库（Sources）上传的文件（自动创建）
 ├── exports/          # Office/PPT 等生成文件（word|excel|ppt，自动创建）
 ├── data/             # RAG 索引等本地运行数据（自动创建）
@@ -123,7 +127,7 @@ python -m venv .venv
 | `search_sources` | Project 资料库检索（Sources RAG） | 只检索已 ready 的资料；未就绪/失败会提示而非静默“无资料” |
 | `ask_image` | 看图问答（图片/截图/照片） | 走网关多模态模型（VISION_MODEL，默认同 AGENT_MODEL），只读工作区内的图 |
 | `remember` / `recall_memory` / `forget_memory` | 跨会话长期记忆 | 存到 agent.db 的 `memories` 表（结构化：类型/置信度/来源/标签），所有会话共享；按标签/关键词检索 |
-| `schedule_add` / `schedule_list` / `schedule_remove` / `schedule_set_enabled` | 定时任务管理 | 登记到 `tasks.json`，配合 `python main.py --daemon` 常驻执行 |
+| `schedule_add` / `schedule_list` / `schedule_remove` / `schedule_set_enabled` | 定时任务管理 | 登记到 `config/tasks.json`，配合 `python main.py --daemon` 常驻执行 |
 | `scan_dependencies` | 依赖体检（dep_doctor 技能） | 只读分析 requirements/pyproject，给锁定/去重建议，不自动改文件 |
 
 > 说明：上表共 41 个注册工具；每轮实际只会给模型配相关子集（Tool Router，≤16）。另可叠加 MCP 外部工具。
@@ -588,7 +592,7 @@ Checkpoint 与崩溃恢复：每个 Task 结束时写一条快照（goal/摘要�
 
 ### 定时任务台账与幂等（schedules）
 
-- daemon 每分钟把 `tasks.json` 镜像进 agent.db 的 `schedules` 表（按原 id 幂等 upsert，两处并存一致）；
+- daemon 每分钟把 `config/tasks.json` 镜像进 agent.db 的 `schedules` 表（按原 id 幂等 upsert，两处并存一致）；
 - 每次到点触发以 **schedule_id + 计划触发时间** 为幂等键写入 `schedule_runs`
   ——进程崩溃重启后同一触发时刻不会重复执行（台账里已有则跳过并提示）；
 - 执行结果回写台账（ok/error + 摘要 + 对应 Task），全程可审计：
@@ -1035,7 +1039,7 @@ Windows 本机语音能力，不消耗任何模型额度：
 ## 定时 / 常驻任务
 
 在聊天里直接说“每天早上 9 点查上海天气并保存笔记”“每周一早上提醒我交周报”，
-Agent 会用 `schedule_add` 把任务登记到 `tasks.json` 并告诉你任务 id 与下次运行时间。
+Agent 会用 `schedule_add` 把任务登记到 `config/tasks.json` 并告诉你任务 id 与下次运行时间。
 
 保持常驻进程运行，任务才会自动触发：
 
@@ -1044,7 +1048,7 @@ Agent 会用 `schedule_add` 把任务登记到 `tasks.json` 并告诉你任务 i
 ```
 
 常驻进程每分钟检查一次，到点就用同一个 Agent 执行任务（搜索/保存笔记/读文档等
-工具都能用），结果摘要写回 `tasks.json`，完整日志追加到 `logs/tasks.log`。
+工具都能用），结果摘要写回 `config/tasks.json`，完整日志追加到 `logs/tasks.log`。
 执行时会先把下次时间推进，避免任务跑太久导致重复触发。
 
 任务台账每分钟镜像进 agent.db 的 `schedules` / `schedule_runs`（以 schedule_id + 计划触发时间

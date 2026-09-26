@@ -1,6 +1,6 @@
 """Phase 32: Run the FORGE Runtime Acceptance Suite.
 
-Reads runtime_acceptance_suite.json and runs every listed test file,
+Reads config/runtime_acceptance_suite.json and runs every listed test file,
 deduplicating shared files. Exits non-zero if any test fails.
 
 Usage:
@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]
-MANIFEST = BASE / "runtime_acceptance_suite.json"
+MANIFEST = BASE / "config" / "runtime_acceptance_suite.json"
 
 
 def main() -> int:

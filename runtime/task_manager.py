@@ -1805,10 +1805,10 @@ class TaskManager:
             )
         return result
 
-    # ---------- Schedules（tasks.json 的 SQLite 镜像 + 幂等台账） ----------
+    # ---------- Schedules（config/tasks.json 的 SQLite 镜像 + 幂等台账） ----------
 
     def mirror_tasks_json(self, tasks: list[dict]) -> int:
-        """把 scheduler 的 tasks.json 条目镜像进 schedules 表（按原 id 幂等 upsert）。
+        """把 scheduler 的 config/tasks.json 条目镜像进 schedules 表（按原 id 幂等 upsert）。
 
         tasks 形如 scheduler.load_tasks() 的返回值。返回本轮 upsert 条数。
         """

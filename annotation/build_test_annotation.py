@@ -28,7 +28,7 @@ import sys
 from collections import Counter, defaultdict
 
 
-REPO = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def normalize(s: str) -> str:

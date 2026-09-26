@@ -21,7 +21,7 @@ import sys
 from collections import Counter
 
 
-REPO = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 
 def known_fingerprints() -> set[str]:
