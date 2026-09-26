@@ -22,7 +22,7 @@ import sys
 from collections import Counter
 
 
-REPO = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DEFAULT_MD = os.path.join(REPO, "data", "laya_tool_intent", "test_annotation_review.md")
 DEFAULT_LABELS = os.path.join(REPO, "data", "laya_tool_intent", "test_annotation_labels.jsonl")
 DEFAULT_FINAL = os.path.join(REPO, "data", "laya_tool_intent", "test_final.jsonl")

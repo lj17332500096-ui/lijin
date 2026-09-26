@@ -197,7 +197,7 @@ query 就错 1 个**。
 `screen()` 里先调 `self._router.route(...)` 又调 `predict(...)`，代码注释自己承认
 「`route` 不跑模型」——**白白多一次调用**。且 `_extract_confidence` 遍历
 `("probabilities","answers","score","calibration")` 猜字段名——**这是"API 真实"门槛的反例**。
-应先固定 laya 0.3.3 的真实返回结构（`_laya_inspect/laya-main/laya/router.py` 实测有
+应先固定 laya 0.3.3 的真实返回结构（`laya/_laya_inspect/laya-main/laya/router.py` 实测有
 `route`(L257) 与 `predict`(L315) 两个方法），再写死字段。
 
 ---
@@ -409,4 +409,4 @@ PYTHONPATH= .venv/Scripts/python.exe -m pytest tests/ -q     # 基线 1408+ 不�
 | 类别不平衡 | `data/laya_tool_intent/manifest.json`: tool 440 / text 125，tool_ratio 0.7788 |
 | 验收卡住 | `data/laya_tool_intent/test_final.jsonl` 不存在；train 453 / val 56 / test 56 / 标注 154 |
 | episode 未接主链 | grep `episode_recall` in runner.py/main.py/cli/app.py = 0 命中 |
-| laya 真实 API | `_laya_inspect/laya-main/laya/router.py`: `class Router`(L123)、`route`(L257)、`predict`(L315) |
+| laya 真实 API | `laya/_laya_inspect/laya-main/laya/router.py`: `class Router`(L123)、`route`(L257)、`predict`(L315) |

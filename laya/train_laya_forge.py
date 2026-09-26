@@ -44,8 +44,8 @@ import sys
 import time
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parent
-LAYA_FORK = REPO / "_laya_inspect" / "laya-main" / "laya"
+REPO = Path(__file__).resolve().parent.parent
+LAYA_FORK = REPO / "laya" / "_laya_inspect" / "laya-main" / "laya"
 DEFAULT_CHECKPOINT = REPO / "data" / "laya_forge" / "english"
 DEFAULT_TRAIN = REPO / "data" / "laya_tool_intent" / "train.jsonl"
 DEFAULT_EVAL = REPO / "data" / "laya_tool_intent" / "val.jsonl"
@@ -128,8 +128,16 @@ def build_training_items(cases: list[dict], cfg: dict, tok, build_sequence, rend
         if raw_ids is None:
             skipped += 1
             continue
-        # target 需与 option 顺序对齐（text, tool）的二分类 one-hot 向量
-        target_list = [gold.get("text", 0.0), gold.get("tool", 0.0)]
+        # target 必须与 render_options 输出的 option 顺序逐位对齐。
+        # render_options 对 choice 按 crit.items() 顺序渲染 ["<key>: ...", ...]，
+        # 所以解析每个 option 字符串的前缀拿到 key，把 gold[key] 放到对应 idx。
+        opts = render_options(qdef)
+        target_list = [0.0] * len(opts)
+        for oi, opt_str in enumerate(opts):
+            # opt_str 形如 "text: ..." 或 "tool: ..."（crit 非空）或裸 "text"/"tool"
+            key = opt_str.split(":", 1)[0].strip().lower()
+            if key in gold:
+                target_list[oi] = gold[key]
         items.append({
             "state": instruction,
             "qdef": qdef,
