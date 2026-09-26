@@ -33,6 +33,26 @@
 - **同文件多处编辑**：串行 Edit 或整文件 Write，禁止并行（互相覆盖且都报成功）。
 - **禁止 `cat >> 文件 << 'EOF'`**：Git Bash 会写到文件头部并覆盖。追加用 Write 或 Python。
 - **脏工作区提交**：绝不用 `git add -A`。精确暂存 = `git ls-files --others --exclude-standard` + `git diff --name-only --diff-filter=M`，用 `--pathspec-from-file` 喂。
+- **先改名后改内容的文件会提交旧快照**：`git mv` 后再 Edit，索引里仍是改名时的内容 → 提交态不自洽
+  （实测 `laya/train_laya_forge.py` HEAD 里 LAYA_FORK 指向已不存在的路径）。
+  **提交后必须 `git show HEAD:<文件>` 抽查**，只看工作区会漏。
+- **`.gitignore` 不支持行内注释**：`archive/  # 说明` 整条失效（规则被当成含空格的文件名）。
+  注释必须独占一行。实测本仓因此有一条忽略规则长期失效。
+- **"既有失败"必须对比 HEAD 才能下结论**：只看工作区全量结果会误判。实测 10 条"既有失败"
+  里 8 条是工作区改动自己引入的回归（改 provider/client 契约、改事件可见性、扩大取代范围等）。
+  归因方法：逐个读 diff 判断改动是否触及该测试断言的契约，而不是看它"像不像老问题"。
+- **改共享资源的创建方式前先看测试断言的意图**：为解决"系统代理不通"把共享池改成
+  "每次新建 client"，会同时丢掉连接复用并撞翻断言"远程网关不持有 client"的测试。
+  两全解是进程级共享池（本项目 `_shared_no_proxy_client()`），不是私有池。
+- **事件可见性改动要按消费者区分，不能无条件转发**：`response.output_text.delta` 无条件
+  转发会泄漏私有中间文本。做法是显式 opt-in 标记（本项目 `_public_stream`，仅 TUI 通道）。
+- **"允许取代旧 Run"的范围不能扩大到执行中状态**：waiting_user/waiting_approval 可取代，
+  submitted/running/paused 取代 = 静默取消用户正在跑的任务，且并发保护失效。
+- **pre-commit 钩子**：判据与测试选择集中在 `scripts/ci_gate.py::CHANGE_TEST_MAP`，
+  已知失败登记在 `.ci/known_failures.txt`（**必须写原因**，否则脚本拒绝加载）。
+  绕过红灯的正确做法是把无关改动摘出分批提交；**不用 `--no-verify`**。
+  分批提交脚本被中断会留下残存暂存区 → 下一批提交会张冠李戴，提交后要核对
+  `git show --stat` 与消息是否匹配。
 - **Git Bash `find` 是 Windows find.exe**，结果不可信。`git ls-files/status` 中文路径要 `-c core.quotePath=false`。
 - **`git rm -r` 删多子目录会波及父目录**（退出码 0 ≠ 删对了）。删完核对 `git diff --name-only --diff-filter=D`。
 - **本机跑全量的正确命令**：`PYTHONPATH= .venv/Scripts/python.exe -m pytest tests/ -q`。
