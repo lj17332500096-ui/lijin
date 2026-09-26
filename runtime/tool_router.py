@@ -163,6 +163,7 @@ TOOL_TERMS: dict[str, tuple[str, ...]] = {
     "web_search": ("搜索", "查一下", "查询", "联网", "网页", "最新", "新闻", "资讯", "天气", "是什么", "what", "news"),
     "deep_research": ("调研", "研究报告", "全面了解", "对比", "报告", "深度", "研究", "综述", "research"),
     "get_current_datetime": ("今天", "明天", "日期", "几点", "现在时间", "星期", "时间", "date"),
+    "get_weather": ("天气", "气温", "温度", "下雨", "下雪", "穿什么", "冷不冷", "热不热", "雾霾", "紫外线", "humidity", "weather"),
     "calculate": ("计算", "等于", "多少钱", "数学", "加减乘除", "乘", "百分比", "算一下", "换算", "calc"),
     "save_note": ("保存", "写成文件", "备忘", "记录下来", "存成", "note", "文件保存",
                   "周报", "月报", "日报", "写个记录", "存一下", "帮我存", "帮我记",
@@ -284,8 +285,11 @@ _CODING_SUPPORT = {
     "run_python", "run_tests", "code_loop",
 }
 _WEB_INTENT = re.compile(
-    r"天气|气温|温度|新闻|最新|实时|股价|航班|搜索|搜一下|查一下|查询|联网|网页|"
-    r"资讯|what|news|weather|current|today",
+    r"天气|气温|温度|下雨|下雪|雾霾|紫外线|风力|湿度|穿什么|冷不冷|热不热|"
+    r"新闻|最新|实时|股价|航班|搜索|搜一下|查一下|查询|联网|网页|"
+    r"资讯|what|news|weather|current|today|forecast|"
+    r"读一下|读文件|读代码|看文件|查看文件|看下文件|帮我读|帮我看看.*\.(py|md|json|txt|toml|yaml|yml|cfg|ini|csv)|"
+    r"打开.*\.(py|md|json|txt|toml|yaml|yml|cfg|ini|csv)|内容.*\.(py|md|json|txt|toml|yaml|yml|cfg|ini|csv)",
     re.IGNORECASE,
 )
 #: B-fix（2026-09-19 工具清单对账）：`search_sources` 已移出联网补齐族。
@@ -296,7 +300,7 @@ _WEB_INTENT = re.compile(
 #: 且 `source_chunks` 当前为 0 行（库空，调用必然返回空）。
 #: 用户明确提"参考资料/查资料/资料里"时仍由 TOOL_TERMS 词条派发，功能不丢。
 _WEB_SUPPORT = {
-    "web_search", "get_current_datetime", "deep_research",
+    "web_search", "get_current_datetime", "get_weather", "deep_research",
     "search_documents",
 }
 
@@ -776,6 +780,25 @@ def _classify_intent(text: str, raw_query: str) -> str:
     if _DIRECT_TEXT_INTENT.search(t) or is_direct_text_task(raw_query):
         return "direct_text"
     return "ambiguous"
+
+
+def laya_screen_skip(query: str) -> bool:
+    """Laya 快筛跳过护栏：True = 不走 Laya 的 direct_text 短路，回落关键词路由。
+
+    背景（2026-09-26）：训练侧做过 arith→text 口径翻转（"帮我算 12*34" 判纯文本、
+    不需要工具，这是对的），但模型把该口径**外推**到了混合句 ——
+    "帮我算 123*456 然后保存成备忘录" 只看到"算"就被判 text，快筛直接短路 0 工具，
+    把 calculate 与 save_note 一起裁掉（test_route_agent_filters_tools 因此长期红灯）。
+
+    护栏语义：只要命中「联网/读文件」族或「需要工具的强信号词」族，就认为用户
+    明确要动外部世界，**不信 Laya 的 direct_text**，交回 select_tool_names 裁决。
+
+    这是护栏不是替代：未命中这里的查询（含纯算术、打招呼、概念问答）仍优先信 Laya，
+    Laya 路线不放弃。
+    """
+    if not query:
+        return False
+    return bool(_WEB_INTENT.search(query) or _TOOL_NEEDED.search(query))
 
 
 def router_enabled() -> bool:

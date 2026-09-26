@@ -217,15 +217,22 @@ def _eval_node(node: ast.AST, depth: int = 0):
 
 
 def _tavily_search(query: str, max_results: int) -> list[dict] | None:
-    """通过 Tavily API 搜索（需要 TAVILY_API_KEY）。"""
+    """通过 Tavily API 搜索（需要 TAVILY_API_KEY）。
+
+    遇到 4xx 客户端错误（配额/限流/key 失效）时立即返回 None，
+    让调用方跳过本层直接走下一源，不浪费超时窗口。
+    """
     api_key = os.getenv("TAVILY_API_KEY")
     if not api_key:
         return None
     resp = requests.post(
         "https://api.tavily.com/search",
         json={"api_key": api_key, "query": query, "max_results": max_results},
-        timeout=15,
+        timeout=8,
     )
+    # 4xx（401/403/429/432…）= 配额/限流/凭据问题，重试无意义，立即降级
+    if 400 <= resp.status_code < 500:
+        return None
     resp.raise_for_status()
     return resp.json().get("results", [])
 
@@ -236,7 +243,7 @@ def _ddg_lite_search(query: str, max_results: int) -> list[dict]:
         "https://lite.duckduckgo.com/lite/",
         params={"q": query},
         headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"},
-        timeout=4,
+        timeout=8,
     )
     resp.raise_for_status()
     page = resp.text
@@ -651,9 +658,13 @@ def web_search_impl(query: str, max_results: int = 5) -> str:
             results = _tavily_search(query, limit)
             if results:
                 return _trust_wrap("web", _format_search_results(results))
-            problems.append("Tavily 没有返回结果")
+            problems.append("Tavily 没有返回结果（配额/限流或无匹配）")
         except Exception as exc:
-            problems.append(f"Tavily 失败（{type(exc).__name__}）")
+            # 记录具体原因：HTTP 状态码（4xx=凭据/配额，5xx=服务端故障）或异常类型
+            status = getattr(exc, "response", None)
+            code = getattr(status, "status_code", None) if status is not None else None
+            detail = f"HTTP {code}" if code else type(exc).__name__
+            problems.append(f"Tavily 失败（{detail}）")
 
     # 2) DuckDuckGo（免费）
     try:
@@ -861,6 +872,85 @@ def get_current_datetime() -> str:
         f"当前本地时间：{now:%Y-%m-%d %H:%M:%S} "
         f"{_WEEKDAYS[now.weekday()]}（{zone}，按运行电脑的本地时区）"
     )
+
+
+_WMO_WEATHER = {
+    0: "晴", 1: "大致晴", 2: "局部多云", 3: "阴", 45: "雾", 48: "雾凇",
+    51: "毛毛雨", 53: "毛毛雨", 55: "毛毛雨", 56: "冻毛毛雨", 57: "冻毛毛雨",
+    61: "小雨", 63: "中雨", 65: "大雨", 66: "冻雨", 67: "冻雨",
+    71: "小雪", 73: "中雪", 75: "大雪", 77: "雪粒",
+    80: "阵雨", 81: "阵雨", 82: "强阵雨",
+    85: "阵雪", 86: "阵雪", 95: "雷阵雨", 96: "雷雨伴冰雹", 99: "雷雨伴冰雹",
+}
+
+
+@function_tool
+def get_weather(city: str) -> str:
+    """查询指定城市当前天气与今日预报（温度、体感、湿度、风、天气现象、最低/最高温）。
+    用户问"某地天气/气温/下雨吗/穿什么"时优先调用本工具，比 web_search 快且准确。
+    city 用中文城市名（如"上海""北京"）或拼音（如"Shanghai"）均可。"""
+    city = city.strip()
+    if not city:
+        return '错误：city 参数为空，请提供城市名（如"上海"）。'
+    try:
+        # 1) 地理编码：城市名 → 经纬度（Open-Meteo 地理编码 API，免费无 key）
+        geo = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": city, "count": 1, "language": "zh", "format": "json"},
+            timeout=5,
+        )
+        geo.raise_for_status()
+        results = geo.json().get("results", [])
+        if not results:
+            return f'未找到城市"{city}"，请确认城市名是否正确（如"上海""北京""廊坊"）。'
+        loc = results[0]
+        resolved = loc.get("name", city)
+        admin1 = loc.get("admin1", "")
+        admin2 = loc.get("admin2", "")
+        # 去重：直辖市 admin1==admin2 时只显示一个；县级市显示 市/省
+        region_parts = []
+        if admin2 and admin2 != admin1:
+            region_parts.append(admin2)
+        if admin1:
+            region_parts.append(admin1)
+        region = " ".join(region_parts)
+        lat, lon = loc["latitude"], loc["longitude"]
+
+        # 2) 天气查询：Open-Meteo 预报 API（免费无 key，1.1s 响应）
+        wx = requests.get(
+            "https://api.open-meteo.com/v1/forecast",
+            params={
+                "latitude": lat, "longitude": lon,
+                "current": "temperature_2m,relative_humidity_2m,apparent_temperature,"
+                           "weather_code,wind_speed_10m,wind_direction_10m",
+                "daily": "temperature_2m_max,temperature_2m_min,weather_code",
+                "timezone": "Asia/Shanghai",
+                "forecast_days": 1,
+            },
+            timeout=8,
+        )
+        wx.raise_for_status()
+        data = wx.json()
+        cur = data.get("current", {})
+        daily = data.get("daily", {})
+        w_code = cur.get("weather_code", 0)
+        w_desc = _WMO_WEATHER.get(w_code, f"代码{w_code}")
+        daily_code = daily.get("weather_code", [None])[0] or 0
+        daily_desc = _WMO_WEATHER.get(daily_code, "")
+        line = (
+            f"{resolved}（{region}）当前：{w_desc}，"
+            f"{cur.get('temperature_2m', '?')}°C（体感 {cur.get('apparent_temperature', '?')}°C），"
+            f"湿度 {cur.get('relative_humidity_2m', '?')}%，"
+            f"风 {cur.get('wind_speed_10m', '?')} km/h\n"
+            f"今日：{daily_desc}，"
+            f"{daily.get('temperature_2m_min', ['?'])[0]}~{daily.get('temperature_2m_max', ['?'])[0]}°C"
+        )
+        return _trust_wrap("weather", line)
+    except Exception as exc:
+        status = getattr(exc, "response", None)
+        code = getattr(status, "status_code", None) if status is not None else None
+        detail = f"HTTP {code}" if code else type(exc).__name__
+        return f'天气查询失败（{detail}），请改用 web_search 搜索"城市+日期+天气"获取。'
 
 
 @function_tool
