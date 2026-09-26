@@ -19,7 +19,7 @@ from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError
 from agents.memory import SQLiteSession, SessionSettings
 from dotenv import load_dotenv
 
-from agent import MODEL_PROVIDER, build_assistant_agent, assistant_agent
+from agent import MODEL_PROVIDER, build_assistant_agent, assistant_agent, gateway_assistant_agent
 from compact import maybe_compact
 from mcp_bridge import ensure_connected as ensure_mcp
 from observability import install_local_tracing, trace_log_path
@@ -372,8 +372,19 @@ def display_output(final_output: object) -> None:
 
 
 def current_assistant_agent() -> object:
-    """返回当前生效的主 Agent（main() 里 --no-guardrails 会替换全局的那一份）。"""
-    return assistant_agent
+    """返回当前生效的主 Agent（main() 里 --no-guardrails 会替换全局的那一份）。
+
+    动态调用 gateway_assistant_agent() 使 TUI 切模型后无需重启。
+    如果 --no-guardrails 已替换过全局实例（guardrails 被关闭），仍用全局版本。
+    """
+    global assistant_agent
+    import agent as _agent_mod
+    # 只有 --no-guardrails 改过全局时（guardrails 被关闭），走全局版本
+    current = gateway_assistant_agent()
+    if not getattr(current, "input_guardrails", None) or not getattr(current, "output_guardrails", None):
+        # guardrails 被关了 → 说明 --no-guardrails 生效过，用全局
+        return assistant_agent
+    return current
 
 
 async def _run_attempt(
@@ -440,12 +451,22 @@ async def _run_attempt(
             elif event.type == "raw_response_event":
                 raw_data = getattr(event.data, "data", None) or event.data
                 raw_type = getattr(raw_data, "type", "") or getattr(event.data, "type", "")
-                # Fail closed: reasoning, tool-argument deltas and intermediate assistant
-                # text stay inside the SDK. Only the tools-disabled final call has a sink.
-                if raw_type == "response.output_text.delta" and getattr(active_agent, "_public_final", False):
+                # response.output_text.delta 的转发分两种契约，不能无条件转发：
+                #  - _public_final（tools-disabled 的最终表达轮）：发 "final.content.delta"
+                #    （由 FinalContentStream → activity.delta → assistant_delta 通道消费）。
+                #  - 其余 agent（_public_final=False，中间推理/带工具的中间文本）：
+                #    **默认不公开**（这些文本对外部消费者是私有的，见
+                #    test_sdk_reasoning_tool_args_and_content_isolation）。
+                #    只有显式标记 _public_stream=True 的本地 TUI 场景才转发
+                #    "assistant_delta" 供实时渲染 —— 由调用方（TUI）显式开启，
+                #    不由本函数替所有消费者做决定。
+                if raw_type == "response.output_text.delta":
                     delta = getattr(raw_data, "delta", None)
-                    if isinstance(delta, str):
-                        _emit("final.content.delta", {"text": delta})
+                    if isinstance(delta, str) and delta:
+                        if getattr(active_agent, "_public_final", False):
+                            _emit("final.content.delta", {"text": delta})
+                        elif getattr(active_agent, "_public_stream", False):
+                            _emit("assistant_delta", {"metadata": {"delta": delta}})
                 if debug:
                     if raw_type != last_raw_type:
                         _process_print(f"[流事件] LLM 原始事件: {raw_type}")
@@ -944,7 +965,7 @@ async def _execute_task_and_mark(
 
 
 async def daemon_loop(max_turns: int) -> None:
-    """常驻进程：每分钟检查一次定时任务，到点自动执行（带幂等台账与 tasks.json 镜像）。"""
+    """常驻进程：每分钟检查一次定时任务，到点自动执行（带幂等台账与 config/tasks.json 镜像）。"""
     print("常驻任务进程已启动（每分钟检查一次，Ctrl+C 退出）。")
     ledger = TaskManager()
     try:
@@ -1031,7 +1052,7 @@ def main() -> None:
     parser.add_argument("--clear-session", metavar="NAME", help="清空指定会话的对话记忆后退出")
     parser.add_argument("--tasks", action="store_true", help="列出定时任务后退出")
     parser.add_argument("--run-task", metavar="ID", help="立即手动执行某条定时任务后退出")
-    parser.add_argument("--daemon", action="store_true", help="常驻运行：按 tasks.json 定时自动执行任务")
+    parser.add_argument("--daemon", action="store_true", help="常驻运行：按 config/tasks.json 定时自动执行任务")
     parser.add_argument("--voice", action="store_true", help="语音对话：麦克风输入 + 朗读回复（Windows 本机能力）")
     parser.add_argument(
         "--no-speak",

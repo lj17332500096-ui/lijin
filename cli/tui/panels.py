@@ -25,6 +25,47 @@ from textual.widgets import Footer, Input, Static
 from textual.widget import MountError
 
 
+class ForgeInput(Input):
+    """Input 子类：放行 `m` 键事件，让它冒泡到 App 层触发模型 popup。
+
+    Textual 8.x 的 Input._on_key 对**所有**可打印字符调用 event.stop()，
+    且 Input.check_consume_key 对所有可打印字符返回 True，导致 binding 系统
+    从 binding_chain 中过滤掉 `m` 的 binding（认为 Input 会消费它）。
+    ForgeInput 做两件事：
+      1. 重写 _on_key：对 `m` 键不 stop / 不 prevent_default，让事件继续冒泡
+      2. 重写 check_consume_key：对 `m` 键返回 False，让 binding 系统保留
+         App 级 `Binding("m", "toggle_model_picker", priority=True)`
+    其他可打印字符行为与原 Input 完全一致。
+    """
+
+    async def _on_key(self, event) -> None:  # type: ignore[override]
+        self._restart_blink()
+        if event.is_printable:
+            # m 键且输入框为空 → 放行（让 binding 触发模型 popup）
+            if event.character == "m" and not self.value:
+                return
+            event.stop()
+            assert event.character is not None
+            selection = self.selection
+            if selection.is_empty:
+                self.insert_text_at_cursor(event.character)
+            else:
+                self.replace(event.character, *selection)
+            event.prevent_default()
+
+    def check_consume_key(self, key: str, character: str | None) -> bool:
+        """m 键在输入框为空时不消费（让 App 级 binding 生效），
+        有内容时仍消费（m 作为普通字符写入，避免意外打开模型 popup）。
+        """
+        if character == "m":
+            # 输入框有内容 → 正常消费 m 字符
+            if self.value:
+                return True
+            # 输入框为空 → 不消费，让 Binding("m", priority=True) 生效
+            return False
+        return character is not None and character.isprintable()
+
+
 # ── 设计令牌（对齐 dsh-TUI design-system）────────────────────────
 # dsh-TUI 的 design-system 目录定义了 Pane / Divider / HintLine / StatusIcon /
 # ProgressBar 五个原语。FORGE TUI 已有等价的 CSS 类（.model-popup-body /
@@ -180,10 +221,25 @@ class ToolGroup(Static):
 
     # ── 对外 API ──────────────────────────────────────────────
     def add_tool(self, name: str, detail: str = "", status: str = "done",
-                 elapsed: float | None = None) -> None:
-        """追加一条 tool 子项。status: running / done / failed。"""
+                 elapsed: float | None = None) -> int:
+        """追加一条 tool 子项。status: running / done / failed。
+        返回该行的索引（供 set_tool 更新用）。"""
+        idx = len(self._rows)
         self._rows.append((name, detail, status, elapsed))
         self._refresh()
+        return idx
+
+    def set_tool(self, idx: int, name: str, detail: str = "",
+                 status: str = "done", elapsed: float | None = None) -> None:
+        """按索引原地更新一条 tool 子项（不追加新行）。
+
+        修复：tool.started 时 add_tool(running) 追加一条，
+        tool.completed 时再用 set_tool 覆盖为终态，
+        避免同一工具在 UI 里显示两行。
+        """
+        if 0 <= idx < len(self._rows):
+            self._rows[idx] = (name, detail, status, elapsed)
+            self._refresh()
 
     def collapse(self) -> None:
         self._collapsed = True
@@ -540,7 +596,7 @@ class InputBar(Vertical, can_focus=False):
     def compose(self) -> ComposeResult:
         from cli.tui.panels import SlashPopup
         self.popup = SlashPopup()
-        self.input = Input(
+        self.input = ForgeInput(
             placeholder="Enter 发送；/ 看命令；Ctrl+Q 退出",
             classes="forge-input",
         )
@@ -619,6 +675,10 @@ class ModelPicker(Static):
     def attach_popup(self, popup: "ModelPopup") -> None:
         self._popup = popup
 
+    def on_click(self, event) -> None:
+        """鼠标点击标签 → 打开模型 popup（与按 m 键等价）。"""
+        self.open_popup()
+
     def open_popup(self) -> None:
         if self._popup is not None:
             self._popup.show(self._models, self._current)
@@ -634,30 +694,61 @@ class ModelPicker(Static):
         return self._text
 
 
-class ModelPopup(Vertical, can_focus=False):
-    """模型选择 popup（两级下钻，参照 dsh-TUI modelGroups.ts）。
+class _ModelPopupBody(Static):
+    """可聚焦的 ModelPopup body：拦截 ↑↓/Enter/Esc，阻止事件冒泡到 Input。
 
-    两级设计（参照 dsh-TUI ModelPicker）：
-    - 顶层：列 provider 组（gateway / local），每组显示模型数
-    - 第二层：钻入该 provider 的模型列表，Enter 切换
-    - 单 provider 时跳过顶层（快路径，showBack=False）
-
-    键盘：↑↓ 切换、Enter 确认/钻入、Esc 取消/返回、Backspace 返回。
+    Textual 8.x 中 Input widget 的 _on_key 对可打印字符调用 event.stop()，
+    焦点在 Input 上时 App 级 key_m/key_up/key_down 都收不到。
+    让 body 可聚焦后，焦点移到 popup 内部，所有按键由 body 的 on_key 处理。
     """
 
-    def __init__(self, on_select: "callable | None" = None) -> None:
+    can_focus = True
+
+    def __init__(self, text, classes: str | None = None) -> None:
+        super().__init__(text, classes=classes)
+        self._popup_ref: "ModelPopup | None" = None  # 构造后 patch
+
+    def on_key(self, event) -> None:
+        """拦截按键：↑↓ 移动选区，Enter 确认，Esc 取消。event.stop() 阻止冒泡。"""
+        if self._popup_ref is None:
+            return
+        p = self._popup_ref
+        if event.key == "up":
+            p.select_prev()
+            event.stop()
+        elif event.key == "down":
+            p.select_next()
+            event.stop()
+        elif event.key == "enter":
+            p.confirm()
+            event.stop()
+        elif event.key == "escape":
+            p.cancel()
+            event.stop()
+
+
+class ModelPopup(Vertical, can_focus=False):
+    """模型选择 popup（单层平铺直选）。
+
+    一屏列出所有可对话 LLM（网关 + 本地，已剔除 image/video 非 LLM 模型），
+    每行带 source 标记（[网关]/[本地]），↑↓ 移动选区、Enter **直接切换模型**、Esc 取消。
+
+    焦点管理：show() 时焦点移到 body（_ModelPopupBody，can_focus=True），
+    body 的 on_key 拦截所有按键并 event.stop()，彻底绕过 Input widget 的事件消费。
+    """
+
+    def __init__(self, on_select: "callable | None" = None,
+                 on_close: "callable | None" = None) -> None:
         super().__init__()
         self._on_select = on_select
+        self._on_close = on_close
         # 全量模型：(model_id, source)
         self._models: list[tuple[str, str]] = []
-        # 两级状态
-        self._level: int = 0  # 0=顶层(provider组), 1=第二层(模型列表)
-        self._groups: list[tuple[str, int]] = []  # (source, count) 顶层行
-        self._current_group: str = ""  # 钻入的 provider
         self._selected: int = 0
-        self._body = Static(self._build_text(), classes="model-popup-body")
+        self._body = _ModelPopupBody(self._build_text(), classes="model-popup-body")
+        self._body._popup_ref = self  # patch 双向引用
         self._body.display = True
-        self._header = Static("选择模型  （↑↓ 选 / Enter 确认 / Esc 取消）",
+        self._header = Static("选择模型  （↑↓ 选 / Enter 切换 / Esc 取消）",
                               classes="model-popup-header")
 
     def compose(self) -> ComposeResult:
@@ -666,166 +757,99 @@ class ModelPopup(Vertical, can_focus=False):
 
     def show(self, models: list[tuple[str, str]], current: str) -> None:
         self._models = list(models)
-        # 构建 provider 组（首现顺序，参照 dsh-TUI deriveModelGroups）
-        order: list[str] = []
-        counts: dict[str, int] = {}
-        for mid, source in self._models:
-            if source not in counts:
-                order.append(source)
-                counts[source] = 0
-            counts[source] += 1
-        self._groups = [(s, counts[s]) for s in order]
-        self._level = 0
-        self._current_group = ""
         self._selected = 0
-        # 单 provider 快路径：跳过顶层直接进第二层
-        if len(self._groups) <= 1:
-            self._level = 1
-            self._current_group = self._groups[0][0] if self._groups else "unknown"
         # 定位当前模型
-        self._locate_current(current)
-        # 用 CSS 类覆盖默认 display:none；Textual 的 inline style 优先级低
+        for i, (mid, _src) in enumerate(self._models):
+            if mid == current:
+                self._selected = i
+                break
+        # 用 Widget.display 属性显示（setter 走 styles.display，能覆盖 CSS 类选择器）。
+        self.display = True
         try:
-            self.styles.display = "block"
-            self.refresh()
-        except (NoScreen, NoActiveAppError):
+            self._body.update(self._build_text())
+            self._header.update(self._build_header())
+            # 焦点移到 body（可聚焦的 _ModelPopupBody），Input 不再抢按键
+            self._body.focus()
+        except (NoScreen, NoActiveAppError, MountError):
+            # 未挂载/无活跃 app（如纯同步单元环境）时安全跳过渲染，
+            # 但 display 已置 True，is_visible 返回 True
             pass
-        self._body.update(self._build_text())
-        self._header.update(self._build_header())
-        self._body.focus()
-
-    def _locate_current(self, current: str) -> None:
-        """根据当前模型定位选区。"""
-        if self._level == 0:
-            # 顶层：选中当前模型所属的 provider 组
-            for i, (mid, source) in enumerate(self._models):
-                if mid == current:
-                    for j, (gs, _) in enumerate(self._groups):
-                        if gs == source:
-                            self._selected = j
-                            break
-                    break
-        else:
-            # 第二层：选中当前模型
-            for i, (mid, source) in enumerate(self._models):
-                if mid == current:
-                    self._selected = i
-                    break
 
     def hide(self) -> None:
         self._models = []
-        self._groups = []
-        self._level = 0
-        self._current_group = ""
+        self._selected = 0
+        self.display = False
         try:
-            self.styles.display = "none"
             self.refresh()
-        except (NoScreen, NoActiveAppError):
+        except (NoScreen, NoActiveAppError, MountError):
             pass
 
     def is_visible(self) -> bool:
-        try:
-            return self.styles.display != "none"
-        except (NoScreen, NoActiveAppError):
-            return False
+        return self.display
 
     # ── 键盘操作 ────────────────────────────────────────────
-    def select_next(self) -> None:
-        if self._level == 0:
-            if self._groups:
-                self._selected = (self._selected + 1) % len(self._groups)
-                self._body.update(self._build_text())
-        else:
-            models = self._group_models()
-            if models:
-                self._selected = (self._selected + 1) % len(models)
-                self._body.update(self._build_text())
-
-    def select_prev(self) -> None:
-        if self._level == 0:
-            if self._groups:
-                self._selected = (self._selected - 1) % len(self._groups)
-                self._body.update(self._build_text())
-        else:
-            models = self._group_models()
-            if models:
-                self._selected = (self._selected - 1) % len(models)
-                self._body.update(self._build_text())
-
-    def confirm(self) -> None:
-        if self._level == 0:
-            # 顶层：钻入选中的 provider 组
-            if self._groups:
-                self._current_group = self._groups[self._selected][0]
-                self._level = 1
-                self._selected = 0
-                models = self._group_models()
-                # 定位当前模型（若有）
-                cur = next((m for m, s in self._models if s == self._current_group), None)
-                if cur:
-                    self._selected = next(
-                        (i for i, (mid, s) in enumerate(self._models)
-                         if mid == cur and s == self._current_group), 0
-                    )
-                self._body.update(self._build_text())
-                self._header.update(self._build_header())
-        else:
-            # 第二层：选中模型，回调
-            models = self._group_models()
-            if models:
-                mid, source = models[self._selected]
-                self.hide()
-                if self._on_select is not None:
-                    self._on_select(mid, source)
-
-    def go_back(self) -> None:
-        """从第二层返回顶层（Backspace）。"""
-        if self._level == 1 and len(self._groups) > 1:
-            self._level = 0
-            self._current_group = ""
-            self._selected = 0
+    def _paint(self) -> None:
+        """刷新 body/header 渲染；未挂载或无活跃 app（纯同步单元环境）时安全跳过。"""
+        try:
             self._body.update(self._build_text())
             self._header.update(self._build_header())
+        except (NoScreen, NoActiveAppError, MountError):
+            pass
+
+    def select_next(self) -> None:
+        if self._models:
+            self._selected = (self._selected + 1) % len(self._models)
+            self._paint()
+
+    def select_prev(self) -> None:
+        if self._models:
+            self._selected = (self._selected - 1) % len(self._models)
+            self._paint()
+
+    def confirm(self) -> None:
+        """选中当前行的模型，回调并关闭。"""
+        if not self._models:
+            self.hide()
+            if self._on_close is not None:
+                self._on_close()
+            return
+        mid, source = self._models[self._selected]
+        self.hide()
+        if self._on_close is not None:
+            self._on_close()
+        if self._on_select is not None:
+            self._on_select(mid, source)
 
     def cancel(self) -> None:
         self.hide()
-
-    def _group_models(self) -> list[tuple[str, str]]:
-        """当前 provider 组的模型列表。"""
-        return [(mid, src) for mid, src in self._models if src == self._current_group]
+        if self._on_close is not None:
+            self._on_close()
+        # 焦点还给 Input（self.app 是 Textual 标准属性，无需 get_current_app）
+        try:
+            if hasattr(self, "app") and self.app:
+                app = self.app
+                if hasattr(app, "_bar"):
+                    app._bar().focus_input()
+        except Exception:
+            pass
 
     def _build_header(self) -> str:
-        if self._level == 0:
-            return "选择模型  （↑↓ 选组 / Enter 钻入 / Esc 取消）"
-        multi = "  ·  Backspace 返回" if len(self._groups) > 1 else ""
-        return f"模型 [{self._current_group}]{multi}  （↑↓ 选 / Enter 切换）"
+        return "选择模型  （↑↓ 选 / Enter 切换 / Esc 取消）"
 
     def _build_text(self) -> Text:
         if not self._models:
             return Text("(未加载模型，按 m 重新拉取)", style=MUTED)
         t = Text()
-        if self._level == 0:
-            # 顶层：provider 组
-            for i, (source, count) in enumerate(self._groups):
-                marker = "●" if i == self._selected else " "
-                color = PRIMARY if i == self._selected else TEXT_C
-                label = {"gateway": "网关", "local": "本地"}.get(source, source)
-                t.append(f"{marker} {label}", style=f"bold {color}")
-                t.append(f"  · {count} 个模型", style=MUTED)
-                if i < len(self._groups) - 1:
-                    t.append("\n")
-        else:
-            # 第二层：模型列表
-            models = self._group_models()
-            for i, (mid, source) in enumerate(models):
-                marker = "●" if i == self._selected else " "
-                color = PRIMARY if i == self._selected else TEXT_C
-                tag = {"gateway": "[网关]", "local": "[本地]"}.get(source, "")
-                t.append(f"{marker} {mid:<32} ", style=f"bold {color}")
-                if tag:
-                    t.append(tag, style=MUTED)
-                if i < len(models) - 1:
-                    t.append("\n")
+        for i, (mid, source) in enumerate(self._models):
+            marker = "●" if i == self._selected else " "
+            color = PRIMARY if i == self._selected else TEXT_C
+            tag = {"gateway": "[网关]", "local": "[本地]",
+                   "unknown": "", "loading": ""}.get(source, f"[{source}]")
+            t.append(f"{marker} {mid}", style=f"bold {color}")
+            if tag:
+                t.append(f"  {tag}", style=MUTED)
+            if i < len(self._models) - 1:
+                t.append("\n")
         return t
 
 
@@ -1439,6 +1463,109 @@ class SessionListPopup(Vertical, can_focus=False):
             pass
 
 
+# ── 面板：API / 网关自定义配置（参照 dsh-TUI SettingsPanel）───────
+class ApiSettingsPanel(Vertical, can_focus=False):
+    """自定义 API/网关配置面板。
+
+    可编辑 4 项（保存后写 os.environ + 清 agent.py provider 缓存 + 持久化 .env，
+    后续 run_turn 立即生效，不必重启进程）：
+      - 网关 API Key  (OPENAI_API_KEY)
+      - 网关 Base URL (OPENAI_BASE_URL)
+      - 本地模型名    (FORGE_LOCAL_MODEL_NAME)
+      - 本地 Base URL (FORGE_LOCAL_MODEL_BASE_URL)
+
+    键盘：焦点在某个输入框时直接改值；Enter=保存，Esc=取消并关闭。
+    """
+
+    _KEY_API = "OPENAI_API_KEY"
+    _KEY_URL = "OPENAI_BASE_URL"
+    _KEY_LNAME = "FORGE_LOCAL_MODEL_NAME"
+    _KEY_LBASE = "FORGE_LOCAL_MODEL_BASE_URL"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.display = False
+        self._fields: dict[str, Input] = {}
+        self._on_save: "callable | None" = None  # (values dict) -> None，由 App patch
+        self._on_cancel: "callable | None" = None
+
+    # 由 App 在挂载时注入回调（面板自己不认识 App）
+    def attach(self, on_save, on_cancel) -> None:
+        self._on_save = on_save
+        self._on_cancel = on_cancel
+
+    def compose(self) -> ComposeResult:
+        import os
+        self._fields[self._KEY_API] = Input(
+            value=os.getenv(self._KEY_API, ""),
+            placeholder="sk-…（网关鉴权 key）",
+            classes="api-in",
+        )
+        self._fields[self._KEY_URL] = Input(
+            value=os.getenv(self._KEY_URL, ""),
+            placeholder="https://host/v1",
+            classes="api-in",
+        )
+        self._fields[self._KEY_LNAME] = Input(
+            value=os.getenv(self._KEY_LNAME, ""),
+            placeholder="本地 GGUF 路径或模型名",
+            classes="api-in",
+        )
+        self._fields[self._KEY_LBASE] = Input(
+            value=os.getenv(self._KEY_LBASE, ""),
+            placeholder="http://localhost:8080/v1",
+            classes="api-in",
+        )
+        yield Static("◆ API / 网关设置  （Enter 保存 / Esc 取消）",
+                     classes="api-header")
+        for label, key in [
+            ("网关 API Key  ", self._KEY_API),
+            ("网关 Base URL ", self._KEY_URL),
+            ("本地模型名    ", self._KEY_LNAME),
+            ("本地 Base URL ", self._KEY_LBASE),
+        ]:
+            yield Static(label, classes="api-label")
+            yield self._fields[key]
+        self._fields[self._KEY_API].focus()
+
+    def show(self) -> None:
+        import os
+        for key, inp in self._fields.items():
+            inp.value = os.getenv(key, "")
+        self.display = True
+        self._fields.get(self._KEY_API).focus()
+        self._refresh()
+
+    def hide(self) -> None:
+        self.display = False
+
+    def is_visible(self) -> bool:
+        return self.display
+
+    def current_values(self) -> dict[str, str]:
+        return {k: (v.value or "").strip() for k, v in self._fields.items()}
+
+    def save(self) -> dict[str, str]:
+        vals = self.current_values()
+        # 调 App 层回调（写 os.environ + 清缓存 + 持久化 .env）
+        if self._on_save is not None:
+            self._on_save(vals)
+        self.hide()
+        return vals
+
+    def cancel(self) -> None:
+        if self._on_cancel is not None:
+            self._on_cancel()
+        self.hide()
+
+    def _refresh(self) -> None:
+        # 无 body 渲染，仅确保 layout 刷新
+        try:
+            self.refresh()
+        except (NoScreen, NoActiveAppError, MountError):
+            pass
+
+
 # ── 主 App 容器 ───────────────────────────────────────────────────
 class TuiPanels(Vertical, can_focus=False):
     """五层布局：StatusHeader / MessageLog / Spinner / ModelPicker+Popup / InputBar。
@@ -1459,6 +1586,7 @@ class TuiPanels(Vertical, can_focus=False):
         self.spinner = Spinner()
         self.model_picker = ModelPicker(current_model)
         self.model_popup = ModelPopup()
+        self.api_settings = ApiSettingsPanel()
         self.hist_search = HistorySearchDialog()
         self.question_panel = QuestionPanel()
         self.approval_panel = ApprovalPanel()
@@ -1467,6 +1595,7 @@ class TuiPanels(Vertical, can_focus=False):
         self.model_picker.attach_popup(self.model_popup)
         # 所有 popup 默认隐藏
         self.model_popup.display = False
+        self.api_settings.display = False
         self.spinner.display = False
         self.hist_search.display = False
         self.question_panel.display = False
@@ -1479,6 +1608,7 @@ class TuiPanels(Vertical, can_focus=False):
         yield self.spinner
         yield self.model_picker
         yield self.model_popup
+        yield self.api_settings
         yield self.hist_search
         yield self.question_panel
         yield self.approval_panel

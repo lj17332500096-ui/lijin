@@ -41,7 +41,11 @@ def test_ten_reads_aggregate_dedupe_and_throttle():
         p.flush()
         assert len(p.rows) == 1
         assert p.rows[0]["label"] == "已检查 10 个文件"
-        assert len(sent) < 10
+        # tool.started 和 tool.completed 都 force=True（不丢失）
+        started = [e for e in sent if e["type"] == "tool.started"]
+        completed = [e for e in sent if e["type"] == "tool.completed"]
+        assert len(started) == 10
+        assert len(completed) == 10
     asyncio.run(scenario())
 
 

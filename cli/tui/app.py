@@ -37,6 +37,7 @@ from textual.widget import MountError, Widget
 from cli.tui.panels import (
     AGENT,
     ARTIFACT,
+    ApiSettingsPanel,
     BG,
     BORDER,
     ERROR_C,
@@ -63,6 +64,7 @@ from cli.tui.panels import (
 
 # ── 斜杠命令静态列表（与 cli/commands.py build_registry 同步）──────
 _SLAH_COMMANDS: list[tuple[str, str]] = [
+    ("/api", "Open API/gateway settings"),
     ("/help", "Show available commands"),
     ("/sessions", "List sessions (recent first)"),
     ("/new", "Create and switch to new session"),
@@ -213,7 +215,7 @@ class ForgeTuiApp(App):
         color: {MUTED};
     }}
     ModelPicker {{
-        /* 一行高，显示当前模型；点按 `m` 键打开 popup。 */
+        /* 一行高，显示当前模型；点按 `m` 键或鼠标点击标签打开 popup。 */
         height: 1;
         margin: 0 1;
         padding: 0 1;
@@ -226,6 +228,32 @@ class ForgeTuiApp(App):
     }}
     .model-popup-body {{
         padding: 0 1;
+        color: {TEXT_C};
+    }}
+    /* ── API/网关设置面板 ── */
+    ApiSettingsPanel {{
+        display: none;
+        height: auto;
+        background: {PANEL};
+        border: solid {BORDER};
+        margin: 0 1;
+        padding: 0 1;
+    }}
+    .api-header {{
+        height: 1;
+        padding: 0 1;
+        color: {MUTED};
+    }}
+    .api-label {{
+        height: 1;
+        padding: 0 1;
+        color: {MUTED};
+    }}
+    .api-in {{
+        height: 3;
+        margin: 0 1;
+        background: {BG};
+        border: solid {BORDER};
         color: {TEXT_C};
     }}
     ModelPopup {{
@@ -407,7 +435,9 @@ class ForgeTuiApp(App):
             self._hist_idx = len(self._history) - 1
         else:
             self._hist_idx = max(0, self._hist_idx - 1)
-        self._bar().input.value = self._history[self._hist_idx]
+        _in = self._bar().input
+        if _in is not None:
+            _in.value = self._history[self._hist_idx]
 
     def action_history_next(self) -> None:
         if not self._history:
@@ -416,9 +446,13 @@ class ForgeTuiApp(App):
             self._hist_idx += 1
         else:
             self._hist_idx = len(self._history)
-            self._bar().input.value = ""
+            _in = self._bar().input
+            if _in is not None:
+                _in.value = ""
             return
-        self._bar().input.value = self._history[self._hist_idx]
+        _in = self._bar().input
+        if _in is not None:
+            _in.value = self._history[self._hist_idx]
 
     def __init__(
         self,
@@ -460,6 +494,8 @@ class ForgeTuiApp(App):
         self._tool_rows: dict[str, tuple[str, str, str, float | None]] = {}
         # 每个 activity 的开始时间戳（monotonic），用于算 elapsed
         self._tool_started_at: dict[str, float] = {}
+        # activity_id → ToolGroup 行索引（add_tool 返回），tool.completed 时原地更新
+        self._tool_row_idx: dict[str, int] = {}
 
         # Approval 状态机
         #   idle → running → waiting_approval
@@ -471,6 +507,8 @@ class ForgeTuiApp(App):
         #   只有 Runtime 明确返回 approved/rejected/cancelled 才清除
         self._in_approval: bool = False
         self._pending_approvals: list[dict] = []
+        # 审批后继续执行时需要的 RunResult（waiting_approval=True 那一次）
+        self._waiting_result: object = None
 
         # 输入历史（当前 TUI session）
         self._history: list[str] = []
@@ -523,7 +561,11 @@ class ForgeTuiApp(App):
         # 构造时拿不到 App，所以在挂载时 patch 进去）
         if not self._model_popup_callback_set:
             self._app_state.model_popup._on_select = self._on_model_selected
+            # on_close：popup 的 cancel() 调用此回调，清除 flag + 焦点还给 Input
+            self._app_state.model_popup._on_close = self._on_model_popup_closed
             self._model_popup_callback_set = True
+        # API 设置面板回调（保存 → _apply_api_settings，取消 → 仅关闭）
+        self._app_state.api_settings.attach(self._apply_api_settings, lambda: None)
         # 同步 header 宽度（默认 120 列宽屏）；size 在挂载前可能为 (0, 0)，安全读取
         width = self._app_state.msglog.size[0] or 120
         self._header().set_width(width)
@@ -537,6 +579,13 @@ class ForgeTuiApp(App):
         spinner = self._app_state.spinner if self._app_state else None
         if spinner is not None:
             spinner.tick()
+
+    def _stop_spinner(self) -> None:
+        """停止 spinner 动画（turn 结束/失败/中断时调用）。"""
+        spinner = self._app_state.spinner if self._app_state else None
+        if spinner is not None:
+            spinner.stop()
+            spinner.display = False
 
     def _banner(self) -> None:
         msglog = self._msglog()
@@ -577,6 +626,10 @@ class ForgeTuiApp(App):
         # 同步当前模型显示 + status header
         picker.set_current(current)
         self._header().set_model(current)
+        # 若用户已按 m 打开 popup（fetch 时 models 为空、body 是占位提示），
+        # 拉取完成后把真实模型列表同步进已打开的 popup，否则一直显示"(未加载模型)"
+        if popup.is_visible():
+            popup.show(picker._models, picker._current)
 
     async def _query_gateway_models(self) -> list[tuple[str, str]]:
         """并发拉网关 + 本地 /models，合并去重（网关优先）。
@@ -617,9 +670,14 @@ class ForgeTuiApp(App):
         seen: set[str] = set()
         merged: list[tuple[str, str]] = []
         for mid, src in gateway + local:
-            if mid not in seen:
-                seen.add(mid)
-                merged.append((mid, src))
+            if mid in seen:
+                continue
+            # 只保留可对话的 LLM：网关里 agnes-image-* / agnes-video-* 是
+            # 图像/视频生成模型，不能当对话 LLM 选；local 的 GGUF 全保留。
+            if src == "gateway" and ("image" in mid or "video" in mid):
+                continue
+            seen.add(mid)
+            merged.append((mid, src))
         return merged
 
     def _model_picker(self):
@@ -627,6 +685,81 @@ class ForgeTuiApp(App):
 
     def _model_popup(self):
         return self._app_state.model_popup if self._app_state else None
+
+    def _api_settings(self):
+        return self._app_state.api_settings if self._app_state else None
+
+    def _apply_api_settings(self, values: dict[str, str]) -> None:
+        """把用户改的 API/网关配置写回 os.environ + 清 agent 缓存 + 持久化 .env。
+
+        网关 provider 按 (OPENAI_BASE_URL, OPENAI_API_KEY, OPENAI_USE_RESPONSES)
+        做 cache-key、本地 provider 按 (FORGE_LOCAL_MODEL_NAME, ..._BASE_URL, ..._API_KEY)
+        做 cache-key（见 agent.py::_gw_config / _local_config）。改完 env 后把对应缓存
+        置 None，下一次 run_turn 调用时自动按新 key 重建 Provider——不必重启进程。
+        """
+        import os
+        # 1) 写回环境变量
+        env_map = {
+            "OPENAI_API_KEY": "OPENAI_API_KEY",
+            "OPENAI_BASE_URL": "OPENAI_BASE_URL",
+            "FORGE_LOCAL_MODEL_NAME": "FORGE_LOCAL_MODEL_NAME",
+            "FORGE_LOCAL_MODEL_BASE_URL": "FORGE_LOCAL_MODEL_BASE_URL",
+        }
+        for panel_key, env_key in env_map.items():
+            if panel_key in values:
+                os.environ[env_key] = values[panel_key]
+        # 2) 清 agent.py 的两组 provider/agent 缓存，让新 key 生效
+        try:
+            import agent as _agent_mod
+            _agent_mod._GW_PROVIDER_CACHE = None
+            _agent_mod._GW_PROVIDER_KEY = None
+            _agent_mod._ASSISTANT_AGENT_CACHE = None
+            _agent_mod._ASSISTANT_AGENT_KEY = None
+            _agent_mod._LOCAL_PROVIDER_CACHE = None
+            _agent_mod._LOCAL_PROVIDER_KEY = None
+        except Exception:
+            pass
+        # 3) 持久化到 .env（只更新这几个键，不覆盖其它行）
+        self._persist_env_to_dotenv(values)
+        # 4) 重拉一次模型列表，让 ModelPicker 反映新的 key/url 可用模型
+        self._run_async(self._fetch_models())
+        self._msglog().add_meta(
+            "已更新 API/网关设置 → 新配置下次 run_turn 立即生效"
+        )
+
+    def _persist_env_to_dotenv(self, values: dict[str, str]) -> None:
+        """把 4 个键写进项目根 .env（存在则替换、缺失则追加；保持其余行不变）。"""
+        import os
+        try:
+            env_path = os.path.join(os.getcwd(), ".env")
+            lines: list[str] = []
+            if os.path.exists(env_path):
+                with open(env_path, encoding="utf-8") as fh:
+                    lines = fh.read().splitlines()
+            keys = list(values.keys())
+            touched: set[str] = set()
+            out: list[str] = []
+            for ln in lines:
+                stripped = ln.strip()
+                hit = None
+                if stripped:
+                    for k in keys:
+                        if stripped.startswith(k + "="):
+                            hit = k
+                            break
+                if hit:
+                    out.append(f"{hit}={values.get(hit, '')}")
+                    touched.add(hit)
+                else:
+                    out.append(ln)
+            for k in keys:
+                if k not in touched:
+                    out.append(f"{k}={values.get(k, '')}")
+            with open(env_path, "w", encoding="utf-8") as fh:
+                fh.write("\n".join(out) + "\n")
+        except Exception:
+            # 写 .env 失败不阻塞主流程（env 已改、缓存已清，运行时仍生效）
+            pass
 
     # ── 模型选择 action ───────────────────────────────────────
     def action_toggle_model_picker(self) -> None:
@@ -639,10 +772,15 @@ class ForgeTuiApp(App):
             popup.hide()
             self._model_picker_visible = False
             return
-        # 首次打开且模型未加载 → 先拉
+        # 首次打开且模型未加载 → 先拉。拉到前 popup 显示「加载中」占位，
+        # 避免拿空列表 show() 导致没有可选项、Enter 确认落空。
         if not picker._models:
             picker.set_loading(True)
+            # 占位：用一个加载提示让 popup 至少能显示，等 _fetch_models 回来再刷真列表
+            popup.show([(picker._current or "(加载中…)", "loading")], picker._current)
+            self._model_picker_visible = True
             self._run_async(self._fetch_models())
+            return
         popup.show(picker._models, picker._current)
         self._model_picker_visible = True
 
@@ -650,9 +788,15 @@ class ForgeTuiApp(App):
         """ModelPopup 选中后回调：设 AGENT_MODEL 并更新状态栏。"""
         import os
         os.environ["AGENT_MODEL"] = model_id
-        # 切到本地模型时，FORGE_MODEL_PREF 也要跟着
+        # 切到本地模型时，FORGE_MODEL_PREF 也要跟着；同时更新 FORGE_LOCAL_MODEL_NAME
         if source == "local":
             os.environ["FORGE_MODEL_PREF"] = "local"
+            # 本地模型的 model name 是 FORGE_LOCAL_MODEL_NAME（不是 AGENT_MODEL）
+            os.environ["FORGE_LOCAL_MODEL_NAME"] = model_id
+            # 使 local_model_provider 缓存失效（key 变了会重建 Provider）
+            import agent as _agent_mod
+            _agent_mod._LOCAL_PROVIDER_KEY = None
+            _agent_mod._LOCAL_PROVIDER_CACHE = None
         else:
             os.environ["FORGE_MODEL_PREF"] = "gateway"
         picker = self._model_picker()
@@ -662,12 +806,43 @@ class ForgeTuiApp(App):
         self._msglog().add_meta(f"已切换模型 → {model_id}（{source}）")
         self._model_picker_visible = False
 
+    def _on_model_popup_closed(self) -> None:
+        """ModelPopup 的 cancel/confirm 后回调：清 flag + 焦点还给 Input。"""
+        self._model_picker_visible = False
+        try:
+            self._bar().focus_input()
+        except (NoScreen, NoActiveAppError):
+            pass
+
     # ── 输入：slash / 普通 / approval ─────────────────────────
     def on_input_submitted(self, event) -> None:
         text = event.value.strip()
-        event.input.clear()
+        # ── popup 拦截（必须 event.stop() 在最前，防止 Input widget 继续消费 Enter）──
+        # 模型 popup / slash popup 打开时焦点仍在 Input（Static 不可聚焦，
+        # 键盘事件由 App 级 key_enter/key_up/key_down 处理）。
+        # 此时按 Enter 应是"确认选择"而非"提交输入"，必须先 stop 再 confirm。
+        if self._model_picker_visible:
+            popup = self._model_popup()
+            if popup is not None and popup.is_visible():
+                event.stop()
+                event.input.clear()
+                popup.confirm()
+                return
+        if self._popup_visible:
+            popup = self._popup()
+            if popup is not None:
+                event.stop()
+                event.input.clear()
+                sel = popup.selected()
+                if sel:
+                    self._bar().input.value = sel[0] + " "
+                    self._hide_slash_popup()
+                return
+        # 空输入：clear 后直接返回（不 stop，让 Input 正常处理）
         if not text:
+            event.input.clear()
             return
+        event.input.clear()
 
         # 保存历史
         self._history.append(text)
@@ -690,7 +865,24 @@ class ForgeTuiApp(App):
         if text.strip() in ("/sessions", "/session"):
             self._show_session_list()
             return
+        # /api 命令 → 弹出 API/网关设置面板
+        if text.strip() in ("/api", "/api-settings", "/gateway"):
+            self._toggle_api_settings()
+            return
         self._run_async(self._dispatch_cmd(text))
+
+    def _toggle_api_settings(self) -> None:
+        """打开 / 关闭 API/网关设置面板（首次打开时拉取现有值填充）。"""
+        panel = self._api_settings()
+        if panel is None:
+            return
+        if panel.is_visible():
+            panel.hide()
+            return
+        # patch 回调：面板不认识 App，挂载时未接，这里兜底接一次
+        panel.attach(self._apply_api_settings, lambda: None)
+        panel.show()
+        self._update_footer("idle")
 
     def _show_session_list(self) -> None:
         """/sessions 命令：拉取会话列表并弹出 SessionListPopup。"""
@@ -741,10 +933,26 @@ class ForgeTuiApp(App):
 
     async def _dispatch_cmd(self, text: str) -> None:
         chat = self._get_chat_app()
+        # TUI 里 app.print() 写到 stdout（Textual 不显示），
+        # 用 StringIO 捕获命令输出，执行后转到 msglog 显示
+        import io
+        buf = io.StringIO()
+        orig_stream = chat.stream
+        chat.stream = buf
         try:
             await chat.dispatch(text)
         except Exception as exc:
             self._msglog().add_error(title="命令执行失败", detail=str(exc))
+        finally:
+            chat.stream = orig_stream
+        captured = buf.getvalue().strip()
+        if captured:
+            # 逐行显示到 msglog（去掉 ANSI 转义码）
+            import re
+            clean = re.sub(r'\x1b\[[0-9;]*m', '', captured)
+            for line in clean.splitlines():
+                if line.strip():
+                    self._msglog().add_meta(line)
 
     # ── 普通消息 ────────────────────────────────────────────────
     def _submit_text(self, text: str) -> None:
@@ -757,8 +965,14 @@ class ForgeTuiApp(App):
         self._tool_group = None
         self._tool_rows.clear()
         self._tool_started_at.clear()
+        self._tool_row_idx.clear()
         self._header().set_state("running")
         self._update_footer("running")
+        # 真实 spinner：braille 动画 80ms/帧 + LLM/工具状态文案
+        spinner = self._app_state.spinner if self._app_state else None
+        if spinner is not None:
+            spinner.start("LLM 推理中…")
+            spinner.display = True
         self._run_async(self._run_turn(text))
 
     def _run_async(self, coro) -> None:
@@ -775,6 +989,13 @@ class ForgeTuiApp(App):
         started = time.monotonic()
 
         def tui_event_cb(channel: str, payload) -> None:
+            # 更新 spinner 文案：activity 事件到达时显示当前阶段
+            if channel == "activity":
+                etype = str(payload.get("type") or "")
+                label = str(payload.get("label") or etype)
+                spinner = self._app_state.spinner if self._app_state else None
+                if spinner is not None and spinner._active:
+                    spinner.set_message(f"{label}…")
             self._on_tui_event(channel, payload)
 
         try:
@@ -787,7 +1008,7 @@ class ForgeTuiApp(App):
                 max_turns=chat.max_turns,
                 history_limit=chat.history_limit,
                 metadata={"channel": "tui"},
-                raise_on_error=True,
+                raise_on_error=False,
                 context_guard=chat.auto_summary,
                 stream_events_cb=tui_event_cb,
             )
@@ -795,33 +1016,71 @@ class ForgeTuiApp(App):
             self._stream_item = None
             self._stream_buf = ""
             self._header().set_state("idle")
+            self._stop_spinner()
             self._msglog().add_error(title="已中断", detail="本地等待已中断，后端 Run 可能仍在执行。")
             self._update_footer("idle")
             return
         except Exception as exc:
             self._header().set_state("failed")
+            self._stop_spinner()
             self._render_exception(exc)
             self._update_footer("idle")
             return
 
         # 审批：Runtime 明确返回 waiting_approval=True 才进入审批态
         if getattr(result, "waiting_approval", False):
+            self._stop_spinner()
             self._enter_approval(result)
             return
 
+        self._stop_spinner()
         self._render_result(result, started)
 
     async def _resolve_approvals(self, chat, result):
-        from main import _resolve_approvals_interactive
-        return await _resolve_approvals_interactive(
-            chat.runtime,
-            result,
-            session=chat.session,
-            mode=chat.mode,
-            debug=chat.debug,
-            max_turns=chat.max_turns,
-            history_limit=chat.history_limit,
-        )
+        """TUI 专用：用户已通过 Y/N 键做出决定，直接调 decide_approval 后续跑，
+        不走 _resolve_approvals_interactive（那个有 input() 同步阻塞，TUI 里永远卡死）。"""
+        from runtime.runner import RunResult
+
+        def _tui_cb(channel: str, payload) -> None:
+            """轻量事件回调：复用 App 的 _on_tui_event 渲染逻辑。"""
+            try:
+                self._on_tui_event(channel, payload)
+            except Exception:
+                pass
+
+        current = result
+        for _round in range(5):
+            if not isinstance(current, RunResult) or not current.waiting_approval:
+                return current
+            task = current.task
+            approvals = current.approvals or chat.runtime.tasks.list_pending_approvals(task.id)
+            if not approvals:
+                return current
+            # 批准全部 pending 审批（用户已按 Y）
+            for ap in approvals:
+                try:
+                    chat.runtime.tasks.decide_approval(
+                        ap["id"], "approved", actor="user"
+                    )
+                except Exception:
+                    pass
+            # 续跑同一任务（带 task_id 恢复）
+            current = await chat.runtime.run_turn(
+                task.goal,
+                session=chat.session,
+                session_id=task.session_id,
+                mode=chat.mode,
+                debug=chat.debug,
+                max_turns=chat.max_turns,
+                history_limit=chat.history_limit,
+                task_id=task.id,
+                metadata={"channel": "tui"},
+                raise_on_error=False,
+                stream_events_cb=_tui_cb,
+            )
+            if not current.ok and current.error:
+                return current
+        return current
 
     # ── Approval 状态机 ─────────────────────────────────────────
     #
@@ -839,6 +1098,7 @@ class ForgeTuiApp(App):
         self._in_approval = True
         approvals = getattr(result, "approvals", []) or []
         self._pending_approvals = list(approvals)
+        self._waiting_result = result  # 保存 RunResult，供批准后 resume
         self._header().set_state("waiting")
         self._update_footer("approval")
         for ap in approvals:
@@ -913,12 +1173,14 @@ class ForgeTuiApp(App):
             self._exit_approval()
             return
 
-        chat = self._get_chat_app()
-        result = getattr(chat, "_last_result", None)
+        result = self._waiting_result
         if result is None:
+            self._msglog().add_meta("（未找到待审批 Run，忽略）")
             self._exit_approval()
             return
+        self._waiting_result = None  # 消费后清除，防重复
 
+        chat = self._get_chat_app()
         try:
             result = await self._resolve_approvals(chat, result)
         except Exception as exc:
@@ -976,7 +1238,9 @@ class ForgeTuiApp(App):
                         self._tool_group = msglog.tool_group_start()
                     self._tool_rows[aid] = (label, label, "running", None)
                     self._tool_started_at[aid] = _time.monotonic()
-                    self._tool_group.add_tool(label, detail="", status="running")
+                    _row_idx = self._tool_group.add_tool(label, detail="", status="running")
+                    if isinstance(_row_idx, int):
+                        self._tool_row_idx[aid] = _row_idx
                     # Spinner：工具开始执行时点亮动画
                     spinner = self._app_state.spinner if self._app_state else None
                     if spinner is not None:
@@ -991,15 +1255,22 @@ class ForgeTuiApp(App):
                     elapsed = (
                         (_time.monotonic() - started) if started is not None else None
                     )
-                    # 用终态 label 覆盖之前 running 的那条
+                    # 用终态 label 覆盖之前 running 的那条（_tool_rows 内部状态）
                     prev = self._tool_rows.get(aid)
                     if prev:
                         self._tool_rows[aid] = (prev[0], prev[1], status, elapsed)
                     if self._tool_group is not None:
-                        # 追加终态行（保留 running 行作为执行过程）
-                        self._tool_group.add_tool(
-                            label, detail="", status=status, elapsed=elapsed,
-                        )
+                        _row_idx = self._tool_row_idx.pop(aid, None)
+                        if _row_idx is not None:
+                            # 原地更新（不追加新行）——修复：同一工具不再显示两行
+                            self._tool_group.set_tool(
+                                _row_idx, label, detail="", status=status, elapsed=elapsed,
+                            )
+                        else:
+                            # 兼容：add_tool 未返回索引（旧版本）时追加
+                            self._tool_group.add_tool(
+                                label, detail="", status=status, elapsed=elapsed,
+                            )
                     # 没有更多 running 工具时熄灭 Spinner
                     if not any(r[2] == "running" for r in self._tool_rows.values()):
                         spinner = self._app_state.spinner if self._app_state else None
@@ -1012,10 +1283,11 @@ class ForgeTuiApp(App):
                     if self._stream_item:
                         msglog.stream_end()
                         self._stream_item = None
-                    if self._tool_group is not None and self._tool_group.item_count > 1:
+                    if self._tool_group is not None:
                         self._tool_group.collapse()
                         self._tool_group = None
                     self._tool_rows.clear()
+                    self._tool_row_idx.clear()
                     # 熄灭 Spinner
                     spinner = self._app_state.spinner if self._app_state else None
                     if spinner is not None:
@@ -1168,8 +1440,15 @@ class ForgeTuiApp(App):
         self._on_key_press("tab")
 
     def key_enter(self) -> None:
-        # ModelPopup 的确认键（popup 打开时 focus 在 popup 的 body 上，
-        # 不走 Input 的 on_input_submitted，所以这里拦截一次）
+        # API 设置面板打开时：Enter = 保存
+        api = self._api_settings()
+        if api is not None and api.is_visible():
+            api.save()
+            self._bar().focus_input()
+            self._update_footer("idle")
+            return
+        # ModelPopup 的确认键（on_input_submitted 已优先拦截 popup 场景，
+        # 这里是兜底：焦点确实在 popup body 上的路径也在此 confirm）
         if self._model_picker_visible:
             popup = self._model_popup()
             if popup is not None and popup.is_visible():
@@ -1184,6 +1463,13 @@ class ForgeTuiApp(App):
                     self._bar().focus_input()
 
     def key_escape(self) -> None:
+        # API 设置面板打开时：Esc = 取消并关闭
+        api = self._api_settings()
+        if api is not None and api.is_visible():
+            api.cancel()
+            self._bar().focus_input()
+            self._update_footer("idle")
+            return
         self._on_key_press("escape")
 
     def key_m(self) -> None:
@@ -1274,21 +1560,30 @@ class ForgeTuiApp(App):
         #    初始 hist_idx = len(history)（表示"新输入"位置）
         #    首次按 ↑：先归位到 len(history)-1（最后一条历史），再递减
         if input_focused:
+            # 无历史时不翻（len([])-1 = -1 会让 _hist_idx=-1 越界 IndexError）
+            if not self._history:
+                return
+            # InputBar.input 是懒挂载的子 widget；刚启动、焦点已落到 InputBar
+            # 但 Input 尚未 mount 完成时为 None，此时改值会让 .value 赋值崩溃。
+            _in = self._bar().input
             if key == "up":
                 # 归位：如果 hist_idx 超出范围（初始状态），设到末尾
                 if self._hist_idx >= len(self._history):
                     self._hist_idx = len(self._history) - 1
                 else:
                     self._hist_idx = max(0, self._hist_idx - 1)
-                self._bar().input.value = self._history[self._hist_idx]
+                if _in is not None:
+                    _in.value = self._history[self._hist_idx]
             elif key == "down":
                 if self._hist_idx < len(self._history) - 1:
                     self._hist_idx += 1
-                    self._bar().input.value = self._history[self._hist_idx]
+                    if _in is not None:
+                        _in.value = self._history[self._hist_idx]
                 else:
                     # 已到末尾（新输入位置），清空输入框
                     self._hist_idx = len(self._history)
-                    self._bar().input.value = ""
+                    if _in is not None:
+                        _in.value = ""
 
         # 4. Esc 优先级
         if key == "escape":

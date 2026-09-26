@@ -957,7 +957,7 @@ def test_event_handler_builds_tool_group_from_activity():
                 "activity_id": "a1",
                 "metadata": {"label": "已检查 1 个文件"},
             })
-            assert app._tool_group.item_count == 2
+            assert app._tool_group.item_count == 1
             app._on_tui_event("activity", {
                 "type": "run.completed", "metadata": {},
             })

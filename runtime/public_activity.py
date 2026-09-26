@@ -238,7 +238,7 @@ class RunActivityProjector:
         if quiet:
             return cid
         label = "正在修正" if self.retry and category == "editing" else ToolActivityPresenter.running(name)
-        self.emit("tool.started", label, row_id=group, force=False)
+        self.emit("tool.started", label, row_id=group, force=True)
         self.rows[-1]["category"] = category
         if category == "verification" and name != "code_loop":
             self.verify_started()
@@ -272,8 +272,14 @@ class RunActivityProjector:
             label = "操作未完成" if cat != "verification" else "测试未通过"
         elif active:
             label = ToolActivityPresenter.running(name)
-        self.emit("tool.failed" if failed else "tool.completed", label,
-                  status="failed" if failed else "running" if active else "completed", row_id=group, force=failed)
+        if active and not failed:
+            # group 内还有未完成的 call，不发中间态 tool.completed，
+            # 避免 TUI 按同一 aid 弹出 _tool_row_idx 后第二条事件追加新行（显示两次）。
+            # 等最后一个 call 完成（active=False）时再发终态。
+            label = label  # 保留 label，不 emit
+        else:
+            self.emit("tool.failed" if failed else "tool.completed", label,
+                      status="failed" if failed else "completed", row_id=group, force=True)
         row = next(r for r in self.rows if r["activity_id"] == group)
         row["category"] = cat
 
