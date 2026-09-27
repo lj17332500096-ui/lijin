@@ -31,9 +31,18 @@ def read_skill_asset(slug: str, relpath: str) -> str:
     """
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", slug or ""):
         return "无效的技能名（仅允许字母/数字/_/-）。"
-    root = (SKILLS / slug).resolve()
+    candidate = SKILLS / slug
+    if candidate.is_symlink():
+        return "拒绝读取符号链接 Skill 目录。"
+    root = candidate.resolve()
+    if root.parent != SKILLS.resolve():
+        return "Skill 目录路径越界，已拒绝读取。"
     if not root.is_dir():
         return f"没有这个技能：{slug}。" + "可先 `ls` 已启用技能名。" if (SKILLS / slug).exists() else f"技能 {slug} 不存在。"
+    from skills_loader import enabled_names
+
+    if slug not in set(enabled_names()):
+        return f"Skill「{slug}」未启用，不能读取其资源。"
     rel = (relpath or "").strip()
     if not rel:
         return "请给出相对路径，例如 references/REFERENCE.md。" + _list(root)

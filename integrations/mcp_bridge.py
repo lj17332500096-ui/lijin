@@ -28,6 +28,7 @@
 import json
 import logging
 import os
+import time
 from typing import Any
 
 from agents.mcp import MCPServerStdio
@@ -46,6 +47,7 @@ DEFAULT_POLICY = "deny"
 _connected = False
 _config_errors: list[str] = []
 _connected_names: list[str] = []
+_failed_at: dict[str, float] = {}
 _skip_reasons: list[str] = []
 _servers: list[MCPServerStdio] = []
 _mounted_names: list[str] = []
@@ -319,19 +321,29 @@ async def attach_server_tools(server: MCPServerStdio, spec: dict) -> tuple[list[
 
 def _mount_tools(mounted: list[FunctionTool]) -> None:
     """把授权工具挂进 assistant_agent.tools，并清空 SDK 自动挂载通道（防重复执行）。"""
-    existing = [
-        t for t in list(getattr(assistant_agent, "tools", []) or [])
-        if getattr(t, "name", "") not in _mounted_names
-    ]
-    assistant_agent.tools = existing + mounted
+    targets = [assistant_agent]
+    try:
+        from agent import gateway_assistant_agent
+
+        current = gateway_assistant_agent()
+        if all(current is not item for item in targets):
+            targets.append(current)
+    except Exception:
+        pass
+    for target in targets:
+        existing = [
+            t for t in list(getattr(target, "tools", []) or [])
+            if getattr(t, "name", "") not in _mounted_names
+        ]
+        target.tools = existing + mounted
+        target.mcp_servers = []
     _mounted_names.extend(getattr(t, "name", "") for t in mounted)
-    assistant_agent.mcp_servers = []
 
 
 async def ensure_connected() -> bool:
-    """连接 allowlist 内的服务器，按工具权限映射挂载；无配置/全部拒绝时安全返回。"""
+    """连接 allowlist 内服务器；失败服务器按冷却时间重试，成功项不重复挂载。"""
     global _connected
-    if _connected:
+    if _connected and not _failed_at:
         return True
     specs, errors = parse_specs(os.getenv(ENV_KEY, ""))
     _config_errors.extend(errors)
@@ -342,10 +354,25 @@ async def ensure_connected() -> bool:
         return True
 
     mounted_total: list[FunctionTool] = []
+    attempted = False
+    try:
+        retry_interval = max(
+            0.0, float(os.getenv("FORGE_MCP_RETRY_INTERVAL_SECONDS", "30") or 30)
+        )
+    except ValueError:
+        retry_interval = 30.0
+    now = time.monotonic()
     # npx 冷启动（拉包）可能 > 5s（库默认 client_session_timeout_seconds=5），
     # 提到 60s 避免 gitee/playwright 冷启动时超时被跳过；FORGE_MCP_CONNECT_TIMEOUT 可覆盖。
     _conn_timeout_s: float = float(os.getenv("FORGE_MCP_CONNECT_TIMEOUT", "60") or 60)
     for spec in specs:
+        server_name = spec["name"]
+        if server_name in _connected_names:
+            continue
+        failed_at = _failed_at.get(server_name)
+        if failed_at is not None and now - failed_at < retry_interval:
+            continue
+        attempted = True
         env = dict(os.environ)
         env.update(spec["env"])
         server = MCPServerStdio(
@@ -356,12 +383,23 @@ async def ensure_connected() -> bool:
         try:
             await server.connect()
         except Exception as exc:
+            _failed_at[server_name] = time.monotonic()
             _skip_reasons.append(
-                f"{spec['name']} 连接失败（{type(exc).__name__}: {str(exc)[:160]}），已跳过"
+                f"{server_name} 连接失败（{type(exc).__name__}: {str(exc)[:160]}），"
+                f"将在 {retry_interval:g} 秒冷却后重试"
             )
+            try:
+                await server.cleanup()
+            except Exception:
+                pass
             continue
         _servers.append(server)
-        _connected_names.append(spec["name"])
+        _connected_names.append(server_name)
+        _failed_at.pop(server_name, None)
+        _skip_reasons[:] = [
+            reason for reason in _skip_reasons
+            if not reason.startswith(f"{server_name} 连接失败（")
+        ]
         mounted, skipped = await attach_server_tools(server, spec)
         _skip_reasons.extend(skipped)
         mounted_total.extend(mounted)
@@ -376,7 +414,7 @@ async def ensure_connected() -> bool:
             pass  # Runtime 未初始化时稍后 _ensure 会连同 MCP 工具一起包装
     _connected = True
     detail = status_text()
-    if detail:
+    if detail and (attempted or errors or allow_reasons):
         try:
             print(detail, flush=True)
         except UnicodeEncodeError:
@@ -407,17 +445,34 @@ async def close_servers() -> list[str]:
 
     if _mounted_names:
         names = set(_mounted_names)
-        assistant_agent.tools = [
-            tool for tool in list(getattr(assistant_agent, "tools", []) or [])
-            if getattr(tool, "name", "") not in names
-        ]
+        targets = [assistant_agent]
+        try:
+            from agent import gateway_assistant_agent
+
+            current = gateway_assistant_agent()
+            if all(current is not item for item in targets):
+                targets.append(current)
+        except Exception:
+            pass
+        for target in targets:
+            target.tools = [
+                tool for tool in list(getattr(target, "tools", []) or [])
+                if getattr(tool, "name", "") not in names
+            ]
+            target.mcp_servers = []
         _mounted_names.clear()
-    assistant_agent.mcp_servers = []
     _connected_names.clear()
+    _failed_at.clear()
     _config_errors.clear()
     _skip_reasons.clear()
     _policy_summary.update(allow=0, approval=0, deny=0)
     _connected = False
+    try:
+        from runtime.runner import AgentRuntime
+
+        AgentRuntime.get_default().refresh_tool_wrappers()
+    except Exception:
+        pass
     return errors
 
 

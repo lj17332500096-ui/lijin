@@ -353,6 +353,7 @@ class AgentRuntime:
     artifact_dirs: tuple[Path, ...] = field(default_factory=lambda: DEFAULT_ARTIFACT_DIRS)
     _initialized: bool = False
     _tools_patched: bool = False
+    _patched_agent_ids: set[int] = field(default_factory=set)
     #: B8：本地追踪是否已按需安装（幂等标记，避免重复替换 SDK 的 trace processors）
     _tracing_ready: bool = False
     _agent_cache: dict = field(default_factory=dict)
@@ -391,6 +392,9 @@ class AgentRuntime:
 
     def _ensure(self) -> None:
         if self._initialized:
+            # A model switch may construct a fresh cached Agent object at runtime.
+            # Wrap its tools before Router exposes them on the next Run.
+            self._patch_agent_tools()
             return
         self._initialized = True
         if not self.registry.names():
@@ -440,11 +444,22 @@ class AgentRuntime:
         - 记账：每次真实执行/被拦/报错都写入 self._run_ledger，供 Completion Gate
           取「声明-执行一致性」证据（不依赖 audit.ingest 是否成功）。
         """
-        if self._tools_patched or self.approval is None:
+        if self.approval is None:
             return
+        from agent import assistant_agent, gateway_assistant_agent  # 延迟导入，避免循环
+        agent_targets = []
+        for target in (assistant_agent, gateway_assistant_agent()):
+            if target is not None and all(target is not item for item in agent_targets):
+                agent_targets.append(target)
+        if self._tools_patched:
+            agent_targets = [
+                target for target in agent_targets
+                if id(target) not in self._patched_agent_ids
+            ]
+            if not agent_targets:
+                return
         self._tools_patched = True
         gate = self.approval
-        from agent import assistant_agent  # 延迟导入，避免循环
 
         def _make_invoke(original: Any, name: str):
             async def invoke(ctx: Any, args_json: str) -> Any:
@@ -1408,32 +1423,36 @@ class AgentRuntime:
 
             return invoke
 
-        replaced: list[Any] = []
-        for tool in list(getattr(assistant_agent, "tools", []) or []):
-            name = getattr(tool, "name", "")
-            # 若工具已是包装（跨测试/重复 _ensure 会再包一层形成旧链），先解回原始工具，
-            # 保证永远只绑一层活包装（审批 + 记账共用同一层）。
-            while getattr(tool, "_gate_wrapper", False):
-                original_tool = getattr(tool, "_wrapped_original", None)
-                if original_tool is None:
-                    break
-                tool = original_tool
-            clone = FunctionTool(
-                name=name,
-                description=getattr(tool, "description", "") or "",
-                params_json_schema=getattr(tool, "params_json_schema", {}) or {},
-                on_invoke_tool=_make_invoke(tool, name),
-                strict_json_schema=bool(getattr(tool, "strict_json_schema", True)),
-                needs_approval=False,
-            )
-            setattr(clone, "_gate_wrapper", True)
-            setattr(clone, "_wrapped_original", tool)
-            # 保留 MCP 来源元数据：Tool Router 需要识别外部工具（包装克隆默认不复制）
-            for _attr in ("_mcp_source", "_mcp_server", "_mcp_remote", "_mcp_policy"):
-                if hasattr(tool, _attr):
-                    setattr(clone, _attr, getattr(tool, _attr))
-            replaced.append(clone)
-        assistant_agent.tools = replaced
+        for target in agent_targets:
+            replaced: list[Any] = []
+            for tool in list(getattr(target, "tools", []) or []):
+                name = getattr(tool, "name", "")
+                # 若工具已是包装，先解回原始工具，避免包装链重复叠加。
+                while getattr(tool, "_gate_wrapper", False):
+                    original_tool = getattr(tool, "_wrapped_original", None)
+                    if original_tool is None:
+                        break
+                    tool = original_tool
+                clone = FunctionTool(
+                    name=name,
+                    description=getattr(tool, "description", "") or "",
+                    params_json_schema=getattr(tool, "params_json_schema", {}) or {},
+                    on_invoke_tool=_make_invoke(tool, name),
+                    strict_json_schema=bool(getattr(tool, "strict_json_schema", True)),
+                    needs_approval=False,
+                )
+                setattr(clone, "_gate_wrapper", True)
+                setattr(clone, "_wrapped_original", tool)
+                # 保留来源标签；Router 和能力盘点以它区分插件/MCP/内置工具。
+                for _attr in (
+                    "_mcp_source", "_mcp_server", "_mcp_remote", "_mcp_policy",
+                    "_tool_origin",
+                ):
+                    if hasattr(tool, _attr):
+                        setattr(clone, _attr, getattr(tool, _attr))
+                replaced.append(clone)
+            target.tools = replaced
+            self._patched_agent_ids.add(id(target))
 
     def refresh_tool_wrappers(self) -> None:
         """Agent.tools 有新工具接入（如 MCP 策略工具挂载）后重包全部工具。
@@ -1444,6 +1463,12 @@ class AgentRuntime:
         if self._initialized and self.approval is not None:
             self._tools_patched = False
             self._patch_agent_tools()
+            from agent import assistant_agent
+
+            self.registry = discover_from_agent(assistant_agent)
+            if self.broker is not None:
+                self.broker.registry = self.registry
+            self._agent_cache.clear()
 
     # ---------- 真实执行账本（Completion Gate 证据源） ----------
 
@@ -2166,11 +2191,17 @@ class AgentRuntime:
         try:
             parts = [f"【当前项目：{(str(proj.get('title') or '')).strip()}】"]
             scope = str(proj.get("memory_scope") or "project_only")
-            parts.append(
-                "记忆范围：仅此项目（只能使用本项目对话/来源/项目记忆，不得读取全局记忆与其他项目内容）。"
-                if scope == "project_only"
-                else "记忆范围：使用全局记忆（可读取全局长期记忆，但仍不得读取其他项目对话与来源）。"
-            )
+            from runtime.memory_policy import memory_enabled
+
+            memory_on = memory_enabled()
+            if memory_on:
+                parts.append(
+                    "记忆范围：仅此项目（只能使用本项目对话/来源/项目记忆，不得读取全局记忆与其他项目内容）。"
+                    if scope == "project_only"
+                    else "记忆范围：使用全局记忆（可读取全局长期记忆，但仍不得读取其他项目对话与来源）。"
+                )
+            else:
+                parts.append("长期记忆、项目记忆与历史经验已关闭，本轮不得读取或写入记忆。")
             instructions = str(proj.get("instructions") or "").strip()
             if instructions:
                 parts.append("项目说明：\n" + instructions)
@@ -2182,9 +2213,10 @@ class AgentRuntime:
                 parts.append(
                     f"项目来源文件位于 {project_sources_dir(container_id)}（可用 read_workspace_file 读取）：\n{lines}"
                 )
-            pms = self.tasks.list_project_memories(container_id, limit=10)
-            if pms:
-                parts.append("项目记忆：\n" + "\n".join(f"- {m['text']}" for m in pms))
+            if memory_on:
+                pms = self.tasks.list_project_memories(container_id, limit=10)
+                if pms:
+                    parts.append("项目记忆：\n" + "\n".join(f"- {m['text']}" for m in pms))
             wl = self.tasks.get_work_location(proj.get("work_location_id")) if proj.get("work_location_id") else None
             if wl and wl.get("local_path"):
                 parts.append(f"工作位置（FORGE 可读写的本地目录）：{wl['local_path']}")

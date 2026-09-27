@@ -503,7 +503,9 @@ skills/<技能名>/
 诊断：`python -c "import skills_loader; print(skills_loader.status_text())"`。
 运行中的 Agent 可调用 `extension_manager(action="list")` 查看 Skill/MCP 清单与状态；
 匹配任务时通过 `extension_manager(action="load_skill", name="技能目录名")` 读取已启用 Skill 的完整指引。
-该入口不安装插件、不执行新代码；Skill 工具仍由 Runtime 统一路由和执行。
+修改 `.env` 的 `SKILLS` 或新增/更新 Skill 后，可显式调用
+`extension_manager(action="refresh_skills")` 重新扫描并同步当前 Agent；该操作会导入启用 Skill 中受信任的本地 `tools.py`，不安装第三方包。
+Skill 工具仍由 Runtime 统一路由和执行。
 
 当前默认启用的技能：
 
@@ -921,6 +923,11 @@ MCP_SERVERS=[{
 再作答。想检查它记住了什么，可以直接问“你还记得关于我的哪些信息？”，不满意就让它
 按 `recall_memory` 显示的 id 用 `forget_memory` 删除。
 记忆写闸：密钥格式/空壳内容会被本地规则拒绝入库（不消耗模型调用）。
+
+`FORGE_MEMORY_ENABLED=0` 会统一关闭长期记忆、项目记忆和历史 Episode 的读写、删除、召回与上下文注入；
+重新开启后记忆数据仍保留。Episode 终态采集默认自动执行且不影响 Run 结果，
+可用 `EPISODE_INGEST=0` 关闭自动采集，再通过 `/episode ingest` 手动补采；
+`EPISODE_RECALL=0` 只关闭历史经验召回，不影响终态采集。
 
 **长会话自动摘要**（默认开启）：按“激进档”贴近 256K 上下文——会话积累到约 60 轮用户输入，
 或累计约 18 万字符（含工具输出，粗略估算）时才触发；触发后程序调用同一个网关模型把较早的

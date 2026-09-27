@@ -319,6 +319,14 @@ def gateway_assistant_agent():
     if _ASSISTANT_AGENT_CACHE is not None and _ASSISTANT_AGENT_KEY == model:
         return _ASSISTANT_AGENT_CACHE
     agent = _build_assistant_agent(model)
+    # Preserve dynamically mounted MCP tools across a model-only Agent rebuild.
+    if _ASSISTANT_AGENT_CACHE is not None:
+        mounted_mcp = [
+            tool for tool in (getattr(_ASSISTANT_AGENT_CACHE, "tools", []) or [])
+            if getattr(tool, "_mcp_source", None) == "mcp"
+        ]
+        if mounted_mcp:
+            agent.tools = list(getattr(agent, "tools", []) or []) + mounted_mcp
     _ASSISTANT_AGENT_CACHE = agent
     _ASSISTANT_AGENT_KEY = model
     return agent
@@ -327,6 +335,59 @@ def gateway_assistant_agent():
 # 向后兼容：模块级引用
 MODEL_PROVIDER = gateway_model_provider()
 assistant_agent = gateway_assistant_agent()
+
+
+def refresh_enabled_skills() -> dict[str, object]:
+    """Rescan currently enabled local Skills and refresh live Agent instances.
+
+    This only imports local Skill ``tools.py`` files already selected by ``SKILLS``;
+    it does not install packages or change configuration.
+    """
+    global SKILL_TOOLS, SKILL_CATALOG_BLOCK
+
+    previous_block = SKILL_CATALOG_BLOCK
+    skills_loader.reload_enabled_config()
+    refreshed_tools = skills_loader.collect_skill_tools()
+    refreshed_block = skills_loader.catalog_prompt_block()
+    targets = []
+    for target in (assistant_agent, gateway_assistant_agent()):
+        if target is not None and all(target is not item for item in targets):
+            targets.append(target)
+
+    for target in targets:
+        current_tools = list(getattr(target, "tools", []) or [])
+        retained = [
+            tool for tool in current_tools
+            if getattr(tool, "_tool_origin", None) != "plugin"
+        ]
+        target.tools = retained + list(refreshed_tools)
+        instructions = str(getattr(target, "instructions", "") or "")
+        if previous_block and previous_block in instructions:
+            instructions = instructions.replace(previous_block, refreshed_block)
+        elif refreshed_block not in instructions:
+            instructions = instructions.rstrip() + "\n\n" + refreshed_block
+        target.instructions = instructions
+
+    SKILL_TOOLS = refreshed_tools
+    SKILL_CATALOG_BLOCK = refreshed_block
+    runtime_refreshed = False
+    runtime_error = ""
+    try:
+        from runtime.runner import AgentRuntime
+
+        runtime = AgentRuntime.get_default()
+        if runtime._initialized:
+            runtime.refresh_tool_wrappers()
+            runtime_refreshed = True
+    except Exception as exc:
+        runtime_error = f"{type(exc).__name__}: {str(exc)[:240]}"
+    return {
+        "enabled_skills": skills_loader.enabled_names(),
+        "registered_skill_tools": [tool.name for tool in refreshed_tools],
+        "errors": list(skills_loader._last_errors),
+        "runtime_refreshed": runtime_refreshed,
+        "runtime_error": runtime_error or None,
+    }
 
 # ---- 本地模型（llama.cpp / Ollama 等 OpenAI 兼容本地服务，可经项目设置选择）----
 # 配置实时读取（env 变化无需重启即生效；模块级常量只用于文档/摘要）。

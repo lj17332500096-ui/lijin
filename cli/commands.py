@@ -373,6 +373,11 @@ async def cmd_episode(app, arg: str) -> None:
         return
 
     if sub == "ingest":
+        from runtime.memory_policy import memory_enabled
+
+        if not memory_enabled():
+            app.print(theme.warn("  记忆总开关已关闭，本次未采集历史经验。"))
+            return
         try:
             stats = store.ingest_pending()
         except Exception as exc:
@@ -385,6 +390,11 @@ async def cmd_episode(app, arg: str) -> None:
         return
 
     if sub == "reindex":
+        from runtime.memory_policy import memory_enabled
+
+        if not memory_enabled():
+            app.print(theme.warn("  记忆总开关已关闭，不能重建历史经验索引。"))
+            return
         app.print(theme.warn("  正在按当前分词规则全量重建（清表后从原始事件重算）…"))
         try:
             stats = store.reindex()
@@ -395,6 +405,11 @@ async def cmd_episode(app, arg: str) -> None:
         return
 
     if sub in ("recall", "查", "find"):
+        from runtime.memory_policy import memory_enabled
+
+        if not memory_enabled():
+            app.print(theme.warn("  记忆总开关已关闭，不能读取历史经验。"))
+            return
         if not rest:
             app.print(theme.warn("  用法：/episode recall <请求文本>"))
             return
@@ -406,12 +421,21 @@ async def cmd_episode(app, arg: str) -> None:
 
     if sub in ("on", "off"):
         import os
+        from runtime.memory_policy import memory_enabled
 
         os.environ["EPISODE_RECALL"] = "1" if sub == "on" else "0"
-        app.print(f"  已{'开启' if sub == 'on' else '关闭'}情节记忆注入（本次进程内有效）。")
+        if sub == "on" and not memory_enabled():
+            app.print("  已设置开启情节记忆召回，但记忆总开关关闭中，召回仍不可用。")
+        else:
+            app.print(f"  已{'开启' if sub == 'on' else '关闭'}情节记忆召回（本次进程内有效）。")
         return
 
     if sub == "clear":
+        from runtime.memory_policy import memory_enabled
+
+        if not memory_enabled():
+            app.print(theme.warn("  记忆总开关已关闭，不能清除历史经验。"))
+            return
         if rest.lower() != "yes":
             app.print(theme.warn("  这会清空全部情节记忆；确认请执行 /episode clear yes"))
             return

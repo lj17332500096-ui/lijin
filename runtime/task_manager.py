@@ -1244,7 +1244,32 @@ class TaskManager:
                 "INSERT INTO task_events (task_id, event_type, payload_json, created_at) VALUES (?,?,?,?)",
                 (task_id, event_type, json.dumps(event.payload, ensure_ascii=False), event.created_at),
             )
+        if event_type == "run.terminal":
+            self._auto_ingest_episode_memory()
         return event
+
+    def _auto_ingest_episode_memory(self) -> None:
+        """Best-effort post-commit episode collection; never changes Run outcome."""
+        try:
+            from runtime.memory_policy import episode_ingest_enabled
+
+            if not episode_ingest_enabled():
+                return
+            from runtime.episode_store import EpisodeStore
+
+            raw_limit = os.getenv("EPISODE_INGEST_BATCH_SIZE", "1000")
+            try:
+                limit = max(1, min(int(raw_limit), 5000))
+            except (TypeError, ValueError):
+                limit = 1000
+            stats = EpisodeStore(self.db_path).ingest_pending(limit=limit)
+            if stats.get("failed"):
+                logging.getLogger(__name__).warning(
+                    "episode auto-ingest had row failures: scanned=%s inserted=%s failed=%s",
+                    stats.get("scanned"), stats.get("inserted"), stats.get("failed"),
+                )
+        except Exception:
+            logging.getLogger(__name__).exception("episode auto-ingest failed")
 
     def add_terminal_event(
         self, task_id: str, expected_state: TaskState, payload: dict
@@ -1272,6 +1297,7 @@ class TaskManager:
                 (task_id, event.event_type,
                  json.dumps(payload, ensure_ascii=False), event.created_at),
             )
+        self._auto_ingest_episode_memory()
         return event
 
     # ---------- P1-4：provider attempt 跨进程持久化 ----------
@@ -2730,6 +2756,37 @@ class TaskManager:
             )
         return {"id": row_id, "task_id": task_id, "text": str(text)[:4000], "tags": (tags or [])[:20],
                 "created_at": now, "updated_at": now}
+
+    def upsert_project_memory(self, task_id: str, text: str,
+                              tags: list[str] | None = None) -> dict:
+        """Create or update the exact project-memory copy of a remembered fact."""
+        value = str(text)[:4000]
+        safe_tags = list(dict.fromkeys(str(tag)[:120] for tag in (tags or [])))[:20]
+        tags_json = json.dumps(safe_tags, ensure_ascii=False)
+        now = utcnow_iso()
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, created_at FROM project_memories "
+                "WHERE task_id = ? AND text = ? ORDER BY updated_at DESC LIMIT 1",
+                (task_id, value),
+            ).fetchone()
+            if row:
+                row_id = str(row["id"])
+                created_at = str(row["created_at"])
+                conn.execute(
+                    "UPDATE project_memories SET tags_json = ?, updated_at = ? WHERE id = ?",
+                    (tags_json, now, row_id),
+                )
+            else:
+                row_id = "pmem_" + uuid.uuid4().hex[:8]
+                created_at = now
+                conn.execute(
+                    "INSERT INTO project_memories "
+                    "(id, task_id, text, tags_json, created_at, updated_at) VALUES (?,?,?,?,?,?)",
+                    (row_id, task_id, value, tags_json, now, now),
+                )
+        return {"id": row_id, "task_id": task_id, "text": value, "tags": safe_tags,
+                "created_at": created_at, "updated_at": now}
 
     def list_project_memories(self, task_id: str, limit: int = 50) -> list[dict]:
         with self._connect() as conn:

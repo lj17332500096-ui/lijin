@@ -1,0 +1,21 @@
+# 进展
+
+- 2026-09-27：开始插件、Skill、记忆与 Agent 接入专项静态审查；已读取仓库规则、前次审计范围以及先前 Skill/插件目录任务记录。
+- 前次目录任务说明实现过 Skill 正文按需读取和统一扩展状态工具；本轮将重新核验当前代码连接路径，不将历史说明视为验收证据。
+- 静态追踪完成：Agent 构造 → Runtime Registry → Tool Router → Runtime tool wrappers；MCP 执行前连接并动态挂载；语义记忆按 RunContext 项目 scope 分流。
+- 覆核离线测试清单，确认 Skill Loader、能力快照、MCP 策略、SQLite 记忆、项目隔离及并发 scope 均有针对性测试源；本轮未运行。
+- 记录 5 项当前代码差距：MCP 失败不重试；Skill 工具启动快照；skill-assets 允许读取未启用 Skill 资源；记忆开关语义不完整且 global 写入回执与实际不一致；Episode 采集依赖手动命令。
+- 完成报告：`docs/audits/PLUGINS_SKILLS_MEMORY_AGENT_WIRING_AUDIT_2026-09-27.md`。未读取 `.env`，未调用真实服务，未修改产品代码。
+- 2026-09-27：用户授权修复插件发现问题；新增后续阶段 A–D。将修复范围限定为 MCP 失败重试、显式 Skill 刷新、Skill 资源启用校验；不扩建插件安装/卸载市场。
+- MCP 连接失败现在按服务记录并在默认 30 秒冷却后重试；成功项不重复挂载，成功后清除连接失败状态。
+- 新增 `extension_manager(action="refresh_skills")`，重新读取 `.env` 中的 Skill 启用列表并更新当前 Agent 工具、指令、Runtime wrapper/Registry；Runtime 包装器现在保留 Plugin 来源标记，模型 Agent 重建会保留已挂载 MCP 工具。
+- `skill-assets` 现在拒绝未启用 Skill、Skill 目录 symlink 和解析越界路径。
+- `.venv` 下对受影响模块执行 `py_compile` 通过，`git diff --check` 通过。没有运行测试或启动真实 MCP/Provider。
+- 2026-09-27：继续修复 Skill 技能边界。`skills_loader` 现在统一拒绝 Skill 目录自身为符号链接、目录解析越界以及 Skill 指令文件符号链接/越界；工具收集复用同一目录验证。
+- `refresh_enabled_skills()` 不再静默吞掉 Runtime Registry/wrapper 同步异常，返回 `runtime_error` 字段供 extension_manager 报告部分刷新状态。
+- Tool Router 现在会在 Skill 相关请求中匹配已启用 Skill 的名称/触发描述，并把匹配 Skill 的已注册工具作为候选，降低依赖手写别名表造成的漏召回；未匹配的 Skill 工具不会加入本轮。
+- `.venv` 下 `skills_loader.py`、`agent.py`、`runtime/tool_router.py` 的 `py_compile` 通过，`git diff --check` 通过；未运行测试或真实 Skill 动态刷新验收。
+- 2026-09-27：开始记忆契约修复。新增共享总开关，覆盖长期/项目/情节记忆读取、写入、删除、Router 暴露、项目上下文、Episode recall 与自动采集；CLI 手动 Episode ingest 也遵守总开关。
+- 全局记忆模式的 `remember` 现在同步 upsert 当前项目副本；按项目记忆 ID 删除时强制验证当前 Run 的项目归属，`project_only` 禁止删个人全局记忆。
+- `TaskManager` 在终态事件持久化后 best-effort 自动 ingest Episode，错误只记录、不改变终态；保留手动补采命令。
+- `.venv` 下 `py_compile` 覆盖记忆策略、TaskManager、Runner、Router、Episode recall、工具和 CLI 模块并通过；`git diff --check` 通过。未运行测试或故障注入。

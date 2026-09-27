@@ -179,6 +179,7 @@ _GORDEN_PPT_INTENT = re.compile(
 TOOL_TERMS: dict[str, tuple[str, ...]] = {
     "extension_manager": ("插件清单", "插件状态", "扩展状态", "可用技能", "已安装技能",
                           "加载技能", "启用技能", "extension manager", "load skill",
+                          "刷新技能", "重新扫描技能", "refresh skills",
                           "品牌规范", "品牌风格", "品牌色", "小说创作", "小说",
                           "短篇拆解", "长篇拆解", "周报", "周总结", "依赖体检",
                           "依赖检查", "requirements", "文章", "文案", "创作",
@@ -696,6 +697,11 @@ _NOTE_QUERY_INTENT = re.compile(
 
 def _memory_tool_allowed(tool: str, text: str) -> bool:
     """某 memory/note 工具是否因对应语义意图而允许进入本轮。"""
+    if tool in {"remember", "recall_memory", "forget_memory"}:
+        from runtime.memory_policy import memory_enabled
+
+        if not memory_enabled():
+            return False
     if tool == "remember":
         return _save_intent(text)
     if tool == "save_note":
@@ -735,7 +741,8 @@ _DIRECT_TEXT_INTENT = re.compile(
     re.IGNORECASE,
 )
 _SKILL_ACTION_INTENT = re.compile(
-    r"加载.{0,12}(?:技能|skill)|使用.{0,12}(?:技能|skill)|"
+    r"加载.{0,12}(?:技能|skill)|刷新.{0,12}(?:技能|skill)|重新扫描.{0,12}(?:技能|skill)|"
+    r"使用.{0,12}(?:技能|skill)|"
     r"(?:技能|skill).{0,16}(?:完成|处理|撰写|生成|制作|翻译)|"
     r"(?:品牌规范|品牌风格|品牌色|小说创作|小说|短篇拆解|长篇拆解|"
     r"周报|周总结|依赖体检|依赖检查|requirements|文章|文案|创作|"
@@ -944,6 +951,53 @@ def select_tool_names(
     if (skill_manager_ready and not capability and skill_relevant_request
             and "extension_manager" not in required_action_tools):
         required_action_tools.insert(0, "extension_manager")
+    # Skill-owned trigger descriptions supplement the hand-maintained tool alias
+    # table. Only add tools from enabled Skills whose name or trigger text matches
+    # this Skill-relevant request; unrelated Skill tools remain out of the turn.
+    if skill_manager_ready and not capability and skill_relevant_request:
+        try:
+            from skills_loader import skill_catalog
+
+            skill_stop_cjk = {
+                "技能", "用户", "使用", "需要", "可以", "帮助", "任务", "处理",
+                "生成", "完成", "进行", "相关", "内容", "提供", "支持", "当前",
+                "通过", "要求", "触发", "说明", "工具", "本技", "技能",
+            }
+            query_cjk = {
+                text[i:i + 2] for i in range(max(0, len(text) - 1))
+                if "\u4e00" <= text[i] <= "\u9fff"
+                and "\u4e00" <= text[i + 1] <= "\u9fff"
+                and text[i:i + 2] not in skill_stop_cjk
+            }
+            skill_tools: list[str] = []
+            for skill in skill_catalog():
+                if not skill.get("enabled"):
+                    continue
+                skill_name = str(skill.get("name", "")).casefold()
+                name_terms = {part for part in re.split(r"[_-]+", skill_name) if len(part) >= 3}
+                explicit_name = bool(skill_name and skill_name in text) or any(
+                    term in text for term in name_terms
+                )
+                description = str(skill.get("description", "")).casefold()
+                description_cjk = {
+                    description[i:i + 2]
+                    for i in range(max(0, len(description) - 1))
+                    if "\u4e00" <= description[i] <= "\u9fff"
+                    and "\u4e00" <= description[i + 1] <= "\u9fff"
+                    and description[i:i + 2] not in skill_stop_cjk
+                }
+                description_words = set(re.findall(r"[a-z][a-z0-9_+-]{2,}", description))
+                query_words = set(re.findall(r"[a-z][a-z0-9_+-]{2,}", text))
+                if explicit_name or len(query_cjk & description_cjk) >= 1 or query_words & description_words:
+                    skill_tools.extend(
+                        name for name in skill.get("tool_names", [])
+                        if name in available_set and name not in skill_tools
+                    )
+            for name in skill_tools:
+                if name not in required_action_tools:
+                    required_action_tools.append(name)
+        except Exception:
+            pass
 
     scored: dict[str, int] = {}
     for name, terms in TOOL_TERMS.items():

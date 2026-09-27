@@ -7,12 +7,15 @@ from skills_loader import load_skill_text
 
 
 @function_tool
-def extension_manager(action: Literal["list", "load_skill"], name: str = "") -> str:
+def extension_manager(
+    action: Literal["list", "load_skill", "refresh_skills"], name: str = "",
+) -> str:
     """查看已安装 Skill/MCP 扩展状态，或加载某个已启用 Skill 的完整指引。
 
     action=list 返回真实 Runtime 已挂载工具、Skill 启用情况及 MCP 连接状态；
-    action=load_skill 且提供 name 时，读取该 Skill 的指令正文供当前任务使用。
-    此工具不安装扩展、不修改配置、不执行 Skill 脚本。
+    action=load_skill 且提供 name 时，读取该 Skill 的指令正文供当前任务使用；
+    action=refresh_skills 时按当前 SKILLS 配置重扫本地 Skill 并更新运行中的 Agent。
+    此工具不安装扩展、不修改配置；刷新时会导入所启用 Skill 的本地 tools.py。
     """
     import json
 
@@ -20,6 +23,11 @@ def extension_manager(action: Literal["list", "load_skill"], name: str = "") -> 
         if not name.strip():
             return "请提供要加载的 Skill 名称。可先用 action='list' 查看清单。"
         return load_skill_text(name.strip())
+
+    if action == "refresh_skills":
+        from agent import refresh_enabled_skills
+
+        return json.dumps(refresh_enabled_skills(), ensure_ascii=False)
 
     from skills_loader import skill_catalog
     from runtime.capability_introspection import capability_snapshot

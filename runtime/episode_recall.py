@@ -42,7 +42,9 @@ DEFAULT_LIMIT = 5
 
 
 def enabled() -> bool:
-    return os.environ.get("EPISODE_RECALL", "1").strip().lower() not in (
+    from runtime.memory_policy import memory_enabled
+
+    return memory_enabled() and os.environ.get("EPISODE_RECALL", "1").strip().lower() not in (
         "0", "false", "no", "off", "")
 
 

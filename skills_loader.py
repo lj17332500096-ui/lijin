@@ -16,15 +16,36 @@ from pathlib import Path
 
 from agents import function_tool
 from agents.tool import FunctionTool
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv
 
 BASE_DIR = Path(__file__).resolve().parent
+_PROJECT_SKILLS_AT_IMPORT = dotenv_values(BASE_DIR / ".env").get("SKILLS")
+_ENV_SKILLS_AT_IMPORT = os.environ.get("SKILLS")
+_SKILLS_ENV_IS_EXTERNAL = (
+    _ENV_SKILLS_AT_IMPORT is not None
+    and _ENV_SKILLS_AT_IMPORT != (_PROJECT_SKILLS_AT_IMPORT or "")
+)
 load_dotenv(BASE_DIR / ".env")
 SKILLS_DIR = BASE_DIR / "skills"
 NAME_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 
 _last_errors: list[str] = []
 _last_loaded: list[str] = []
+
+
+def reload_enabled_config() -> None:
+    """Refresh SKILLS from the project .env when it was not externally overridden."""
+    if _SKILLS_ENV_IS_EXTERNAL:
+        return
+    try:
+        values = dotenv_values(BASE_DIR / ".env")
+        if "SKILLS" in values:
+            os.environ["SKILLS"] = str(values.get("SKILLS") or "")
+        else:
+            os.environ.pop("SKILLS", None)
+    except (OSError, UnicodeError):
+        # Keep the currently loaded setting if the project config is unreadable.
+        return
 
 
 def enabled_names() -> list[str]:
@@ -53,8 +74,12 @@ def skill_definitions() -> list[dict]:
     _last_errors = []
     _last_loaded = []
     for name in enabled_names():
+        skill_dir = _skill_dir_path(name)
         md_path = _skill_md_path(name)
-        if md_path is None or md_path.is_symlink():
+        if skill_dir is None:
+            _last_errors.append(f"技能 {name} 的目录无效、是符号链接或路径越界，已跳过")
+            continue
+        if md_path is None:
             _last_errors.append(f"技能 {name} 缺少 skill.md（期望 {SKILLS_DIR / name / 'skill.md'}）")
             continue
         try:
@@ -159,12 +184,11 @@ def load_skill_text(name: str) -> str:
         return "Skill 名称格式无效。"
     if name not in set(enabled_names()):
         return f"Skill「{name}」未启用。可用 Skill 请先加入 .env 的 SKILLS 配置。"
-    skill_dir = (SKILLS_DIR / name).resolve()
-    if skill_dir.parent != SKILLS_DIR.resolve() or not skill_dir.is_dir():
+    skill_dir = _skill_dir_path(name)
+    if skill_dir is None:
         return f"未找到 Skill「{name}」。"
     md_path = _skill_md_path(name)
-    if (md_path is None or md_path.is_symlink()
-            or md_path.resolve().parent != skill_dir):
+    if md_path is None:
         return f"Skill「{name}」缺少有效的 skill.md / SKILL.md。"
     try:
         text = md_path.read_text(encoding="utf-8").strip()
@@ -195,11 +219,37 @@ def catalog_prompt_block() -> str:
 
 def _skill_md_path(name: str) -> Path | None:
     """返回技能指令文件路径：优先小写 skill.md，回退大写 SKILL.md（Linux 大小写兼容）。"""
+    skill_dir = _skill_dir_path(name)
+    if skill_dir is None:
+        return None
     for fname in ("skill.md", "SKILL.md"):
-        p = SKILLS_DIR / name / fname
-        if p.is_file():
-            return p
+        p = skill_dir / fname
+        if p.is_symlink():
+            continue
+        try:
+            resolved = p.resolve(strict=True)
+        except OSError:
+            continue
+        if resolved.parent == skill_dir and resolved.is_file():
+            return resolved
     return None
+
+
+def _skill_dir_path(name: str) -> Path | None:
+    """Return a real, direct child Skill directory; reject symlinks and escapes."""
+    if not isinstance(name, str) or not NAME_RE.fullmatch(name):
+        return None
+    candidate = SKILLS_DIR / name
+    if candidate.is_symlink():
+        return None
+    try:
+        root = SKILLS_DIR.resolve(strict=True)
+        resolved = candidate.resolve(strict=True)
+    except OSError:
+        return None
+    if resolved.parent != root or not resolved.is_dir():
+        return None
+    return resolved
 
 
 def collect_skill_tools() -> list[FunctionTool]:
@@ -209,14 +259,11 @@ def collect_skill_tools() -> list[FunctionTool]:
     if not _last_loaded:
         skill_definitions()  # 确保 _last_loaded 与错误已刷新
     for name in list(_last_loaded):
-        skill_dir_entry = SKILLS_DIR / name
-        skill_dir = skill_dir_entry.resolve()
-        skills_root = SKILLS_DIR.resolve()
-        if (skill_dir_entry.is_symlink() or skill_dir.parent != skills_root
-                or not skill_dir.is_dir()):
+        skill_dir = _skill_dir_path(name)
+        if skill_dir is None:
             _last_errors.append(f"技能 {name} 的目录无效，已跳过 tools.py")
             continue
-        candidate = SKILLS_DIR / name / "tools.py"
+        candidate = skill_dir / "tools.py"
         if candidate.is_symlink():
             _last_errors.append(f"技能 {name} 的 tools.py 是符号链接，已跳过")
             continue
