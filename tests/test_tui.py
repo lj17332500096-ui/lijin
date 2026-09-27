@@ -794,7 +794,7 @@ def test_message_log_fills_available_height():
 
 
 def test_layout_fills_screen_exactly():
-    """Header + MessageLog + ModelPicker 行 + InputBar 高度之和 == 终端行数。
+    """Header + 操作栏 + MessageLog + ModelPicker + InputBar 填满终端。
 
     注：新增 ModelPicker 后高度预算多 1 行（模型行）。
     """
@@ -806,6 +806,7 @@ def test_layout_fills_screen_exactly():
             panel = app.query_one(TuiPanels)
             total = (
                 panel.header.region.height
+                + app.query_one("#tui-toolbar").region.height
                 + panel.msglog.region.height
                 + panel.model_picker.region.height
                 + panel.bar.region.height
@@ -904,6 +905,7 @@ def test_layout_survives_narrow_terminal():
             assert panel.bar.input.content_size.height >= 1
             total = (
                 panel.header.region.height
+                + app.query_one("#tui-toolbar").region.height
                 + panel.msglog.region.height
                 + panel.model_picker.region.height
                 + panel.bar.region.height
@@ -1008,7 +1010,9 @@ def test_hint_line_does_not_break_layout_budget():
                 await pilot.pause()
                 panel = app.query_one(TuiPanels)
                 assert panel.bar.region.height <= 6, f"{size} 下 InputBar={panel.bar.region.height} 行"
-                total = (panel.header.region.height + panel.msglog.region.height
+                total = (panel.header.region.height
+                         + app.query_one("#tui-toolbar").region.height
+                         + panel.msglog.region.height
                          + panel.model_picker.region.height
                          + panel.bar.region.height)
                 assert total == app.screen.region.height, (

@@ -20,8 +20,8 @@ from rich.text import Text
 from rich.markdown import Markdown as _RichMarkdown
 from textual._context import NoActiveAppError
 from textual.app import ComposeResult, NoScreen
-from textual.containers import Vertical, VerticalScroll
-from textual.widgets import Footer, Input, Static
+from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.widgets import Button, Footer, Input, Static
 from textual.widget import MountError
 
 
@@ -197,6 +197,10 @@ class StatusHeader(Static):
 
     def set_model(self, model: str) -> None:
         self._model_name = model
+        self._refresh()
+
+    def set_session_name(self, name: str) -> None:
+        self._session_name = str(name or "personal")[:48]
         self._refresh()
 
     def set_tool_count(self, n: int) -> None:
@@ -608,7 +612,7 @@ class MessageLog(VerticalScroll, can_focus=False):
 
 # ── 面板：底部输入栏 ──────────────────────────────────────────────
 class InputBar(Vertical, can_focus=False):
-    """底部：SlashPopup + Input + Footer。
+    """底部：SlashPopup + Input + 上下文提示 + 精简快捷键栏。
 
     SlashPopup 在 InputBar 内，显示在 Input 正上方；隐藏时 display:none，
     不占用高度。
@@ -628,9 +632,7 @@ class InputBar(Vertical, can_focus=False):
             placeholder="Enter 发送；输入 / 查看命令；Ctrl+Q 退出",
             classes="forge-input",
         )
-        # 上下文提示行：idle / running / approval / slash 四态由 App 层
-        #（ForgeTuiApp._update_footer）驱动。放在输入框与 Footer 之间 ——
-        # 两者职责不同：Footer 是静态键位表，hint 是"此刻能做什么"。
+        # 单行上下文提示由 App 层按 idle / running / approval / slash 状态更新。
         self.hint = Static("", classes="forge-hint")
         self.footer = Footer()
         yield self.popup
@@ -1491,6 +1493,67 @@ class SessionListPopup(Vertical, can_focus=False):
             pass
 
 
+class ConversationSidebar(VerticalScroll, can_focus=False):
+    """左侧会话栏，保留容器 ID 以便 App 真实切换与恢复历史。"""
+
+    def __init__(self) -> None:
+        super().__init__(id="conversation-sidebar")
+        self._sessions: list[dict] = []
+        self._selected = 0
+        self._body = Static("（暂无对话）", classes="conversation-sidebar-body")
+        self.display = False
+
+    def compose(self) -> ComposeResult:
+        yield Static("对话", classes="conversation-sidebar-title")
+        yield self._body
+
+    def show(self, sessions: list[dict]) -> None:
+        self._sessions = list(sessions[:100])
+        self._selected = next(
+            (i for i, item in enumerate(self._sessions) if item.get("current")), 0
+        )
+        self.display = True
+        self._refresh()
+
+    def hide(self) -> None:
+        self.display = False
+
+    def is_visible(self) -> bool:
+        return bool(self.display)
+
+    def select_next(self) -> None:
+        if self._sessions:
+            self._selected = (self._selected + 1) % len(self._sessions)
+            self._refresh()
+
+    def select_prev(self) -> None:
+        if self._sessions:
+            self._selected = (self._selected - 1) % len(self._sessions)
+            self._refresh()
+
+    def selected_session(self) -> dict | None:
+        if 0 <= self._selected < len(self._sessions):
+            return self._sessions[self._selected]
+        return None
+
+    def _refresh(self) -> None:
+        if not self._sessions:
+            self._body.update("（暂无对话）")
+            return
+        text = Text()
+        for i, item in enumerate(self._sessions):
+            marker = "▸ " if i == self._selected else "  "
+            current = "  · 当前" if item.get("current") else ""
+            title = str(item.get("title") or "新对话")[:28]
+            if item.get("project"):
+                title = "📁 " + title
+            color = PRIMARY if i == self._selected else TEXT_C
+            text.append(f"{marker}{_escape(title)}{current}\n", style=color)
+        try:
+            self._body.update(text)
+        except (NoScreen, NoActiveAppError, MountError):
+            pass
+
 # ── 面板：API / 网关自定义配置（参照 dsh-TUI SettingsPanel）───────
 class ApiSettingsPanel(Vertical, can_focus=False):
     """自定义 API/网关配置面板。
@@ -1596,7 +1659,7 @@ class ApiSettingsPanel(Vertical, can_focus=False):
 
 # ── 主 App 容器 ───────────────────────────────────────────────────
 class TuiPanels(Vertical, can_focus=False):
-    """五层布局：StatusHeader / MessageLog / Spinner / ModelPicker+Popup / InputBar。
+    """TUI 主布局：状态栏、操作工具栏、会话侧栏/消息区和输入栏。
 
     新增：
     - Spinner：工具执行中动画状态行（默认隐藏）
@@ -1619,6 +1682,12 @@ class TuiPanels(Vertical, can_focus=False):
         self.question_panel = QuestionPanel()
         self.approval_panel = ApprovalPanel()
         self.session_list = SessionListPopup()
+        self.sidebar = ConversationSidebar()
+        self.sidebar_button = Button("☰ 对话", id="sidebar-toggle", variant="default")
+        self.new_chat_button = Button("＋ 新对话", id="new-chat", variant="default")
+        self.attach_file_button = Button("＋ 文件", id="attach-file", variant="default")
+        self.attach_folder_button = Button("＋ 项目文件夹", id="attach-folder", variant="default")
+        self.project_label = Static("个人会话", id="project-label")
         self.bar = InputBar()
         self.model_picker.attach_popup(self.model_popup)
         # 所有 popup 默认隐藏
@@ -1632,13 +1701,22 @@ class TuiPanels(Vertical, can_focus=False):
 
     def compose(self) -> ComposeResult:
         yield self.header
-        yield self.msglog
-        yield self.spinner
-        yield self.model_picker
-        yield self.model_popup
-        yield self.api_settings
-        yield self.hist_search
-        yield self.question_panel
-        yield self.approval_panel
-        yield self.session_list
+        with Horizontal(id="tui-toolbar"):
+            yield self.sidebar_button
+            yield self.new_chat_button
+            yield self.attach_file_button
+            yield self.attach_folder_button
+            yield self.project_label
+        with Horizontal(id="tui-main"):
+            yield self.sidebar
+            with Vertical(id="tui-chat-column"):
+                yield self.msglog
+                yield self.spinner
+                yield self.model_picker
+                yield self.model_popup
+                yield self.api_settings
+                yield self.hist_search
+                yield self.question_panel
+                yield self.approval_panel
+                yield self.session_list
         yield self.bar

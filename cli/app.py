@@ -98,6 +98,7 @@ class ChatApp:
         self._show_phases = show_phases
         self._merge_paste = merge_paste
         self._session: SQLiteSession | None = None
+        self._container_id: str | None = None
 
     # ── 依赖装配 ────────────────────────────────────────────────
     @property
@@ -141,8 +142,13 @@ class ChatApp:
     def container_id(self) -> str:
         """当前会话的容器 id（不存在则创建，保证 /status 之类命令总有值可显示）。"""
         try:
+            if self._container_id:
+                existing = self.store.mgr.get_container(self._container_id)
+                if existing is not None and existing.get("session_id") == self.session_name:
+                    return self._container_id
             container = self.store.mgr.get_or_create_container(self.session_name)
-            return str(container.get("id") or "")
+            self._container_id = str(container.get("id") or "") or None
+            return self._container_id or ""
         except Exception:
             return ""
 
@@ -385,9 +391,37 @@ class ChatApp:
         self._close_session()
         self.session_name = self._next_session_name()
         try:
-            self.store.mgr.get_or_create_container(self.session_name, title=title or None)
+            row = self.store.mgr.get_or_create_container(self.session_name, title=title or None)
+            self._container_id = str(row.get("id") or "") or None
         except Exception:
-            pass
+            self._container_id = None
+
+    async def new_project(self, name: str, root_path: str) -> str:
+        """创建一个严格 Project 会话并把所选目录绑定为 WorkLocation。"""
+        from pathlib import Path
+        import uuid
+
+        title = (name or Path(root_path).name or "新项目").strip()[:120]
+        resolved_root = str(Path(root_path).expanduser().resolve(strict=True))
+        if not Path(resolved_root).is_dir():
+            raise ValueError("项目工作位置必须是现有文件夹。")
+        session_name = f"proj-{uuid.uuid4().hex[:12]}"
+        container = self.store.mgr.get_or_create_container(session_name, title=title)
+        container_id = str(container.get("id") or "")
+        if not container_id:
+            raise RuntimeError("创建项目会话失败。")
+        work_location = self.store.mgr.create_work_location(
+            title, local_path=resolved_root, permission_profile="read-write"
+        )
+        updated = self.store.mgr.update_project(
+            container_id, name=title, work_location_id=str(work_location.get("id") or "")
+        )
+        if not updated or updated.get("work_location_id") != work_location.get("id"):
+            raise RuntimeError("项目已创建，但工作文件夹绑定未成功。")
+        self._close_session()
+        self.session_name = session_name
+        self._container_id = container_id
+        return container_id
 
     async def switch_to(self, container_id: str) -> None:
         row = self.store.get(container_id)
@@ -395,6 +429,7 @@ class ChatApp:
             raise ValueError(f"找不到会话容器：{container_id}")
         self._close_session()
         self.session_name = row.session_id or "personal"
+        self._container_id = row.container_id
 
     def _next_session_name(self) -> str:
         stamp = datetime.now().strftime("%Y%m%d-%H%M%S")

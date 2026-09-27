@@ -52,6 +52,11 @@ FORGE_DATA_DIR = Path(os.getenv("FORGE_DATA_DIR") or PROJECT_ROOT / "forge_data"
 def project_sources_dir(container_id: str) -> Path:
     return FORGE_DATA_DIR / "projects" / container_id / "sources"
 
+
+def project_attachments_dir(container_id: str) -> Path:
+    """临时消息附件的托管目录，位于该容器 FileScope 的项目数据根下。"""
+    return FORGE_DATA_DIR / "projects" / container_id / "attachments"
+
 _SCHEMA_V2 = """
 PRAGMA foreign_keys = ON;
 PRAGMA journal_mode = WAL;
@@ -2615,14 +2620,23 @@ class TaskManager:
             row = conn.execute("SELECT * FROM message_attachments WHERE id = ?", (attachment_id,)).fetchone()
         return dict(row) if row else None
 
-    def bind_message_attachments(self, attachment_ids: list[str], message_id: int, run_id: str | None = None) -> int:
+    def bind_message_attachments(self, attachment_ids: list[str], message_id: int,
+                                 run_id: str | None = None, *,
+                                 task_id: str | None = None) -> int:
         now = utcnow_iso()
         count = 0
         for att_id in attachment_ids or []:
             with self._connect() as conn:
+                sql = (
+                    "UPDATE message_attachments SET message_id = ?, run_id = ?, updated_at = ? "
+                    "WHERE id = ? AND message_id IS NULL"
+                )
+                params: tuple[Any, ...] = (message_id, run_id, now, att_id)
+                if task_id:
+                    sql += " AND task_id = ?"
+                    params += (task_id,)
                 cursor = conn.execute(
-                    "UPDATE message_attachments SET message_id = ?, run_id = ?, updated_at = ? WHERE id = ? AND message_id IS NULL",
-                    (message_id, run_id, now, att_id),
+                    sql, params,
                 )
                 count += cursor.rowcount
         return count

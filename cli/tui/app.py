@@ -31,7 +31,7 @@ from textual._context import NoActiveAppError
 from textual.app import App, ComposeResult, NoScreen, Screen
 from textual.binding import Binding
 from textual.containers import Vertical, Horizontal
-from textual.widgets import Footer, Input, Static, Label
+from textual.widgets import Button, Input, Static, Label
 from textual.widget import MountError, Widget
 
 from cli.tui.panels import (
@@ -68,6 +68,9 @@ _SLAH_COMMANDS: list[tuple[str, str]] = [
     ("/help", "查看可用命令"),
     ("/sessions", "按最近使用顺序列出会话"),
     ("/new", "创建并切换到新会话"),
+    ("/attach", "添加本轮要处理的文件"),
+    ("/detach", "移除尚未发送的附件"),
+    ("/project", "从文件夹创建项目"),
     ("/switch", "切换会话"),
     ("/history", "查看最近消息"),
     ("/last", "查看上一条助手回复"),
@@ -172,6 +175,54 @@ class ForgeTuiApp(App):
         background: {SURFACE};
         border-bottom: solid {BORDER};
     }}
+    #tui-toolbar {{
+        height: 1;
+        width: 100%;
+        padding: 0 1;
+        background: {SURFACE};
+    }}
+    #tui-toolbar Button {{
+        height: 1;
+        min-width: 10;
+        margin-right: 1;
+        padding: 0 1;
+        border: none;
+    }}
+    #project-label {{
+        width: 1fr;
+        height: 1;
+        content-align: right middle;
+        color: {MUTED};
+        padding: 0 1;
+    }}
+    #tui-main {{
+        height: 1fr;
+        width: 100%;
+    }}
+    #tui-chat-column {{
+        height: 1fr;
+        width: 1fr;
+    }}
+    ConversationSidebar {{
+        display: none;
+        width: 32;
+        min-width: 24;
+        max-width: 42;
+        height: 1fr;
+        border-right: solid {BORDER};
+        background: {SURFACE};
+        padding: 0 1;
+    }}
+    .conversation-sidebar-title {{
+        height: 1;
+        color: {PRIMARY};
+        text-style: bold;
+        margin-bottom: 1;
+    }}
+    .conversation-sidebar-body {{
+        height: 1fr;
+        color: {TEXT_C};
+    }}
     MessageLog {{
         height: 1fr;
         border: solid {BORDER};
@@ -198,18 +249,14 @@ class ForgeTuiApp(App):
         border: solid {BORDER};
         color: {TEXT_C};
     }}
-    Footer {{
-        /* 覆盖 Footer 默认的 dock: bottom。它已经被 auto 高度的 InputBar
-           放到屏幕底部，再 dock 一次会让宽度不扣 margin（溢出 1 列），
-           并把最右侧的 binding 挤掉。改为跟随 InputBar 内部流式排列。 */
-        dock: none;
+    .forge-hint {{
+        /* 单行上下文快捷提示。 */
         height: 1;
         margin: 0 1;
         color: {MUTED};
     }}
-    .forge-hint {{
-        /* 上下文提示行（idle/running/approval/slash）。显式 height: 1 ——
-           Static 默认 auto，空内容时高度不稳会把 Footer 顶出去。 */
+    Footer {{
+        dock: none;
         height: 1;
         margin: 0 1;
         color: {MUTED};
@@ -370,16 +417,16 @@ class ForgeTuiApp(App):
     """
 
     BINDINGS = [
-        Binding("ctrl+q", "quit", "退出"),
-        Binding("ctrl+l", "clear_log", "清屏"),
-        Binding("ctrl+o", "show_inspector", "运行检查"),
-        Binding("m", "toggle_model_picker", "切换模型", priority=True),
+        Binding("ctrl+q", "quit", "退出", show=False),
+        Binding("ctrl+l", "clear_log", "清屏", show=False),
+        Binding("ctrl+o", "show_inspector", "运行检查", show=False),
+        Binding("m", "toggle_model_picker", "切换模型", show=False, priority=True),
         # F1 历史搜索对话框（可搜索，替代线性回看）
-        Binding("f1", "toggle_history_search", "搜索历史"),
+        Binding("f1", "toggle_history_search", "搜索历史", show=False),
         # Ctrl+F1 保留为回退（向下）
-        Binding("ctrl+f1", "history_next", "历史记录 ↓"),
+        Binding("ctrl+f1", "history_next", "历史记录 ↓", show=False),
         # 会话列表
-        Binding("ctrl+s", "toggle_session_list", "会话列表"),
+        Binding("ctrl+s", "toggle_session_list", "会话列表", show=False),
         # priority=True 覆盖 Screen 默认的 tab → app.focus_next
         Binding("tab", "complete_slash", "补全命令", priority=True),
     ]
@@ -479,6 +526,7 @@ class ForgeTuiApp(App):
         self._footer_mode: str = "idle"
         self._chat_app = None
         self._pending_compact = None
+        self._pending_attachments: list[dict] = []
 
         # 流式
         self._stream_item: MessageItem | None = None
@@ -538,6 +586,269 @@ class ForgeTuiApp(App):
             )
         return self._chat_app
 
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        button_id = event.button.id
+        if button_id == "sidebar-toggle":
+            self._toggle_sidebar()
+        elif button_id == "new-chat":
+            self._run_async(self._create_new_chat())
+        elif button_id == "attach-file":
+            self._run_async(self._choose_and_attach_file())
+        elif button_id == "attach-folder":
+            self._run_async(self._choose_and_create_project())
+
+    def action_toggle_session_list(self) -> None:
+        self._toggle_sidebar()
+
+    def _toggle_sidebar(self) -> None:
+        if self._turn_active or self._in_approval:
+            self._msglog().add_meta("当前任务运行或等待确认时不能切换对话。")
+            return
+        sidebar = self._app_state.sidebar if self._app_state else None
+        if sidebar is None:
+            return
+        if sidebar.is_visible():
+            sidebar.hide()
+        else:
+            self._show_session_list()
+
+    def _show_session_list(self) -> None:
+        if self._turn_active or self._in_approval:
+            self._msglog().add_meta("当前任务运行或等待确认时不能切换对话。")
+            return
+        sidebar = self._app_state.sidebar if self._app_state else None
+        if sidebar is None:
+            return
+        try:
+            chat = self._get_chat_app()
+            current_id = chat.container_id()
+            sessions = [
+                {
+                    "container_id": row.container_id,
+                    "session_id": row.session_id,
+                    "title": row.display_title,
+                    "current": row.container_id == current_id,
+                    "project": row.session_id.startswith("proj-"),
+                }
+                for row in chat.store.list(limit=100)
+            ]
+            sidebar.show(sessions)
+            self._update_footer("idle")
+        except Exception as exc:
+            self._msglog().add_error(title="无法加载对话列表", detail=str(exc))
+
+    def _on_session_select(self) -> None:
+        sidebar = self._app_state.sidebar if self._app_state else None
+        selected = sidebar.selected_session() if sidebar is not None else None
+        if selected is None:
+            return
+        self._run_async(self._switch_session(str(selected.get("container_id") or "")))
+
+    async def _switch_session(self, container_id: str) -> None:
+        if self._turn_active or self._in_approval:
+            self._msglog().add_meta("当前任务运行或等待确认时不能切换对话。")
+            return
+        try:
+            await self._discard_pending_attachments()
+            chat = self._get_chat_app()
+            await chat.switch_to(container_id)
+            self.session_name = chat.session_name
+            row = chat.store.get(container_id)
+            title = row.display_title if row else chat.session_name
+            self._header().set_session_name(title)
+            self._render_container_history(container_id)
+            self._update_project_label(container_id)
+            if self._app_state.sidebar and self._app_state.sidebar.is_visible():
+                self._show_session_list()
+                self._app_state.sidebar.hide()
+            self._bar().focus_input()
+            self._msglog().add_meta(f"已切换到：{title}")
+        except Exception as exc:
+            self._msglog().add_error(title="切换对话失败", detail=str(exc))
+
+    def _render_container_history(self, container_id: str) -> None:
+        self._msglog().clear()
+        try:
+            messages = self._get_chat_app().store.messages(container_id, limit=100)
+        except Exception as exc:
+            self._msglog().add_error(title="读取对话历史失败", detail=str(exc))
+            return
+        for item in messages:
+            role = str(item.get("role") or "")
+            content = str(item.get("content") or "")
+            if role == "user":
+                try:
+                    attachments = self._get_chat_app().store.mgr.list_message_attachments(
+                        message_id=int(item.get("id") or 0)
+                    )
+                    names = [str(a.get("display_name") or "附件") for a in attachments]
+                    if names:
+                        content += "\n📎 " + "、".join(names)
+                except Exception:
+                    pass
+                self._msglog().add_user(content)
+            elif role == "assistant":
+                self._msglog().add_assistant(content)
+
+    def _update_project_label(self, container_id: str | None = None) -> None:
+        if not self._app_state:
+            return
+        chat = self._get_chat_app()
+        cid = container_id or chat.container_id()
+        container = chat.runtime.tasks.get_container(cid) if cid else None
+        title = str((container or {}).get("title") or "个人会话")
+        prefix = "项目" if chat.session_name.startswith("proj-") else "会话"
+        self._app_state.project_label.update(f"{prefix}：{title[:32]}")
+
+    async def _create_new_chat(self, title: str = "新对话") -> None:
+        if self._turn_active or self._in_approval:
+            self._msglog().add_meta("当前任务运行或等待确认时不能新建对话。")
+            return
+        try:
+            await self._discard_pending_attachments()
+            chat = self._get_chat_app()
+            await chat.new_session(title or "新对话")
+            self.session_name = chat.session_name
+            self._header().set_session_name(title or "新对话")
+            self._render_container_history(chat.container_id())
+            self._update_project_label()
+            self._refresh_sidebar_selection()
+            if self._app_state.sidebar:
+                self._app_state.sidebar.hide()
+            self._msglog().add_meta(f"已创建新对话：{title or '新对话'}")
+            self._bar().focus_input()
+        except Exception as exc:
+            self._msglog().add_error(title="新建对话失败", detail=str(exc))
+
+    def _refresh_sidebar_selection(self) -> None:
+        if self._app_state and self._app_state.sidebar.is_visible():
+            self._show_session_list()
+
+    async def _choose_and_attach_file(self, path: str | None = None) -> None:
+        if self._turn_active or self._in_approval:
+            self._msglog().add_meta("当前任务运行或等待确认时不能添加文件。")
+            return
+        if not path:
+            import asyncio
+            try:
+                path = await asyncio.to_thread(_native_path_dialog, "file")
+            except Exception as exc:
+                self._msglog().add_error(
+                    title="无法打开文件选择器",
+                    detail=f"{exc}\n也可以输入 /attach \"完整文件路径\" 添加文件。",
+                )
+                return
+        if not path:
+            return
+        try:
+            from pathlib import Path
+            import hashlib
+            import mimetypes
+            import shutil
+            import uuid
+            from runtime.task_manager import project_attachments_dir
+
+            source = Path(path).expanduser().resolve(strict=True)
+            if not source.is_file():
+                raise ValueError("请选择一个文件。")
+            if len(self._pending_attachments) >= 8:
+                raise ValueError("每条消息最多添加 8 个文件。")
+            source_name = source.name.lower()
+            if (source_name in {".env", "apikey.txt"}
+                    or source_name.startswith(".env.")
+                    or source_name.startswith("memory.json")
+                    or source.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}):
+                raise ValueError("出于安全保护，密钥和证书文件不能作为附件添加。")
+            if source.stat().st_size > 25 * 1024 * 1024:
+                raise ValueError("单个附件不能超过 25 MB。")
+            pending_bytes = sum(int(item.get("size_bytes") or 0)
+                                for item in self._pending_attachments)
+            if pending_bytes + source.stat().st_size > 50 * 1024 * 1024:
+                raise ValueError("待发送附件总量不能超过 50 MB。")
+            chat = self._get_chat_app()
+            task_id = chat.container_id()
+            if not task_id:
+                raise RuntimeError("当前对话容器不可用，无法保存附件。")
+            target_dir = project_attachments_dir(task_id)
+            unique_dir = target_dir / uuid.uuid4().hex[:8]
+            unique_dir.mkdir(parents=True, exist_ok=True)
+            dest = unique_dir / source.name
+            shutil.copy2(source, dest)
+            try:
+                digest = hashlib.sha256(dest.read_bytes()).hexdigest()
+                manager = chat.store.mgr
+                attachment = manager.add_message_attachment(
+                    task_id=task_id,
+                    display_name=source.name,
+                    stored_path=str(dest),
+                    mime_type=mimetypes.guess_type(source.name)[0],
+                    size_bytes=dest.stat().st_size,
+                    sha256=digest,
+                )
+            except Exception:
+                dest.unlink(missing_ok=True)
+                raise
+            self._pending_attachments.append(attachment)
+            self._update_attachment_button()
+            self._msglog().add_meta(f"已添加本轮附件：{source.name}（发送下一条消息时使用）")
+            self._bar().focus_input()
+        except Exception as exc:
+            self._msglog().add_error(title="添加文件失败", detail=f"{type(exc).__name__}: {exc}")
+
+    async def _choose_and_create_project(self, path: str | None = None) -> None:
+        if self._turn_active or self._in_approval:
+            self._msglog().add_meta("当前任务运行或等待确认时不能切换项目。")
+            return
+        if not path:
+            import asyncio
+            try:
+                path = await asyncio.to_thread(_native_path_dialog, "directory")
+            except Exception as exc:
+                self._msglog().add_error(
+                    title="无法打开文件夹选择器",
+                    detail=f"{exc}\n也可以输入 /project \"完整文件夹路径\" 创建项目。",
+                )
+                return
+        if not path:
+            return
+        try:
+            from pathlib import Path
+            root = Path(path).expanduser().resolve(strict=True)
+            if not root.is_dir():
+                raise ValueError("请选择一个现有文件夹作为项目目录。")
+            chat = self._get_chat_app()
+            container_id = await chat.new_project(root.name or "新项目", str(root))
+            await self._discard_pending_attachments()
+            self.session_name = chat.session_name
+            self._header().set_session_name(root.name or "新项目")
+            self._render_container_history(container_id)
+            self._update_project_label(container_id)
+            self._refresh_sidebar_selection()
+            if self._app_state.sidebar:
+                self._app_state.sidebar.hide()
+            self._msglog().add_meta(f"已创建项目“{root.name}”，工作文件夹：{root}")
+            self._bar().focus_input()
+        except Exception as exc:
+            self._msglog().add_error(title="创建项目失败", detail=f"{type(exc).__name__}: {exc}")
+
+    async def _discard_pending_attachments(self) -> None:
+        pending, self._pending_attachments = self._pending_attachments, []
+        self._update_attachment_button()
+        if not pending or self._chat_app is None:
+            return
+        manager = self._chat_app.store.mgr
+        for attachment in pending:
+            try:
+                manager.delete_message_attachment(str(attachment.get("id") or ""))
+            except Exception:
+                pass
+
+    def _update_attachment_button(self) -> None:
+        if self._app_state:
+            count = len(self._pending_attachments)
+            label = "＋ 文件" if not count else f"＋ 文件（{count}）"
+            self._app_state.attach_file_button.label = label
+
     def _msglog(self) -> MessageLog:
         return self._app_state.msglog
 
@@ -575,7 +886,22 @@ class ForgeTuiApp(App):
         self._spinner_timer = self.set_interval(0.08, self._tick_spinner)
         self._banner()
         self._start_laya_warmup()
+        self._run_async(self._restore_active_container())
         self._update_footer("idle")
+
+    async def _restore_active_container(self) -> None:
+        try:
+            chat = self._get_chat_app()
+            container_id = chat.container_id()
+            row = chat.store.get(container_id) if container_id else None
+            if row:
+                self._header().set_session_name(row.display_title)
+                self._update_project_label(container_id)
+                messages = chat.store.messages(container_id, limit=100)
+                if messages:
+                    self._render_container_history(container_id)
+        except Exception as exc:
+            self._msglog().add_meta(f"无法恢复当前对话信息：{type(exc).__name__}: {exc}")
 
     def _start_laya_warmup(self) -> None:
         """Start the paired GGUF server and warm its head before accepting chat input."""
@@ -864,6 +1190,12 @@ class ForgeTuiApp(App):
     # ── 输入：slash / 普通 / approval ─────────────────────────
     def on_input_submitted(self, event) -> None:
         text = event.value.strip()
+        sidebar = self._app_state.sidebar if self._app_state else None
+        if sidebar is not None and sidebar.is_visible():
+            event.stop()
+            event.input.clear()
+            self._on_session_select()
+            return
         # ── popup 拦截（必须 event.stop() 在最前，防止 Input widget 继续消费 Enter）──
         # 模型 popup / slash popup 打开时焦点仍在 Input（Static 不可聚焦，
         # 键盘事件由 App 级 key_enter/key_up/key_down 处理）。
@@ -908,12 +1240,40 @@ class ForgeTuiApp(App):
     # ── 斜杠命令 ───────────────────────────────────────────────
     def _handle_command(self, text: str) -> None:
         self._msglog().add_user(f"/{text.lstrip('/')}")
-        # /sessions 命令 → 弹出会话列表 popup
-        if text.strip() in ("/sessions", "/session"):
+        command, _, argument = text.strip().partition(" ")
+        command = command.lower()
+        argument = argument.strip()
+        if len(argument) >= 2 and argument[0] == argument[-1] and argument[0] in "\"'":
+            argument = argument[1:-1]
+        if command in ("/sessions", "/session"):
             self._show_session_list()
             return
-        # /api 命令 → 弹出 API/网关设置面板
-        if text.strip() in ("/api", "/api-settings", "/gateway"):
+        if command == "/new":
+            self._run_async(self._create_new_chat(argument or "新对话"))
+            return
+        if command == "/switch":
+            if not argument:
+                self._show_session_list()
+                return
+            try:
+                container_id = self._get_chat_app().store.resolve(argument)
+                if not container_id:
+                    raise ValueError(f"找不到会话：{argument}")
+                self._run_async(self._switch_session(container_id))
+            except Exception as exc:
+                self._msglog().add_error(title="切换对话失败", detail=str(exc))
+            return
+        if command == "/attach":
+            self._run_async(self._choose_and_attach_file(argument or None))
+            return
+        if command == "/detach":
+            self._run_async(self._discard_pending_attachments())
+            self._msglog().add_meta("已移除所有尚未发送的附件。")
+            return
+        if command == "/project":
+            self._run_async(self._choose_and_create_project(argument or None))
+            return
+        if command in ("/api", "/api-settings", "/gateway"):
             self._toggle_api_settings()
             return
         self._run_async(self._dispatch_cmd(text))
@@ -930,53 +1290,6 @@ class ForgeTuiApp(App):
         panel.attach(self._apply_api_settings, lambda: None)
         panel.show()
         self._update_footer("idle")
-
-    def _show_session_list(self) -> None:
-        """/sessions 命令：拉取会话列表并弹出 SessionListPopup。"""
-        import time as _t
-        now = _t.time()
-        sl = self._app_state.session_list if self._app_state else None
-        if sl is None:
-            return
-        # 从 ChatApp 的 store 里取会话摘要（如果可用）
-        sessions: list[dict] = []
-        try:
-            chat = self._get_chat_app()
-            if hasattr(chat, "store") and hasattr(chat.store, "list_sessions"):
-                raw = chat.store.list_sessions()
-                for s in raw[:15]:
-                    sessions.append({
-                        "title": str(s.get("title") or s.get("name") or "会话"),
-                        "updated_at": str(s.get("updated_at") or "")[:16],
-                        "model": str(s.get("model") or ""),
-                        "status": "stopped",
-                        "current": (s.get("name") or s.get("title")) == self.session_name,
-                        "pinned": False,
-                    })
-        except Exception:
-            pass
-        # 兜底：至少把当前会话列进去
-        if not sessions:
-            sessions = [{
-                "title": self.session_name,
-                "updated_at": "",
-                "model": "",
-                "status": "idle",
-                "current": True,
-                "pinned": False,
-            }]
-        sl.show(sessions)
-        self._update_footer("idle")
-
-    def _on_session_select(self) -> None:
-        """会话列表选中后回调（当前最小版：只记录，不做切换）。"""
-        sl = self._app_state.session_list if self._app_state else None
-        if sl is not None and sl.is_visible():
-            sel = sl.selected_session()
-            if sel:
-                self._msglog().add_meta(f"→ 已选会话：{sel.get('title', '?')}")
-            sl.hide()
-            self._bar().focus_input()
 
     async def _dispatch_cmd(self, text: str) -> None:
         chat = self._get_chat_app()
@@ -1006,7 +1319,12 @@ class ForgeTuiApp(App):
         if self._turn_active:
             self._msglog().add_meta("当前任务仍在运行；请等待完成或按 Esc 取消后再发送。")
             return
-        self._msglog().add_user(text)
+        display_text = text
+        if self._pending_attachments:
+            names = [str(item.get("display_name") or "附件")
+                     for item in self._pending_attachments]
+            display_text += "\n📎 " + "、".join(names)
+        self._msglog().add_user(display_text)
         self._stream_buf = ""
         self._stream_item = None
         self._last_tool_item = None
@@ -1068,6 +1386,12 @@ class ForgeTuiApp(App):
 
     async def _run_turn(self, text: str) -> None:
         chat = self._get_chat_app()
+        attachment_ids = [
+            str(item.get("id") or "") for item in self._pending_attachments
+            if item.get("id")
+        ]
+        container_id = getattr(chat, "container_id", None)
+        task_container_id = container_id() if callable(container_id) else None
         self.turns += 1
         started = time.monotonic()
 
@@ -1086,11 +1410,12 @@ class ForgeTuiApp(App):
                 text,
                 session=chat.session,
                 session_id=chat.session_name,
+                task_container_id=task_container_id,
                 mode=chat.mode,
                 debug=chat.debug,
                 max_turns=chat.max_turns,
                 history_limit=chat.history_limit,
-                metadata={"channel": "tui"},
+                metadata={"channel": "tui", "attachment_ids": attachment_ids},
                 raise_on_error=False,
                 context_guard=chat.auto_summary,
                 stream_events_cb=tui_event_cb,
@@ -1111,6 +1436,23 @@ class ForgeTuiApp(App):
             self._update_footer("idle")
             self._set_turn_active(False)
             return
+        finally:
+            # Only consume files the Runtime actually bound to this user message.
+            if attachment_ids:
+                manager = chat.store.mgr
+                consumed: set[str] = set()
+                for attachment_id in attachment_ids:
+                    try:
+                        row = manager.get_message_attachment(attachment_id)
+                        if row and row.get("message_id") is not None:
+                            consumed.add(attachment_id)
+                    except Exception:
+                        pass
+                self._pending_attachments = [
+                    item for item in self._pending_attachments
+                    if str(item.get("id") or "") not in consumed
+                ]
+                self._update_attachment_button()
 
         # 审批：Runtime 明确返回 waiting_approval=True 才进入审批态
         if getattr(result, "waiting_approval", False):
@@ -1628,17 +1970,17 @@ class ForgeTuiApp(App):
                 self._bar().focus_input()
             return
 
-        # 0.5 会话列表打开时：↑↓/Enter/Esc 全部交给会话列表
-        sl = self._app_state.session_list if self._app_state else None
-        if sl is not None and sl.is_visible():
+        # 左侧对话栏打开时：↑↓选择会话，Enter 真实切换，Esc 收起。
+        sidebar = self._app_state.sidebar if self._app_state else None
+        if sidebar is not None and sidebar.is_visible():
             if key == "down":
-                sl.select_next()
+                sidebar.select_next()
             elif key == "up":
-                sl.select_prev()
+                sidebar.select_prev()
             elif key == "enter":
                 self._on_session_select()
             elif key == "escape":
-                sl.hide()
+                sidebar.hide()
                 self._bar().focus_input()
             return
 
@@ -1728,7 +2070,7 @@ class ForgeTuiApp(App):
         else:
             self._update_footer("idle")
 
-    # ── Footer（上下文感知）────────────────────────────────────
+    # ── 底部提示（上下文感知）──────────────────────────────────
     def _update_footer(self, mode: str) -> None:
         """切换底部上下文提示：idle / running / approval / slash / hist_search。
 
@@ -1737,7 +2079,7 @@ class ForgeTuiApp(App):
         """
         self._footer_mode = mode
         hints = {
-            "idle": "/ 查看命令   F1 搜索历史   Ctrl+S 会话   m 切换模型   Ctrl+Q 退出",
+            "idle": "Enter 发送   / 查看命令   F1 搜索历史   Ctrl+S 会话   m 切换模型   Ctrl+O 检查   Ctrl+L 清屏   Ctrl+Q 退出",
             "running": "Esc 请求取消   Ctrl+Q 退出",
             "approval": "Y 批准   N 拒绝   D 查看详情",
             "slash": "↑↓ 选择   Tab 补全   Enter 执行   Esc 关闭",
@@ -1805,6 +2147,14 @@ class ForgeTuiApp(App):
     # ── 快捷键 ──────────────────────────────────────────────────
     def action_quit(self) -> None:
         try:
+            if self._chat_app is not None and self._pending_attachments:
+                manager = self._chat_app.store.mgr
+                for attachment in self._pending_attachments:
+                    manager.delete_message_attachment(str(attachment.get("id") or ""))
+                self._pending_attachments.clear()
+        except Exception:
+            pass
+        try:
             self._get_chat_app()._close_session()
         except (AttributeError, TypeError):
             # 会话未创建或 store 异常时仍需退出 UI
@@ -1827,6 +2177,27 @@ class ForgeTuiApp(App):
 def _escape_text(text: str) -> str:
     """转义 Rich markup 字符，防止用户内容触发渲染错误。"""
     return text.replace("[", "【").replace("]", "】")
+
+
+def _native_path_dialog(kind: str) -> str:
+    """打开系统文件/文件夹选择器；必须在线程中调用，避免阻塞 Textual 事件循环。"""
+    import tkinter as tk
+    from tkinter import filedialog
+
+    root = tk.Tk()
+    root.withdraw()
+    try:
+        root.attributes("-topmost", True)
+        root.update_idletasks()
+        if kind == "file":
+            selected = filedialog.askopenfilename(parent=root, title="选择要添加的文件")
+        elif kind == "directory":
+            selected = filedialog.askdirectory(parent=root, title="选择项目文件夹", mustexist=True)
+        else:
+            raise ValueError(f"不支持的选择器类型：{kind}")
+        return str(selected or "")
+    finally:
+        root.destroy()
 
 
 # ── 顶层 worker ────────────────────────────────────────────────────

@@ -2655,7 +2655,17 @@ class AgentRuntime:
             container_row = self.tasks.get_container(container_id)
             if container_row is not None and not (container_row.get("title") or "").strip():
                 self.tasks.set_container_title(container_id, message[:60])
-            self.tasks.add_message(container_id, "user", message, run_id=task.id)
+            user_message = self.tasks.add_message(container_id, "user", message, run_id=task.id)
+            attachment_ids = (metadata or {}).get("attachment_ids") or []
+            if attachment_ids:
+                try:
+                    self.tasks.bind_message_attachments(
+                        [str(item) for item in attachment_ids], user_message["id"], task.id,
+                        task_id=container_id,
+                    )
+                except Exception:
+                    _logger.warning("TUI message attachments could not be bound run=%s", task.id,
+                                    exc_info=True)
 
         def _note_assistant(content: str, kind: str = "raw", run_state: str | None = None) -> None:
             nonlocal message_ids

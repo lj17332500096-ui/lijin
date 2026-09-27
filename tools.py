@@ -141,18 +141,23 @@ _MATH_FUNCS = {
 
 
 def _active_read_root_for(target_abs: Path) -> Path:
-    """严格 Project 且绑定 WorkLocation 时：落在 wl 内的目标以 wl 为工具根，
-    其余路径仍按 WORKSPACE_ROOT 判定（数据/沙箱目录在 WORKSPACE_ROOT 子树内）。"""
+    """严格 Project 下，只接受 FileScope 已授权的项目目录或工作位置。"""
     try:
         from runtime.runctx import current as _rc
 
         ctx = _rc()
         fs = getattr(ctx, "file_scope", None) if ctx else None
-        if fs is not None and getattr(fs, "strict", False) and fs.work_location:
-            root = fs.work_location.resolve()
+        if fs is not None:
             p = target_abs.resolve()
-            if p == root or root in p.parents:
-                return fs.work_location
+            candidates = [getattr(fs, "project_data_root", None)]
+            if getattr(fs, "strict", False):
+                candidates.insert(0, getattr(fs, "work_location", None))
+            for candidate in candidates:
+                if candidate is None:
+                    continue
+                root = candidate.resolve()
+                if p == root or root in p.parents:
+                    return Path(root)
     except Exception:
         pass
     return WORKSPACE_ROOT

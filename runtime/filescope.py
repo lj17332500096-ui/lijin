@@ -38,7 +38,7 @@ class FileScope:
 
     def allowed_read_roots(self) -> list[Path]:
         if not self.strict:
-            return [r for r in (self.legacy_read_root,) if r]
+            return [r for r in (self.legacy_read_root, self.project_data_root) if r]
         roots = list(self.shared_roots) + [r for r in (self.project_data_root, self.sandbox_root, self.work_location) if r]
         return roots
 
@@ -80,13 +80,16 @@ def build_file_scope(
     """由 Runtime 注入的容器/项目信息构造 FileScope。"""
     is_project_like = bool(session_id and str(session_id).startswith("proj-"))
     has_wl = bool(work_location_path and str(work_location_path).strip())
+    data_root = Path(os.getenv("FORGE_DATA_DIR") or base_dir / "forge_data").expanduser()
+    if not data_root.is_absolute():
+        data_root = base_dir / data_root
 
     shared = [p for p in (base_dir / "notes", base_dir / "exports", base_dir / "materials",
                           base_dir / "summaries", base_dir / "logs") if p]
     scope = FileScope(
         strict=is_project_like,
         work_location=_norm(Path(work_location_path)) if has_wl else None,
-        project_data_root=_norm(base_dir / "forge_data" / "projects" / container_id) if container_id else None,
+        project_data_root=_norm(data_root / "projects" / container_id) if container_id else None,
         shared_roots=tuple(_norm(p) for p in shared),
         sandbox_root=_norm(workspace_root / "code_sandbox"),
         legacy_read_root=_norm(workspace_root),
