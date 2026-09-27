@@ -117,6 +117,10 @@ class SessionStore:
     def rename(self, container_id: str, title: str) -> bool:
         return bool(self.mgr.set_container_title(container_id, str(title)[:120]))
 
+    def delete(self, container_id: str) -> bool:
+        """永久删除一个会话容器及其关联数据。"""
+        return bool(self.mgr.delete_container(container_id))
+
     def clear(self, container_id: str) -> dict:
         return self.mgr.clear_container_history(container_id)
 

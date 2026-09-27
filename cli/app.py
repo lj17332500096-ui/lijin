@@ -414,7 +414,10 @@ class ChatApp:
             title, local_path=resolved_root, permission_profile="read-write"
         )
         updated = self.store.mgr.update_project(
-            container_id, name=title, work_location_id=str(work_location.get("id") or "")
+            container_id,
+            name=title,
+            memory_scope="project_only",
+            work_location_id=str(work_location.get("id") or ""),
         )
         if not updated or updated.get("work_location_id") != work_location.get("id"):
             raise RuntimeError("项目已创建，但工作文件夹绑定未成功。")

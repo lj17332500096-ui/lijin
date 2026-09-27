@@ -1493,6 +1493,43 @@ class SessionListPopup(Vertical, can_focus=False):
             pass
 
 
+class ConversationEntry(Horizontal):
+    """侧栏中的单条对话：点击标题切换，展开行内删除操作。"""
+
+    def __init__(self, index: int, item: dict, *, selected: bool, show_actions: bool) -> None:
+        super().__init__(classes="conversation-session-row")
+        title = str(item.get("title") or "未命名会话")[:24]
+        if item.get("project"):
+            title = "📁 " + title
+        marker = "▸ " if selected else "  "
+        if item.get("current") and not selected:
+            title += " · 当前"
+        self.select_button = Button(
+            marker + title,
+            id=f"session-select-{index}",
+            classes="conversation-session-select" + (" selected" if selected else ""),
+            variant="default",
+        )
+        if show_actions:
+            self.action_button = Button(
+                "删除对话",
+                id=f"session-delete-{index}",
+                classes="conversation-session-action is-delete",
+                variant="default",
+            )
+        else:
+            self.action_button = Button(
+                "⋯",
+                id=f"session-menu-{index}",
+                classes="conversation-session-action",
+                variant="default",
+            )
+
+    def compose(self) -> ComposeResult:
+        yield self.select_button
+        yield self.action_button
+
+
 class ConversationSidebar(VerticalScroll, can_focus=False):
     """左侧会话栏，保留容器 ID 以便 App 真实切换与恢复历史。"""
 
@@ -1500,15 +1537,17 @@ class ConversationSidebar(VerticalScroll, can_focus=False):
         super().__init__(id="conversation-sidebar")
         self._sessions: list[dict] = []
         self._selected = 0
-        self._body = Static("（暂无对话）", classes="conversation-sidebar-body")
+        self._action_index: int | None = None
+        self._rows = Vertical(id="conversation-session-rows")
         self.display = False
 
     def compose(self) -> ComposeResult:
         yield Static("对话", classes="conversation-sidebar-title")
-        yield self._body
+        yield self._rows
 
     def show(self, sessions: list[dict]) -> None:
         self._sessions = list(sessions[:100])
+        self._action_index = None
         self._selected = next(
             (i for i, item in enumerate(self._sessions) if item.get("current")), 0
         )
@@ -1524,12 +1563,37 @@ class ConversationSidebar(VerticalScroll, can_focus=False):
     def select_next(self) -> None:
         if self._sessions:
             self._selected = (self._selected + 1) % len(self._sessions)
+            self._action_index = None
             self._refresh()
 
     def select_prev(self) -> None:
         if self._sessions:
             self._selected = (self._selected - 1) % len(self._sessions)
+            self._action_index = None
             self._refresh()
+
+    def select_index(self, index: int) -> None:
+        if 0 <= index < len(self._sessions):
+            self._selected = index
+            self._action_index = None
+            self._refresh()
+
+    def toggle_actions(self, index: int) -> None:
+        if not 0 <= index < len(self._sessions):
+            return
+        self._selected = index
+        self._action_index = None if self._action_index == index else index
+        self._refresh()
+
+    def toggle_selected_actions(self) -> None:
+        self.toggle_actions(self._selected)
+
+    def close_actions(self) -> bool:
+        if self._action_index is None:
+            return False
+        self._action_index = None
+        self._refresh()
+        return True
 
     def selected_session(self) -> dict | None:
         if 0 <= self._selected < len(self._sessions):
@@ -1537,22 +1601,25 @@ class ConversationSidebar(VerticalScroll, can_focus=False):
         return None
 
     def _refresh(self) -> None:
-        if not self._sessions:
-            self._body.update("（暂无对话）")
+        if not self._rows.is_mounted:
             return
-        text = Text()
-        for i, item in enumerate(self._sessions):
-            marker = "▸ " if i == self._selected else "  "
-            current = "  · 当前" if item.get("current") else ""
-            title = str(item.get("title") or "新对话")[:28]
-            if item.get("project"):
-                title = "📁 " + title
-            color = PRIMARY if i == self._selected else TEXT_C
-            text.append(f"{marker}{_escape(title)}{current}\n", style=color)
-        try:
-            self._body.update(text)
-        except (NoScreen, NoActiveAppError, MountError):
-            pass
+        self.run_worker(self._render_rows(), group="conversation-sidebar", exclusive=True)
+
+    async def _render_rows(self) -> None:
+        await self._rows.remove_children()
+        if not self._sessions:
+            await self._rows.mount(Static("（暂无对话）", classes="conversation-sidebar-empty"))
+            return
+        entries = [
+            ConversationEntry(
+                index,
+                item,
+                selected=index == self._selected,
+                show_actions=index == self._action_index,
+            )
+            for index, item in enumerate(self._sessions)
+        ]
+        await self._rows.mount(*entries)
 
 # ── 面板：API / 网关自定义配置（参照 dsh-TUI SettingsPanel）───────
 class ApiSettingsPanel(Vertical, can_focus=False):

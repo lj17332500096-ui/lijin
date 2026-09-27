@@ -219,9 +219,51 @@ class ForgeTuiApp(App):
         text-style: bold;
         margin-bottom: 1;
     }}
-    .conversation-sidebar-body {{
-        height: 1fr;
+    #conversation-session-rows {{
+        width: 100%;
+        height: auto;
+    }}
+    .conversation-session-row {{
+        height: 1;
+        width: 100%;
+    }}
+    .conversation-session-select {{
+        width: 1fr;
+        min-width: 0;
+        height: 1;
+        margin: 0;
+        padding: 0;
+        border: none;
+        content-align: left middle;
         color: {TEXT_C};
+        background: transparent;
+    }}
+    .conversation-session-select.selected {{
+        color: {PRIMARY};
+        text-style: bold;
+        background: {PANEL};
+    }}
+    .conversation-session-action {{
+        width: 10;
+        min-width: 10;
+        height: 1;
+        margin: 0;
+        padding: 0;
+        border: none;
+        color: {MUTED};
+        background: transparent;
+    }}
+    .conversation-session-action:hover {{
+        color: {ERROR_C};
+        background: {PANEL};
+    }}
+    .conversation-session-action.is-delete {{
+        color: {ERROR_C};
+        text-style: bold;
+    }}
+    .conversation-sidebar-empty {{
+        padding: 0 1;
+        color: {MUTED};
     }}
     MessageLog {{
         height: 1fr;
@@ -588,7 +630,30 @@ class ForgeTuiApp(App):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        if button_id == "sidebar-toggle":
+        if button_id and button_id.startswith("session-select-"):
+            sidebar = self._app_state.sidebar if self._app_state else None
+            if sidebar is not None:
+                try:
+                    sidebar.select_index(int(button_id.rsplit("-", 1)[1]))
+                    self._on_session_select()
+                except (TypeError, ValueError):
+                    pass
+        elif button_id and button_id.startswith("session-menu-"):
+            sidebar = self._app_state.sidebar if self._app_state else None
+            if sidebar is not None:
+                try:
+                    sidebar.toggle_actions(int(button_id.rsplit("-", 1)[1]))
+                except (TypeError, ValueError):
+                    pass
+        elif button_id and button_id.startswith("session-delete-"):
+            sidebar = self._app_state.sidebar if self._app_state else None
+            if sidebar is not None:
+                try:
+                    sidebar.select_index(int(button_id.rsplit("-", 1)[1]))
+                    self._request_delete_selected_session()
+                except (TypeError, ValueError):
+                    pass
+        elif button_id == "sidebar-toggle":
             self._toggle_sidebar()
         elif button_id == "new-chat":
             self._run_async(self._create_new_chat())
@@ -643,6 +708,90 @@ class ForgeTuiApp(App):
         if selected is None:
             return
         self._run_async(self._switch_session(str(selected.get("container_id") or "")))
+
+    def _request_delete_selected_session(self) -> None:
+        if self._turn_active or self._in_approval:
+            self._msglog().add_meta("任务运行或等待确认期间不能删除对话。")
+            return
+        sidebar = self._app_state.sidebar if self._app_state else None
+        selected = sidebar.selected_session() if sidebar is not None else None
+        if not selected:
+            self._msglog().add_meta("请先在左侧选择要删除的对话。")
+            return
+        container_id = str(selected.get("container_id") or "")
+        try:
+            manager = self._get_chat_app().runtime.tasks
+            if manager.find_active_run(container_id) is not None:
+                self._msglog().add_error(
+                    title="不能删除正在运行的对话",
+                    detail="请等待该 Run 完成或取消后再删除。",
+                )
+                return
+        except Exception as exc:
+            self._msglog().add_error(title="无法确认对话状态", detail=str(exc))
+            return
+        self._run_async(self._delete_session(container_id))
+
+    async def _delete_session(self, container_id: str) -> None:
+        if self._turn_active or self._in_approval:
+            self._msglog().add_meta("任务运行或等待确认期间不能删除对话。")
+            return
+        chat = self._get_chat_app()
+        row = chat.store.get(container_id)
+        if row is None:
+            self._msglog().add_error(title="删除失败", detail="该对话已经不存在，请刷新列表。")
+            self._show_session_list()
+            return
+        manager = chat.runtime.tasks
+        if manager.find_active_run(container_id) is not None:
+            self._msglog().add_error(
+                title="不能删除正在运行的对话",
+                detail="确认期间该对话启动了 Run。请等待或取消后重试。",
+            )
+            return
+
+        current_id = chat.container_id()
+        deleting_current = current_id == container_id
+        replacement_id: str | None = None
+        try:
+            if deleting_current:
+                await self._discard_pending_attachments()
+                await chat.new_session("新对话")
+                replacement_id = chat.container_id()
+
+            if not chat.store.delete(container_id):
+                raise RuntimeError("存储层没有确认删除，请重试。")
+        except Exception as exc:
+            if deleting_current and chat.store.get(container_id) is not None:
+                try:
+                    await chat.switch_to(container_id)
+                    self.session_name = chat.session_name
+                    self._header().set_session_name(row.display_title)
+                    self._render_container_history(container_id)
+                    self._update_project_label(container_id)
+                except Exception:
+                    pass
+            self._msglog().add_error(title="删除对话失败", detail=str(exc))
+            return
+
+        if deleting_current and replacement_id:
+            self.session_name = chat.session_name
+            self._header().set_session_name("新对话")
+            self._render_container_history(replacement_id)
+            self._update_project_label(replacement_id)
+
+        if self._app_state and self._app_state.sidebar.is_visible():
+            self._show_session_list()
+        pending_cleanup = any(
+            str(item.get("container_id") or "") == container_id
+            for item in manager.list_pending_session_cleanups(limit=1000)
+        )
+        if pending_cleanup:
+            self._msglog().add_meta(
+                f"已删除对话“{row.display_title}”；模型会话历史清理已排队，将在数据库可用后重试。"
+            )
+        else:
+            self._msglog().add_meta(f"已永久删除对话“{row.display_title}”及其关联数据。")
 
     async def _switch_session(self, container_id: str) -> None:
         if self._turn_active or self._in_approval:
@@ -1979,9 +2128,12 @@ class ForgeTuiApp(App):
                 sidebar.select_prev()
             elif key == "enter":
                 self._on_session_select()
+            elif key == "delete":
+                sidebar.toggle_selected_actions()
             elif key == "escape":
-                sidebar.hide()
-                self._bar().focus_input()
+                if not sidebar.close_actions():
+                    sidebar.hide()
+                    self._bar().focus_input()
             return
 
         # 1. Slash popup 打开时：↑↓/Tab/Esc 全部交给 popup
