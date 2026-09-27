@@ -411,7 +411,15 @@ def run_cli(**kwargs) -> int:
     """同步入口：给 main.py 调用。"""
     app = ChatApp(**kwargs)
     try:
-        return asyncio.run(app.run())
+        async def _run_with_mcp_lifecycle() -> int:
+            try:
+                return await app.run()
+            finally:
+                from integrations.mcp_bridge import close_servers
+
+                await close_servers()
+
+        return asyncio.run(_run_with_mcp_lifecycle())
     except KeyboardInterrupt:
         print("\n已中断，退出。")
         return 130

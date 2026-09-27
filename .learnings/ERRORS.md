@@ -126,3 +126,76 @@ Use separate stdout and stderr log files when starting a background PowerShell p
 
 ## 2026-09-09 Public Activity 审计环境
 用户指定目录在当前 checkout 不存在；实际根目录没有 .git。先枚举 runtime/web 的调用关系，不执行猜测路径或 Git 操作。tests/test_run_sse.py 也不存在，后续先 rg --files 定位测试。
+
+## [ERR-20260926-A01] powershell_regex_quote_parsing
+
+**Logged**: 2026-09-26T22:37:46+08:00
+**Priority**: low
+**Status**: resolved
+**Area**: infra
+
+### Summary
+A PowerShell `rg` command with nested double quotes parsed the regex alternation as separate commands.
+
+### Error
+PowerShell attempted to execute `succeeded` as a command when processing a double-quoted regex containing parentheses and alternation.
+
+### Context
+- Command: `rg -n "status=\"(succeeded|success|cancelled|error|blocked|interrupted)\"" runtime`
+- The source was not modified by the failed search.
+- Re-ran the search with a single-quoted regex successfully.
+
+### Suggested Fix
+Use single quotes around regex patterns passed to `rg` in PowerShell when the pattern contains alternation or embedded quotes.
+
+### Metadata
+- Reproducible: yes
+- Related Files: runtime/runner.py
+
+### Resolution
+- **Resolved**: 2026-09-26T22:37:46+08:00
+- **Notes**: Re-ran with a PowerShell-safe single-quoted pattern.
+
+---
+
+## [ERR-20260927-A01] module_move_indentation_context
+
+**Logged**: 2026-09-27
+**Priority**: low
+**Status**: resolved
+**Area**: coding
+
+### Summary
+Replacing imports at multiple delayed-import locations with a broad patch changed indentation in `runtime/broker.py` and caused an `IndentationError`.
+
+### Context
+- The file contains the same import at different nesting levels.
+- Focused import/test collection caught the syntax error before further changes.
+
+### Suggested Fix
+Patch each occurrence with surrounding control-flow context, then run a compile/import check before the focused test batch.
+
+### Resolution
+- **Resolved**: 2026-09-27
+- **Notes**: Corrected both indentation levels; the resilience/MCP focused suite passed (32 tests).
+
+## [ERR-20260927-A02] pytest-collected-vendored-tests
+
+**Logged**: 2026-09-27
+**Priority**: low
+**Status**: resolved
+**Area**: testing
+
+### Summary
+Running pytest from the repository root collected the ignored upstream Laya checkout under `laya/_laya_inspect/` and hit `SystemExit` during collection.
+
+### Context
+- The project test suite is under `tests/`; the inspected Laya checkout is a local dependency copy, not project tests.
+- The first full run reached 34 passed before collection aborted with a pytest INTERNALERROR.
+
+### Suggested Fix
+Set `testpaths = tests` in `pytest.ini` so a standard repository-root invocation scopes collection to the project's test tree.
+
+### Resolution
+- **Resolved**: 2026-09-27
+- **Notes**: Added the project test root and reran the suite.

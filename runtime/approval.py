@@ -45,12 +45,14 @@ REAL_FILE_EDIT_TOOLS = {"write_project_file", "edit_project_file"}
 #:   用户显式请求的产出物本身，落盘位置受 FileScope 约束在 FORGE 数据目录内；
 #:   「要保存你刚让我生成的文档吗？」是纯 UX 税，无安全增益。
 #: - index_workspace / sandbox_snapshot：可逆的内部缓存 / 快照。
+#: - write_code_file：只写入专用 code_sandbox，路径由工具本身围栏；且必须先通过
+#:   用户明确代码意图门。真正执行生成代码的 run_python / code_loop 仍需审批。
 #: - remember：有界的记忆写入（删除记忆 forget_memory 仍在门内）。
 #: - schedule_add / schedule_set_enabled：新增/启停定时任务不破坏既有状态
 #:   （移除定时任务 schedule_remove 仍在门内）。
 SIDE_EFFECT_EXEMPT: frozenset[str] = frozenset({
     "save_note", "save_word_doc", "save_excel_workbook", "save_ppt_deck",
-    "index_workspace", "sandbox_snapshot", "remember",
+    "index_workspace", "sandbox_snapshot", "write_code_file", "remember",
     "schedule_add", "schedule_set_enabled",
 })
 

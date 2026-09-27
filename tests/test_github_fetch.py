@@ -9,7 +9,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
-import github_fetch as gf
+from integrations import github_fetch as gf
 
 
 def make_zip(entries: dict[str, bytes]) -> bytes:

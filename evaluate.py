@@ -8,8 +8,8 @@
     python evaluate.py --no-clean          # 保留评估产生的文件产出（notes 目录）
 
 每个场景输出四维得分（0~1）+ 效率指标（模型调用数/token/工具调用数/耗时），
-汇总输出中位数、P95 延迟与平均分；报告写入 tests/reports/eval_report.json。
-评估使用独立会话（不写 sessions.sqlite / memory.json）。
+汇总输出中位数、P95 延迟与平均分；报告写入 var/test-reports/eval_report.json。
+评估使用独立会话（不写运行时 SQLite 数据库 / memory.json）。
 """
 
 import argparse
@@ -35,12 +35,13 @@ from agents import (
 
 import main as main_module
 from agent import assistant_agent
-from mcp_bridge import ensure_connected as ensure_mcp
+from integrations.mcp_bridge import ensure_connected as ensure_mcp
 from runtime.runner import AgentRuntime
 from schemas import AgentReply
+from runtime_paths import TEST_REPORT_DIR
 
 NOTES_DIR = BASE / "notes"
-REPORT_DIR = BASE / "tests" / "reports"
+REPORT_DIR = TEST_REPORT_DIR
 
 _DENY_MARKERS = ("审批拒绝", "拒绝执行该操作", "策略自动拒绝", "拒绝高风险", "需要审批")
 

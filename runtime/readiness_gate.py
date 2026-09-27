@@ -255,6 +255,23 @@ def check_user_tool_intent(name: str, request_text: str | None) -> tuple[bool, s
 
 _FROM_HINT = re.compile(r"(?:从|自)\s*([\u4e00-\u9fa5A-Za-z]{1,12})\s*(?:出发|起飞|走)")
 
+# 天气查询位置：保留常见地名，并接受地名自带的行政区划后缀。
+# 旧规则只有短白名单/市省区县后缀，会把“锦州今天的天气”误当成缺城市，
+# 导致 Runtime 确定性拦截工具并要求用户重复提供已说过的位置。
+_WEATHER_KNOWN_LOCATIONS = re.compile(
+    r"北京|上海|广州|深圳|成都|杭州|武汉|西安|南京|重庆|苏州|天津|"
+    r"长沙|郑州|青岛|厦门|香港|台北|纽约|伦敦|东京|巴黎|新加坡|北京天气"
+)
+_WEATHER_ADMIN_LOCATION = re.compile(
+    r"[一-龥]{1,5}(?:特别行政区|自治州|地区|市|省|区|县|州|盟|旗)"
+)
+
+
+def _has_weather_location(text: str) -> bool:
+    """识别常见地名及带“市/州/县”等后缀的城市，供拦截与追问共用。"""
+    return bool(_WEATHER_KNOWN_LOCATIONS.search(text)
+                or _WEATHER_ADMIN_LOCATION.search(text))
+
 #: 航班/行程：必须含“出发地 + 目的地 + 日期/时间”；只有是明确“某城市出发→上海”才充足
 _FLIGHT_REQUIRED = ("出发", "从", "起飞", "首都机场", "机场", "航班")
 _DEST_REQ = ("到", "去", "飞", "航班", "高铁", "车次")
@@ -379,13 +396,8 @@ def missing_required_fields(message: str | None, tool_name: str,
         or re.search(r"天气.{0,4}(?:怎么样|如何|预报)", text)
     )
     if _weather_query:
-        has_location = bool(
-            re.search(r"(?:北京|上海|广州|深圳|成都|杭州|武汉|西安|南京|重庆|苏州|"
-                      r"天津|长沙|郑州|青岛|厦门|香港|台北|纽约|伦敦|东京|巴黎|新加坡|"
-                      r"北京天气)", text)
-            or re.search(r"[一-龥]{2,4}(?:市|省|区|县|城市)", text)
-            or re.search(r"(?:我这里|我所在|本地|当地)", text)
-        )
+        has_location = (_has_weather_location(text)
+                        or re.search(r"(?:我这里|我所在|本地|当地)", text))
         if not has_location:
             return True, (
                 "【缺少必要信息】查询天气/气温需要明确城市或地区。"
@@ -468,11 +480,8 @@ def required_questions(message: str | None) -> list[str]:
     # 8) 查天气/气温：缺位置（与 missing_required_fields 第 8 类对齐）
     if (re.search(r"(?:查|看|告诉我|报一下)\s*(?:一下)?\s*(?:天气|气温|温度|降雨|是否下雨|"
                   r"风力|空气质量)", text)
-            or re.search(r"天气.{0,4}(?:怎么样|如何|预报)", text)) and not \
-       re.search(r"(?:北京|上海|广州|深圳|成都|杭州|武汉|西安|南京|重庆|苏州|天津|"
-                 r"长沙|郑州|青岛|厦门|香港|台北|纽约|伦敦|东京|巴黎|新加坡|北京天气)",
-                 text) and \
-       not re.search(r"[一-龥]{2,4}(?:市|省|区|县|城市)", text) and \
+            or re.search(r"天气.{0,4}(?:怎么样|如何|预报)", text)) and \
+       not _has_weather_location(text) and \
        not re.search(r"(?:我这里|我所在|本地|当地)", text):
         qs.append("请问查哪个城市/地区的天气？")
     # 9) 模糊执行意图：「想测一下/试试/跑一下」但没给具体测试目标（T044 对抗）

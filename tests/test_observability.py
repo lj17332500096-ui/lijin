@@ -10,7 +10,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
-from observability import (
+from runtime.observability import (
     LocalJsonlProcessor,
     _to_nano,
     add_exporter,
@@ -49,7 +49,10 @@ class SpanMappingTests(unittest.TestCase):
         span = make_span("function", name="web_search", input='{"q":"x"}', output="结果")
         attrs = span_attributes(span)
         self.assertEqual(attrs["gen_ai.tool.name"], "web_search")
-        self.assertIn("结果", attrs["local.io.preview.output"])
+        self.assertEqual(attrs["local.io.input_chars"], len('{"q":"x"}'))
+        self.assertEqual(attrs["local.io.output_chars"], len("结果"))
+        self.assertNotIn("local.io.preview.input", attrs)
+        self.assertNotIn("local.io.preview.output", attrs)
 
     def test_agent_turn_attributes(self) -> None:
         span = make_span("turn", data={"turn": 3, "agent_name": "assistant"})

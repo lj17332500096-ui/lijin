@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from enum import StrEnum
 from typing import Any
 
 from runtime.task import TaskState
@@ -42,6 +43,68 @@ KIND_BOUNDED_FAILURE = "bounded_failure"
 KIND_FINAL_RESPONSE_FAILED = "final_response_failed"
 KIND_TOKEN_BUDGET = "token_budget"  # 2026-09-19 ④ 成本闸门新增
 KIND_UNKNOWN = "unknown"
+
+
+class RunOutcome(StrEnum):
+    """Stable user-facing result, separate from the Task lifecycle state.
+
+    ``TaskState`` remains authoritative for whether a Run is active, resumable,
+    or terminal. Outcome explains what this execution achieved. Cancellation is
+    kept distinct from failure even though the original five-outcome proposal
+    did not list it.
+    """
+
+    COMPLETED = "completed"
+    NEEDS_USER = "needs_user"
+    PARTIAL = "partial"
+    BLOCKED = "blocked"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+
+class RunNextAction(StrEnum):
+    ANSWER_QUESTIONS = "answer_questions"
+    APPROVE = "approve"
+    REVIEW_EFFECTS = "review_effects"
+    RESUME = "resume"
+
+
+def classify_run_outcome(
+    state: TaskState,
+    *,
+    kind: str = "",
+    side_effect_count: int = 0,
+    unknown_side_effect_count: int = 0,
+) -> tuple[RunOutcome, RunNextAction | None]:
+    """Return (outcome, next_action) from durable state and execution evidence.
+
+    Pending approval is represented as ``blocked`` with ``approve`` as the
+    required action. Failed Runs with a completed or uncertain side effect are
+    ``partial``; read-only tool use alone does not count as partial work.
+    """
+    if state == TaskState.COMPLETED:
+        return RunOutcome.COMPLETED, None
+    if state == TaskState.WAITING_USER:
+        return RunOutcome.NEEDS_USER, RunNextAction.ANSWER_QUESTIONS
+    if state == TaskState.WAITING_APPROVAL:
+        return RunOutcome.BLOCKED, RunNextAction.APPROVE
+    if state == TaskState.CANCELLED:
+        return RunOutcome.CANCELLED, (
+            RunNextAction.REVIEW_EFFECTS
+            if side_effect_count or unknown_side_effect_count else None
+        )
+
+    if state == TaskState.FAILED:
+        if side_effect_count > 0 or unknown_side_effect_count > 0:
+            return RunOutcome.PARTIAL, RunNextAction.REVIEW_EFFECTS
+        if kind in {KIND_REFUSED, KIND_NEEDS_APPROVAL, KIND_NEEDS_USER_INPUT,
+                    KIND_NO_PROGRESS, KIND_COMPLETION_REJECTED}:
+            return RunOutcome.BLOCKED, None
+        return RunOutcome.FAILED, None
+
+    # A RunResult should normally only be emitted after a stable state has
+    # been selected. Treat unexpected active states conservatively.
+    return RunOutcome.BLOCKED, RunNextAction.RESUME
 
 
 @dataclass(frozen=True)

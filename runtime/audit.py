@@ -151,6 +151,7 @@ class AuditCollector:
         #: (in_tokens, out_tokens) -> None；抛 BudgetExceeded 由 runner 收口。
         self.on_token_note: Callable[[int, int], None] | None = None
         self.task_id = task_id
+        self._latency_cursor = 0
 
     def _turn_number_snapshot(self) -> int | None:
         """当前 Run 已成功返回的模型轮次（B7：tool_calls.turn_number 的来源）。
@@ -170,7 +171,14 @@ class AuditCollector:
 
     def ingest(self, result: Any) -> dict:
         """把一次 run 的明细写库；返回 {model_calls, tool_calls, input_tokens, output_tokens}。"""
-        totals = {"model_calls": 0, "tool_calls": 0, "input_tokens": 0, "output_tokens": 0}
+        totals = {"model_calls": 0, "tool_calls": 0, "input_tokens": 0, "output_tokens": 0,
+                  "cost_usd": 0.0, "priced_model_calls": 0}
+        try:
+            from runtime.runctx import current as _cur
+            _ctx = _cur()
+            latencies = list(getattr(_ctx, "model_latency_ms", []) or [])
+        except Exception:
+            latencies = []
 
         for index, response in enumerate(getattr(result, "raw_responses", []) or []):
             model = getattr(response, "model", None)
@@ -179,13 +187,40 @@ class AuditCollector:
             output_tokens = int(getattr(usage, "output_tokens", 0) or 0) if usage is not None else 0
             # provider 未返回 model 时记录 requested model（字段语义：model=实际/请求模型）
             recorded = str(model) if model else (self.requested_model or None)
+            from runtime.pricing import estimate_cost
+            cost, pricing_version = estimate_cost(recorded, input_tokens, output_tokens)
+            latency_index = self._latency_cursor + index
+            latency_ms = round(latencies[latency_index]) if latency_index < len(latencies) else None
             self.manager.insert_model_call(
                 task_id=self.task_id,
                 turn_number=index,
                 model=recorded,
                 input_tokens=input_tokens,
                 output_tokens=output_tokens,
+                latency_ms=latency_ms,
+                cost_usd=cost,
+                pricing_version=pricing_version,
             )
+            # Link every returned model response to the routing decision that
+            # constrained this Run. Existing model_calls remains the canonical
+            # usage ledger; this event adds the cross-layer trace edge.
+            try:
+                from runtime.runctx import current as _current_runctx
+
+                _runctx = _current_runctx()
+                self.manager.add_event(self.task_id, "model.call", {
+                    "run_id": self.task_id,
+                    "routing_decision_id": getattr(_runctx, "routing_decision_id", None),
+                    "turn_number": index,
+                    "model": recorded,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "latency_ms": latency_ms,
+                    "cost_usd": cost,
+                })
+            except Exception:
+                # Tracing is best-effort and must not alter model/tool execution.
+                pass
             # ④ 成本闸门：每次模型调用记账 token；超预算抛 BudgetExceeded
             if self.on_token_note is not None:
                 try:
@@ -197,6 +232,24 @@ class AuditCollector:
             totals["model_calls"] += 1
             totals["input_tokens"] += input_tokens
             totals["output_tokens"] += output_tokens
+            if cost is not None:
+                totals["cost_usd"] += cost
+                totals["priced_model_calls"] += 1
+
+        self._latency_cursor += totals["model_calls"]
+
+        if totals["model_calls"]:
+            try:
+                self.manager.add_event(self.task_id, "run.cost_estimate", {
+                    "currency": "USD",
+                    "cost_usd": round(totals["cost_usd"], 8)
+                        if totals["priced_model_calls"] == totals["model_calls"] else None,
+                    "priced_model_calls": totals["priced_model_calls"],
+                    "model_calls": totals["model_calls"],
+                    "complete": totals["priced_model_calls"] == totals["model_calls"],
+                })
+            except Exception:
+                pass
 
         pending: list[tuple[Any, float]] = []  # (raw_call, started)
         for item in getattr(result, "new_items", []) or []:

@@ -8,6 +8,7 @@ import os
 import re
 import time
 import uuid
+import contextvars
 from datetime import datetime
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from agents import function_tool
 from dotenv import load_dotenv
 
 import scheduler
+from runtime_paths import PROJECT_ROOT, state_db_path
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
@@ -23,25 +25,33 @@ NOTES_DIR = BASE_DIR / "notes"
 WORKSPACE_ROOT = Path(os.getenv("WORKSPACE_ROOT") or BASE_DIR.parent).resolve()
 
 # 敏感/无关目录与文件：不让 Agent 读取（例如 .env 里存着 API Key）
-_SKIP_DIRS = {".venv", ".git", "__pycache__", "node_modules", ".idea"}
+_SKIP_DIRS = {".venv", ".git", "__pycache__", "node_modules", ".idea", "var"}
 _SKIP_FILES = {".env", "apikey.txt"}
 _SENSITIVE_SUFFIXES = {".pem", ".key", ".p12", ".pfx"}
 _DEFAULT_MEMORY_FILE = BASE_DIR / "memory.json"
 _MEMORY_FILE = _DEFAULT_MEMORY_FILE
-_MEMORY_DB_PATH = BASE_DIR / "agent.db"   # SQLite 记忆后端（可被测试替换）
+_MEMORY_DB_PATH = state_db_path(
+    "agent.db", env_vars=("FORGE_AGENT_DB", "FORGE_DB_PATH"),
+    legacy_path=PROJECT_ROOT / "agent.db",
+)   # SQLite 记忆后端（可被测试替换）
 _MEMORY_SCOPE = ("user", "personal")
 _MEMORY_MAX = 200
-_last_recall_call = {"key": None, "ts": 0.0, "count": 0}
+_last_recall_call = contextvars.ContextVar("forge_last_recall_call", default=None)
 
 # v3：记忆作用域绑定（run 期间由 AgentRuntime 设置；None=旧行为=全局个人记忆）
 _MEMORY_BINDING = {"task_id": None, "scope": None}
+_MEMORY_BINDING_CTX = contextvars.ContextVar("forge_memory_binding", default=None)
 
 
 def set_active_memory_binding(task_id: str | None, scope: str | None) -> None:
+    # Legacy mirror supports callers/tests that inspect the symbol. Runtime
+    # reads only the task-local value, so concurrent runs cannot overwrite it.
+    _MEMORY_BINDING_CTX.set({"task_id": task_id, "scope": scope})
     _MEMORY_BINDING.update(task_id=task_id, scope=scope)
 
 
 def clear_active_memory_binding() -> None:
+    _MEMORY_BINDING_CTX.set(None)
     _MEMORY_BINDING.update(task_id=None, scope=None)
 
 
@@ -51,8 +61,7 @@ def _memory_enabled() -> bool:
 
 
 def _active_project() -> dict | None:
-    """当前 Run 的记忆作用域绑定（P1-C：优先取 RunContext，并发 run 互不覆盖；
-    无 RunContext 时回退进程级 _MEMORY_BINDING，兼容旧测试与直接调用）。"""
+    """当前 Run 的记忆作用域绑定；无 RunContext 时只回退到 task-local 值。"""
     try:
         from runtime.runctx import current as _rc
 
@@ -61,7 +70,8 @@ def _active_project() -> dict | None:
             return {"task_id": ctx.container_id, "scope": ctx.memory_scope}
     except Exception:
         pass
-    return None if not _MEMORY_BINDING.get("task_id") else dict(_MEMORY_BINDING)
+    binding = _MEMORY_BINDING_CTX.get()
+    return dict(binding) if binding and binding.get("task_id") else None
 
 
 def _project_manager():
@@ -510,15 +520,16 @@ def _recall_memory_core(keyword: str = "") -> str:
         matched = entries
 
     now = time.time()
-    within = now - _last_recall_call["ts"] < 8
-    if within and key == _last_recall_call["key"]:
-        count = _last_recall_call["count"] + 1
-    elif within and _last_recall_call["empty"] and not matched:
-        count = _last_recall_call["count"] + 1  # 换关键词连续空结果也算重复空转
+    previous = _last_recall_call.get() or {"key": None, "ts": 0.0, "count": 0, "empty": False}
+    within = now - previous["ts"] < 8
+    if within and key == previous["key"]:
+        count = previous["count"] + 1
+    elif within and previous["empty"] and not matched:
+        count = previous["count"] + 1  # 换关键词连续空结果也算重复空转
     else:
         count = 1
     repeated = count >= 2
-    _last_recall_call.update(key=key, ts=now, count=count, empty=not matched)
+    _last_recall_call.set({"key": key, "ts": now, "count": count, "empty": not matched})
 
     if not matched:
         message = f"长期记忆里没有找到与“{keyword}”相关的内容。"

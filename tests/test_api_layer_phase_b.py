@@ -386,7 +386,7 @@ class TraceRunIdLinkageTests(unittest.TestCase):
     """
 
     def test_records_carry_run_id(self) -> None:
-        from observability import base_record
+        from runtime.observability import base_record
         from runtime.runctx import RunContext, bind as _bind, current as _cur
 
         prev = _cur()
@@ -403,7 +403,7 @@ class TraceRunIdLinkageTests(unittest.TestCase):
     def test_trace_export_finds_spans_by_run_id(self) -> None:
         import json as _json
 
-        import trace_export
+        from runtime import trace_export
 
         tmpdir = Path(tempfile.mkdtemp(prefix="phase_b_trace_"))
         path = tmpdir / "traces.jsonl"
@@ -427,13 +427,13 @@ class TraceRunIdLinkageTests(unittest.TestCase):
         rt = AgentRuntime(db_path=str(Path(tempfile.mkdtemp()) / "a.db"))
         with mock.patch.dict(os.environ, {}, clear=False):
             os.environ.pop("FORGE_TRACE", None)
-            with mock.patch("observability.install_local_tracing") as inst:
+            with mock.patch("runtime.observability.install_local_tracing") as inst:
                 rt._ensure()
             self.assertFalse(inst.called, "未显式开启时不得安装追踪")
 
         rt2 = AgentRuntime(db_path=str(Path(tempfile.mkdtemp()) / "a.db"))
         with mock.patch.dict(os.environ, {"FORGE_TRACE": "1"}):
-            with mock.patch("observability.install_local_tracing") as inst:
+            with mock.patch("runtime.observability.install_local_tracing") as inst:
                 rt2._ensure()
                 rt2._ensure()  # 幂等：第二次不得重复安装
             self.assertEqual(inst.call_count, 1, "重复调用 _ensure 只应安装一次")
@@ -586,7 +586,7 @@ class ToolTimeoutWiringTests(unittest.TestCase):
         self.assertEqual(spec.spec_for("deep_research").timeout_seconds,
                          spec.timeout_for("deep_research"))
 
-    def test_hung_async_tool_is_aborted_and_recorded_as_error(self) -> None:
+    def test_timed_out_tool_is_uncertain_and_recorded_as_error(self) -> None:
         """慢工具必须：① 被中止（不等它自然结束）；② 记为 TOOL_ERROR；③ 给模型可读原因。"""
         import asyncio as _a
 
@@ -647,7 +647,8 @@ class ToolTimeoutWiringTests(unittest.TestCase):
 
         out = str(captured.get("out") or "")
         self.assertIn("上限", out, "模型必须收到可读的超时原因，而不是笼统 tool error")
-        self.assertIn("已中止", out)
+        self.assertIn("本次结果按未知处理", out)
+        self.assertIn("自动重放", out)
         entries = [c for c in (captured.get("ledger") or [])
                    if c.get("name") == target]
         self.assertTrue(entries, "超时也必须记账（否则等于静默失败）")

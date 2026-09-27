@@ -139,6 +139,21 @@ class ClarificationGateNewCasesTests(unittest.TestCase):
         )
         self.assertFalse(missing)
 
+    def test_weather_with_city_name_ending_in_zhou_not_blocked(self):
+        from runtime.readiness_gate import missing_required_fields, required_questions
+        for text in ("锦州今天的天气怎么样", "锦州的天气怎么样", "辽宁锦州市今天实时天气"):
+            with self.subTest(text=text):
+                missing, _ = missing_required_fields(text, "get_weather", {"city": "锦州"})
+                self.assertFalse(missing)
+                self.assertEqual(required_questions(text), [])
+
+    def test_weather_without_location_still_asks(self):
+        from runtime.readiness_gate import missing_required_fields, required_questions
+        text = "今天的天气怎么样"
+        missing, _ = missing_required_fields(text, "get_weather", {})
+        self.assertTrue(missing)
+        self.assertTrue(any("城市" in q for q in required_questions(text)))
+
     def test_existing_six_rules_still_fire(self):
         """回归：原有 6 类（航班/提醒/删除/部署/批量删/发送）不破坏。
         ⚠️ 「提醒」类正则把 早上/下午/晚上/点/明天/今天/周/分钟后/上午/整点/日期 视为

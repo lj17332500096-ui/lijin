@@ -11,9 +11,9 @@ from pathlib import Path
 
 from agents import function_tool
 from dotenv import load_dotenv
+from runtime_paths import PROJECT_ROOT
 
-BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
+load_dotenv(PROJECT_ROOT / ".env")
 
 IMAGE_EXTS = {".png", ".jpg", ".jpeg", ".webp", ".bmp", ".gif"}
 MAX_IMAGE_BYTES = 10 * 1024 * 1024

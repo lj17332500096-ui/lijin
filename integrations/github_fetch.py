@@ -27,10 +27,10 @@ from urllib.request import Request, urlopen
 
 from agents import function_tool
 from dotenv import load_dotenv
+from runtime_paths import PROJECT_ROOT
 
-BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
-WORKSPACE_ROOT = Path(os.getenv("WORKSPACE_ROOT") or BASE_DIR.parent).resolve()
+load_dotenv(PROJECT_ROOT / ".env")
+WORKSPACE_ROOT = Path(os.getenv("WORKSPACE_ROOT") or PROJECT_ROOT.parent).resolve()
 REPO_ROOT_DIR = WORKSPACE_ROOT / "github_repos"
 
 MAX_ARCHIVE_BYTES = 200 * 1024 * 1024   # 单仓库归档上限

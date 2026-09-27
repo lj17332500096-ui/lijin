@@ -545,6 +545,66 @@ def test_case_e_stream_single_item():
     asyncio.run(_run())
 
 
+def test_tui_approval_resume_completes_run_end_to_end():
+    """真实 Textual Pilot 驱动 Run → 审批暂停 → Y → 同 Run 续跑完成。"""
+    from types import SimpleNamespace
+    from runtime.runner import RunResult
+    from runtime.task import TaskState
+
+    class FakeRuntime:
+        def __init__(self):
+            self.calls = 0
+            self.decisions = []
+            self.tasks = self
+
+        def list_pending_approvals(self, task_id):
+            return [{"id": "approval-1", "tool_name": "fixture_write"}]
+
+        def decide_approval(self, approval_id, decision, actor="user"):
+            self.decisions.append((approval_id, decision, actor))
+
+        async def run_turn(self, goal, **kwargs):
+            self.calls += 1
+            if self.calls == 1:
+                task = SimpleNamespace(
+                    id="run-tui-e2e", goal=goal, session_id="tui-e2e",
+                    state=TaskState.WAITING_APPROVAL,
+                )
+                return RunResult(
+                    task=task, waiting_approval=True,
+                    approvals=[{"id": "approval-1", "tool_name": "fixture_write"}],
+                )
+            task = SimpleNamespace(
+                id="run-tui-e2e", goal=goal, session_id="tui-e2e",
+                state=TaskState.COMPLETED,
+            )
+            return RunResult(task=task, final_output="隔离写入完成", ok=True, elapsed_seconds=0.01)
+
+    async def _run():
+        app = ForgeTuiApp(session_name="tui-e2e", auto_summary=False)
+        runtime = FakeRuntime()
+        session = object()
+        app._chat_app = SimpleNamespace(
+            runtime=runtime, session=session, session_name="tui-e2e", mode="async",
+            debug=False, max_turns=2, history_limit=None, auto_summary=False,
+        )
+        async with app.run_test() as pilot:
+            app._submit_text("执行隔离写入")
+            await pilot.pause(0.05)
+            assert app._in_approval is True
+            assert app._header()._run_state == "waiting"
+            app._handle_approval_input("y")
+            await pilot.pause(0.1)
+            assert runtime.calls == 2
+            assert runtime.decisions == [("approval-1", "approved", "user")]
+            assert app._in_approval is False
+            assert app._header()._run_state == "idle"
+            assert any("隔离写入完成" in item._content
+                       for item in app._msglog()._items if item._kind == "assistant")
+
+    asyncio.run(_run())
+
+
 def test_case_f_tool_tree():
     """Case F：tool_start + tool_end 成功/失败，失败行保留 detail。"""
 

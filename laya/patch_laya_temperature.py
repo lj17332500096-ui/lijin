@@ -27,12 +27,24 @@ import sys
 from pathlib import Path
 
 
+def _default_hf_snapshot() -> str:
+    hub_cache = (os.getenv("HF_HUB_CACHE") or "").strip()
+    if hub_cache:
+        cache_root = Path(hub_cache).expanduser()
+    else:
+        hf_home = (os.getenv("HF_HOME") or "").strip()
+        home_root = Path(hf_home).expanduser() if hf_home else Path.home() / ".cache" / "huggingface"
+        cache_root = home_root / "hub"
+    return str(cache_root / "models--convaiinnovations--laya" / "snapshots" /
+               "1c5edc17a7acd8701df6fc341c0d179f1c62c982")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description="Laya checkpoint temperature 改造")
     ap.add_argument("--temp", type=float, default=0.3, help="目标温度（默认 0.3）")
     ap.add_argument(
         "--src",
-        default=r"C:/Users/Administrator/.cache/huggingface/hub/models--convaiinnovations--laya/snapshots/1c5edc17a7acd8701df6fc341c0d179f1c62c982",
+        default=_default_hf_snapshot(),
         help="Laya english checkpoint 源目录（HF 缓存 snapshot）",
     )
     ap.add_argument(

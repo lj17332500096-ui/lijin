@@ -1,5 +1,6 @@
 import os
 import sys
+import tempfile
 import time
 import unittest
 from pathlib import Path
@@ -136,9 +137,12 @@ class Phase7IntentScopeTests(unittest.TestCase):
         self.assertNotIn("run_python", names)
 
     def test_weather_only_realtime_tools(self):
-        names = self._names("北京现在天气怎么样？")
-        self.assertIn("web_search", names)
-        self.assertFalse(set(names) & _MUTATION, names)
+        for query in ("北京现在天气怎么样？", "锦州今天的天气怎么样"):
+            with self.subTest(query=query):
+                names = self._names(query)
+                self.assertIn("web_search", names)
+                self.assertIn("get_weather", names)
+                self.assertFalse(set(names) & _MUTATION, names)
 
     def test_direct_text_rewrite_zero_tools(self):
         self.assertEqual(self._names("把这句话改得正式一点。"), [])
@@ -195,17 +199,115 @@ class RuntimeRouteAgentTests(unittest.TestCase):
         a2 = self.runtime.route_agent("帮我搜索天气并记住我喜欢", channel="chat")
         self.assertIs(a1, a2)
 
-    def test_capability_query_gets_full_tools_and_fact_block(self) -> None:
-        """能力盘点问题给全量工具，避免历史误调旧工具出现 Tool not found 空转。"""
-        agent = self.runtime.route_agent("你有哪些MCP技能可用？", channel="chat")
-        self.assertEqual(len(agent.tools), len(assistant_agent.tools))
+    def test_capability_query_is_context_only_and_has_no_tools(self) -> None:
+        """Runtime 事实块回答能力问题，不暴露可被旧历史诱发的业务工具。"""
+        for query in ("你有哪些MCP技能可用？", "查询不了你有什么插件吗？",
+                      "你现在有哪些插件工具"):
+            agent = self.runtime.route_agent(query, channel="chat")
+            self.assertEqual(agent.tools, [], query)
         self.assertIn("当前能力状态", agent.instructions)
+
+    def test_compound_plan_follows_user_action_order(self) -> None:
+        plan = tr.infer_capability_plan(
+            "查询霸州天气，然后把结果保存到备忘录",
+            ["get_weather", "get_current_datetime", "save_note"],
+        )
+        self.assertEqual(
+            [phase["phase"] for phase in plan["phases"]],
+            ["external_fact", "save_note"],
+        )
+        self.assertEqual(plan["phases"][0]["tools"], ["get_weather"])
+        self.assertEqual(plan["phases"][1]["depends_on"], ["external_fact"])
+
+    def test_run_context_enforces_ordered_capability_phases(self) -> None:
+        from runtime.runctx import RunContext
+
+        plan = {"phases": [
+            {"phase": "compute", "tools": ["calculate"]},
+            {"phase": "save_note", "tools": ["save_note"]},
+        ]}
+        ctx = RunContext(run_id="phase-test", capability_plan=plan)
+        allowed, details = ctx.claim_capability_phase_tool("save_note")
+        self.assertFalse(allowed)
+        self.assertEqual(details["reason"], "out_of_order_tool")
+
+        allowed, _ = ctx.claim_capability_phase_tool("calculate")
+        self.assertTrue(allowed)
+        self.assertFalse(ctx.claim_capability_phase_tool("calculate")[0])
+        ctx.finish_capability_phase_tool("calculate", success=True)
+        self.assertEqual(ctx.capability_phase_index, 1)
+        ctx.mark_capability_phase_uncertain(0)
+        self.assertEqual(ctx.capability_phase_index, 0)
+        self.assertTrue(ctx.capability_plan_uncertain)
+        self.assertFalse(ctx.claim_capability_phase_tool("calculate")[0])
+        restored = RunContext(run_id="phase-restored", capability_plan=plan)
+        restored.capability_phase_index = 1
+        self.assertTrue(restored.claim_capability_phase_tool("save_note")[0])
+
+    def test_runtime_wrapper_blocks_later_phase_and_records_event(self) -> None:
+        import asyncio
+        from agents.tool_context import ToolContext
+        from runtime.runctx import RunContext, bind
+
+        self.runtime._ensure()
+        task = self.runtime.tasks.create_task(
+            "phase-wrapper", "查询霸州天气，然后把结果保存到备忘录",
+        )
+        agent = self.runtime.route_agent(
+            task.goal, channel="chat", run_id=task.id,
+        )
+        plan = self.runtime._route_plans.pop(task.id)
+        runctx = RunContext(run_id=task.id, request_text=task.goal,
+                            capability_plan=plan)
+        tool = next(item for item in agent.tools if item.name == "save_note")
+        bind(runctx)
+        try:
+            call = tool.on_invoke_tool(
+                ToolContext(context=None, tool_name="save_note",
+                            tool_call_id="phase-out-of-order", tool_arguments="{}"),
+                "{}",
+            )
+            result = asyncio.run(call) if asyncio.iscoroutine(call) else call
+        finally:
+            bind(None)
+        self.assertIn("当前处于第 1 步", str(result))
+        events = self.runtime.tasks.list_events(task.id, limit=100)
+        self.assertTrue(any(
+            event.event_type == "capability.phase.blocked"
+            and event.payload.get("reason") == "out_of_order_tool"
+            for event in events
+        ))
+
+    def test_unresolved_phase_start_restores_as_uncertain(self) -> None:
+        from types import SimpleNamespace
+        from runtime.runctx import RunContext
+
+        ctx = RunContext(capability_plan={"phases": [
+            {"phase": "compute", "tools": ["calculate"]},
+            {"phase": "save_note", "tools": ["save_note"]},
+        ]})
+        ctx.restore_capability_phase_events([
+            SimpleNamespace(event_type="capability.phase.started",
+                            payload={"phase_index": 0}),
+        ])
+        self.assertTrue(ctx.capability_plan_uncertain)
+        self.assertFalse(ctx.claim_capability_phase_tool("calculate")[0])
+
+    def test_save_note_path_counts_as_committed_phase_evidence(self) -> None:
+        from runtime.runner import _mutation_result_ok
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "note.md"
+            path.write_text("saved", encoding="utf-8")
+            self.assertEqual(_mutation_result_ok("save_note", str(path)), "COMMITTED")
 
     def test_code_request_includes_gated_tool_wrapper(self) -> None:
         from runtime.approval import ApprovalGate
         from runtime.task_manager import TaskManager
         from runtime.errors import ApprovalRequired
 
+        saved_approval = os.environ.get("APPROVAL")
+        os.environ["APPROVAL"] = "on"
         self.runtime._ensure()
         agent = self.runtime.route_agent("运行 python 代码 print(66)", channel="chat")
         run_tool = next(t for t in agent.tools if t.name == "run_python")
@@ -223,6 +325,10 @@ class RuntimeRouteAgentTests(unittest.TestCase):
             if asyncio.iscoroutine(result):
                 asyncio.run(result)
         self.assertTrue(gate.pending_for(task.id))
+        if saved_approval is None:
+            os.environ.pop("APPROVAL", None)
+        else:
+            os.environ["APPROVAL"] = saved_approval
         gate.end()
 
 
@@ -837,6 +943,10 @@ class RouterMetricsTests(unittest.TestCase):
         self.assertEqual(len(tr._metrics_state["latencies"]), 1000)
         # 旧的样本被裁掉，新样本在尾部
         self.assertEqual(tr._metrics_state["latencies"][-1], 2.0)
+
+    def test_nearest_rank_p95_is_not_window_max(self) -> None:
+        self.assertEqual(tr._nearest_rank_percentile(list(range(1, 101)), 95), 95.0)
+        self.assertEqual(tr._nearest_rank_percentile([4.0, 9.0, 30.0, 50.0], 95), 50.0)
 
 
 class FixCHitZeroIntentTests(unittest.TestCase):

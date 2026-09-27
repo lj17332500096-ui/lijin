@@ -17,6 +17,7 @@ from runtime.errors import AgentError
 from runtime.task import TaskState
 from runtime.task_manager import TaskManager
 from runtime.runner import AgentRuntime
+from runtime_paths import ARTIFACT_DIR, state_db_path
 
 
 def _arg_after(name: str, default: str = "") -> str:
@@ -33,9 +34,11 @@ def main() -> int:
         from runtime.snapshot import (create_snapshot, list_snapshots,
                                       restore_snapshot)
 
-        agent_db = base / "agent.db"
-        sessions_db = base / "sessions.sqlite"
-        snap_dir = base / "logs" / "snapshots"
+        agent_db = state_db_path("agent.db", env_vars=("FORGE_AGENT_DB", "FORGE_DB_PATH"),
+                                 legacy_path=base / "agent.db")
+        sessions_db = state_db_path("sessions.sqlite", env_vars=("FORGE_SESSIONS_DB",),
+                                    legacy_path=base / "sessions.sqlite")
+        snap_dir = ARTIFACT_DIR / "snapshots"
         if "--snapshot" in sys.argv:
             snap = create_snapshot(agent_db, sessions_db, snap_dir)
             print(f"快照已创建：{snap.root}")

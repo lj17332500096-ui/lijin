@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import unittest
 
-import compact
+from runtime import compact
 
 # 参考库 8 节 XML 标签名（与 compact._SUMMARY_SYSTEM 对齐）
 EIGHT_SECTIONS = [

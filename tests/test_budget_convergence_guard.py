@@ -24,6 +24,7 @@ if str(BASE) not in sys.path:
 os.environ.setdefault("FORGE_TEST_MODE", "1")
 
 from runtime.runctx import RunContext
+from runtime_paths import LOG_DIR
 
 
 class BudgetBlockKeyTests(unittest.TestCase):
@@ -108,8 +109,8 @@ class LogChannelIsolationTests(unittest.TestCase):
     """P0-1 修复：FORGE_TEST_MODE=1 时 check_output 落盘写到独立文件，不污染生产日志。"""
 
     def setUp(self):
-        self.prod_log = BASE / "logs" / "guardrail_failures.jsonl"
-        self.test_log = BASE / "logs" / "guardrail_failures.test.jsonl"
+        self.prod_log = LOG_DIR / "guardrail_failures.jsonl"
+        self.test_log = LOG_DIR / "guardrail_failures.test.jsonl"
         # 备份
         self._prod_backup = self.prod_log.read_text(encoding="utf-8") if self.prod_log.exists() else ""
         self._test_backup = self.test_log.read_text(encoding="utf-8") if self.test_log.exists() else ""
@@ -129,7 +130,7 @@ class LogChannelIsolationTests(unittest.TestCase):
     def test_secret_stub_goes_to_test_log_not_prod(self):
         # 桩数据：同 2026-09-19 的 42 条相同样本之一
         os.environ["FORGE_TEST_MODE"] = "1"
-        from guardrails import check_output
+        from runtime.guardrails import check_output
         payload = json.dumps({
             "kind": "answer", "summary": "一句话摘要",
             "content": "我的密钥是 sk-" + "a" * 24,
@@ -148,14 +149,14 @@ class LogChannelIsolationTests(unittest.TestCase):
 
     def test_eval_mode_skips_final_empty(self):
         os.environ["FORGE_EVAL_MODE"] = "1"
-        from guardrails import _log_guardrail_failure
+        from runtime.guardrails import _log_guardrail_failure
         # 评测回放的空回答样本不写日志
         try:
             _log_guardrail_failure("{}", "E-FINAL-EMPTY: 模型没有产生任何可用回答")
         except Exception:
             pass
         # 该 reason 在 eval 模式被显式跳过
-        eval_log = BASE / "logs" / "guardrail_failures.eval.jsonl"
+        eval_log = LOG_DIR / "guardrail_failures.eval.jsonl"
         if eval_log.exists():
             content = eval_log.read_text(encoding="utf-8")
             self.assertNotIn("E-FINAL-EMPTY", content)

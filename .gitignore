@@ -12,6 +12,7 @@ __pycache__/
 venv/
 *.egg-info/
 .pytest_cache/
+.ruff_cache/
 
 # 运行时产物
 logs/
@@ -20,6 +21,28 @@ data/
 *.db
 *.sqlite
 *.sqlite3
+*.db-wal
+*.db-shm
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-wal
+*.sqlite3-shm
+*.tmp
+*.temp
+
+# 禁止常见生成物落在仓库根目录（短期临时内容用系统临时目录或 var/tmp/）
+/*.log
+/*.xml
+/tmp/
+/.tmp/
+/_tmp/
+
+# 统一运行时、测试与临时产物（仅 var/README.md 纳入版本管理）
+var/
+!var/
+var/*
+!var/README.md
+tests/reports/
 
 # Agent 内部状态
 memory.json
@@ -61,6 +84,9 @@ web/llama-ui/
 # 注意 materials/ 是用户输入资料，必须保持跟踪，不在此列。
 # 历史评测产物统一归档（runs_*/reports/logs），不入库
 archive/
+!archive/
+archive/*
+!archive/README.md
 runs_eval*/
 runs_*/
 code_sandbox/demo/
@@ -84,4 +110,3 @@ benchmark_fixture/__pycache__/
 
 # Laya checkpoint 副本（HF 缓存 2.3G，本地不入库）
 data/laya_forge/
-

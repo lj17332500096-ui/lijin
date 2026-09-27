@@ -10,7 +10,7 @@ if str(BASE) not in sys.path:
 
 from agents.tool_context import ToolContext
 
-import multimodal
+from integrations import multimodal
 
 
 def call_tool(tool, **kwargs) -> str:

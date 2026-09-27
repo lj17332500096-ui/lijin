@@ -22,11 +22,11 @@ from pathlib import Path
 
 from agents import function_tool
 from dotenv import load_dotenv
+from runtime_paths import PROJECT_ROOT
 
-BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
-WORKSPACE_ROOT = Path(os.getenv("WORKSPACE_ROOT") or BASE_DIR.parent).resolve()
-EXPORTS_DIR = BASE_DIR / "exports"
+load_dotenv(PROJECT_ROOT / ".env")
+WORKSPACE_ROOT = Path(os.getenv("WORKSPACE_ROOT") or PROJECT_ROOT.parent).resolve()
+EXPORTS_DIR = PROJECT_ROOT / "exports"
 
 OFFICE_EXTS = {".docx", ".xlsx", ".pptx"}
 MAX_READ_BYTES = 4 * 1024 * 1024

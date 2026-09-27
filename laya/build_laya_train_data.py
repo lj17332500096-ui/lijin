@@ -39,11 +39,18 @@ import sqlite3
 import collections
 import datetime
 import pathlib
+import sys
 from typing import Any, Dict, List
 
 ROOT = pathlib.Path(__file__).resolve().parent
-LOG = ROOT / "logs" / "tool_router.jsonl"
-DB = ROOT / "sessions.sqlite"
+REPO = ROOT.parent
+if str(REPO) not in sys.path:
+    sys.path.insert(0, str(REPO))
+from runtime_paths import LOG_DIR, state_db_path  # noqa: E402
+
+LOG = LOG_DIR / "tool_router.jsonl"
+DB = state_db_path("sessions.sqlite", env_vars=("FORGE_SESSIONS_DB",),
+                   legacy_path=REPO / "sessions.sqlite")
 OUT = ROOT / "data" / "laya_tool_intent"
 OUT.mkdir(parents=True, exist_ok=True)
 

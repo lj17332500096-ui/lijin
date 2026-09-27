@@ -11,6 +11,7 @@
 
 import json
 import os
+import re
 import threading
 from datetime import datetime, timezone
 from pathlib import Path
@@ -22,14 +23,20 @@ from agents.tracing import (
     set_trace_processors,
     set_tracing_disabled,
 )
+from runtime_paths import TRACE_DIR
 
-BASE_DIR = Path(__file__).resolve().parent
-TRACES_DIR = BASE_DIR / "traces"
+TRACES_DIR = TRACE_DIR
 OTEL_VERSION = "1.0-local-semconv-2026"
 SERVICE_NAME = "assistant-agent"
 _EXPORTERS: list[Callable[[dict], None]] = []
 
 _trace_log_path: Path | None = None
+_PII_PATTERNS = (
+    re.compile(r"(?<!\d)\d{17}[\dXx](?!\d)"),
+    re.compile(r"(?<!\d)1[3-9]\d{9}(?!\d)"),
+    re.compile(r"[\w.+-]+@[\w-]+\.[\w.-]+"),
+    re.compile(r"(?<!\d)\d{16,19}(?!\d)"),
+)
 
 
 def _now_iso() -> str:
@@ -72,6 +79,14 @@ def _preview(value: Any, limit: int = 400) -> str:
     except Exception:
         text = str(value)
     text = " ".join(text.split())
+    try:
+        from runtime.audit import redact_text
+
+        text = redact_text(text)
+    except Exception:
+        pass
+    for pattern in _PII_PATTERNS:
+        text = pattern.sub("***", text)
     return text if len(text) <= limit else text[:limit] + "…"
 
 
@@ -108,7 +123,7 @@ def span_attributes(span: Any) -> dict[str, Any]:
         attributes.update(
             {
                 "agent.task": export.get("name") or "",
-                "agent.group": _preview(export.get("group_id"), 200),
+                # Session/group identifiers can contain user supplied names.
             }
         )
         attributes.update(_usage_tokens(export.get("usage")))
@@ -119,11 +134,14 @@ def span_attributes(span: Any) -> dict[str, Any]:
         if error:
             attributes["agent.turn.error"] = _preview(str(error), 300)
     elif kind == "function":
+        tool_input = export.get("input")
+        tool_output = export.get("output")
         attributes.update(
             {
                 "gen_ai.tool.name": export.get("name") or "unknown_tool",
-                "local.io.preview.input": _preview(export.get("input")),
-                "local.io.preview.output": _preview(export.get("output")),
+                # Keep payloads out of traces; only their sizes are operationally useful.
+                "local.io.input_chars": len(str(tool_input)) if tool_input is not None else 0,
+                "local.io.output_chars": len(str(tool_output)) if tool_output is not None else 0,
             }
         )
     elif kind == "generation":
@@ -140,7 +158,7 @@ def span_attributes(span: Any) -> dict[str, Any]:
         attributes.update(
             {
                 "agent.guardrail.name": export.get("name") or "",
-                "agent.guardrail.result": _preview(export.get("output"), 300),
+                "agent.guardrail.result_type": type(export.get("output")).__name__,
             }
         )
     elif kind == "handoff":
@@ -151,9 +169,9 @@ def span_attributes(span: Any) -> dict[str, Any]:
             }
         )
     elif kind in ("response", "custom", "transcription", "speech"):
-        attributes["local.kind.detail"] = _preview(export, 500)
+        attributes["local.kind.detail"] = type(export).__name__
     else:
-        attributes["local.kind.detail"] = _preview(export, 500)
+        attributes["local.kind.detail"] = type(export).__name__
     return attributes
 
 
@@ -237,10 +255,10 @@ class LocalJsonlProcessor(TracingProcessor):
         self._lock = threading.Lock()
 
     def _emit(self, record: dict[str, Any]) -> None:
-        line = json.dumps(record, ensure_ascii=False, default=str)
         with self._lock:
-            with self.log_path.open("a", encoding="utf-8") as fh:
-                fh.write(line + "\n")
+            from runtime.rotating_jsonl import append_jsonl
+
+            append_jsonl(self.log_path, record, env_prefix="FORGE_TRACE_LOG")
         for export_fn in list(_EXPORTERS):
             try:
                 export_fn(dict(record))
@@ -251,7 +269,6 @@ class LocalJsonlProcessor(TracingProcessor):
         record = base_record(trace, name="trace.start")
         record["attributes"] = {
             "agent.workflow": getattr(trace, "workflow_name", None),
-            "agent.group": getattr(trace, "group_id", None),
         }
         self._emit(record)
 
@@ -259,7 +276,6 @@ class LocalJsonlProcessor(TracingProcessor):
         record = base_record(trace, name="trace.end")
         record["attributes"] = {
             "agent.workflow": getattr(trace, "workflow_name", None),
-            "agent.group": getattr(trace, "group_id", None),
         }
         self._emit(record)
 

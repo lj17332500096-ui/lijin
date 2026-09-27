@@ -466,7 +466,12 @@ def evaluate_completion_eligibility(
 
 @dataclass(slots=True)
 class ExecutionEvidence:
-    """Completion Gate 依赖的最小结构化事实。"""
+    """Canonical execution facts shared by completion, recovery, and terminal audit.
+
+    ``tool_calls`` remains dict-compatible for existing consumers. All source
+    adapters should feed records through :meth:`from_records` so invocation
+    de-duplication and status-conflict handling use one policy.
+    """
 
     #: 本 Run 内每次工具调用的记录：{name, status, output_head}
     tool_calls: list[dict[str, Any]] = field(default_factory=list)
@@ -482,6 +487,121 @@ class ExecutionEvidence:
 
     #: 本 Run 真实执行过的持久化写入（save_note/remember），用于支撑“已保存/已记住”声明
     persistence_done: set[str] = field(default_factory=set)
+
+    @classmethod
+    def from_records(
+        cls,
+        records: list[dict[str, Any]],
+        *,
+        new_files: list[str] | None = None,
+        approvals_pending: int = 0,
+        approvals_decided: bool = False,
+        persistence_done: set[str] | None = None,
+    ) -> "ExecutionEvidence":
+        """Normalize source records and reconcile duplicate invocation IDs.
+
+        A single terminal status wins over an ``unknown`` observation. If two
+        durable sources disagree on terminal status, the invocation is kept as
+        ``unknown`` with an explicit conflict marker; evidence must never
+        overstate a side effect because of source ordering.
+        """
+        merged: list[dict[str, Any]] = []
+        by_invocation: dict[str, dict[str, Any]] = {}
+        fallback_keys: set[tuple[str, str, str, str]] = set()
+        terminal = {TOOL_EXECUTED, "succeeded", "success", "failed", "error"}
+        for raw in records:
+            if not isinstance(raw, dict):
+                continue
+            status = str(raw.get("status") or "unknown").lower()
+            if status in ("succeeded", "success"):
+                status = TOOL_EXECUTED
+            call = {
+                "name": str(raw.get("name") or "?"),
+                "status": status,
+                "invocation_id": raw.get("invocation_id"),
+                "args": raw.get("args", ""),
+                "output_head": str(raw.get("output_head") or ""),
+            }
+            source = str(raw.get("evidence_source") or "unknown")
+            call["evidence_sources"] = [source]
+            invocation_id = str(call.get("invocation_id") or "")
+            if invocation_id:
+                previous = by_invocation.get(invocation_id)
+                if previous is None:
+                    by_invocation[invocation_id] = call
+                    merged.append(call)
+                    continue
+                if source not in previous["evidence_sources"]:
+                    previous["evidence_sources"].append(source)
+                old_status, new_status = previous["status"], call["status"]
+                if old_status == new_status:
+                    if not previous.get("output_head") and call.get("output_head"):
+                        previous["output_head"] = call["output_head"]
+                    continue
+                old_terminal, new_terminal = old_status in terminal, new_status in terminal
+                if old_terminal and new_terminal:
+                    previous["status"] = "unknown"
+                    previous["status_conflict"] = [old_status, new_status]
+                    previous["output_head"] = "conflicting execution outcomes across evidence sources"
+                elif new_terminal:
+                    previous["status"] = new_status
+                    if call.get("output_head"):
+                        previous["output_head"] = call["output_head"]
+                elif old_status == "pending" and new_status in ("unknown", "interrupted"):
+                    previous["status"] = new_status
+                    if call.get("output_head"):
+                        previous["output_head"] = call["output_head"]
+                continue
+
+            # Legacy rows without invocation IDs are de-duplicated only when
+            # their stable content matches, retaining genuinely repeated calls.
+            key = (
+                call["name"], call["status"], str(call.get("args") or ""),
+                call["output_head"],
+            )
+            if key not in fallback_keys:
+                fallback_keys.add(key)
+                merged.append(call)
+
+        return cls(
+            tool_calls=merged,
+            new_files=list(dict.fromkeys(str(p) for p in (new_files or []))),
+            approvals_pending=max(0, int(approvals_pending or 0)),
+            approvals_decided=bool(approvals_decided),
+            persistence_done=set(persistence_done or set()),
+        )
+
+    def snapshot(self, *, include_calls: bool = True) -> dict[str, Any]:
+        """Stable serializable evidence contract for logs and terminal events."""
+        executed_ids = [
+            call.get("invocation_id") for call in self.tool_calls
+            if call.get("invocation_id") and call.get("status") in (TOOL_EXECUTED, "succeeded", "success")
+        ]
+        unknown_ids = [
+            call.get("invocation_id") for call in self.tool_calls
+            if call.get("invocation_id") and call.get("status") in ("pending", "unknown", "interrupted")
+        ]
+        snapshot: dict[str, Any] = {
+            "contract_version": 1,
+            "tool_call_count": len(self.tool_calls),
+            "executed_count": self.executed_count(),
+            "executed_invocation_ids": executed_ids[:200],
+            "unknown_invocation_ids": unknown_ids[:200],
+            # Backward-compatible name used by contract_version=1 terminal rows.
+            "unknown_side_effect_invocation_ids": unknown_ids[:200],
+            "new_files": self.new_files[:100],
+            "new_file_count": len(self.new_files),
+            "approvals_pending": self.approvals_pending,
+            "approvals_decided": self.approvals_decided,
+            "persistence_evidence": self.persistence_evidence(),
+            "evidence_sources": sorted({
+                source for call in self.tool_calls
+                for source in call.get("evidence_sources", [])
+            }),
+        }
+        if include_calls:
+            snapshot["tool_calls"] = [dict(call) for call in self.tool_calls[:500]]
+        return snapshot
 
     def persistence_evidence(self) -> bool:
         """是否真实执行过持久化写入（save_note/remember）。"""
@@ -967,23 +1087,25 @@ class CompletionGate:
             text = "\n".join(
                 [str(reply.get("summary") or ""), str(reply.get("content") or "")]
             )
+        evidence_snapshot = evidence.snapshot(include_calls=False)
+        # Preserve the established CompletionGate explanation field name.
+        evidence_snapshot["tool_calls"] = evidence_snapshot["tool_call_count"]
+        evidence_snapshot["new_files"] = evidence.new_files[:20]
+        evidence_snapshot.update({
+            "executed_tools": evidence.executed_names(),
+            "file_mutation": evidence.file_mutation_evidence(),
+            "verification": evidence.verification_ran(),
+            "verification_passed": evidence.verification_passed(),
+            "verification_failed": evidence.verification_failed(),
+            "verification_outcomes": evidence.verification_outcomes(),
+        })
         return {
             "verdict": verdict.value,
             "kind": (reply or {}).get("kind", "?"),
             "write_claim": has_write_claim(text) or has_artifact_claim(text),
             "verify_claim": has_verify_claim(text),
             "approval_claim": has_approval_claim(text),
-            "evidence": {
-                "tool_calls": len(evidence.tool_calls),
-                "executed_tools": evidence.executed_names(),
-                "new_files": evidence.new_files[:20],
-                "approvals_pending": evidence.approvals_pending,
-                "file_mutation": evidence.file_mutation_evidence(),
-                "verification": evidence.verification_ran(),
-                "verification_passed": evidence.verification_passed(),
-                "verification_failed": evidence.verification_failed(),
-                "verification_outcomes": evidence.verification_outcomes(),
-            },
+            "evidence": evidence_snapshot,
         }
 
 
@@ -1023,11 +1145,18 @@ def build_degraded_reply(
                 seen.append(f)
         facts_text = "\n".join(seen)
 
-    content = (
-        f"FORGE 已执行并记录了本次操作，但最终说明生成失败（原因：{reason}）。\n"
-        "以下是运行时记录到的真实执行结果：\n" + facts_text +
-        "\n详细执行记录可在运行详情（事件/工具调用/产物）中查看。"
-    )
+    if facts:
+        content = (
+            f"本轮无法确认任务已完整完成（原因：{reason}）；最终说明生成失败。"
+            "以下是运行时确认的执行事实：\n"
+            + facts_text
+            + "\n详细记录可在运行详情（事件/工具调用/产物）中查看。"
+        )
+    else:
+        content = (
+            f"本轮未能完成任务（原因：{reason}）。"
+            "Runtime 没有可确认的工具执行结果，因此不会把任务描述为已完成。"
+        )
     return {
         "kind": "answer",
         "summary": "操作已执行，但最终说明生成失败",

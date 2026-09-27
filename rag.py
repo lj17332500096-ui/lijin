@@ -25,11 +25,12 @@ from pathlib import Path
 
 from agents import function_tool
 from dotenv import load_dotenv
+from runtime_paths import generated_path
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
 WORKSPACE_ROOT = Path(os.getenv("WORKSPACE_ROOT") or BASE_DIR.parent).resolve()
-INDEX_PATH = BASE_DIR / "data" / "rag_index.json"
+INDEX_PATH = generated_path("cache", "rag_index.json")
 # P1-3：索引写盘互斥锁（并发 index_workspace / 自动建索引串行化）
 _INDEX_WRITE_LOCK = threading.Lock()
 
@@ -40,7 +41,7 @@ TEXT_EXTS = {
     ".pdf",
     ".docx", ".xlsx", ".pptx",
 }
-SKIP_DIRS = {".venv", ".git", "__pycache__", "node_modules", ".idea", "traces", ".codex", "data", "models", "code_sandbox"}
+SKIP_DIRS = {".venv", ".git", "__pycache__", "node_modules", ".idea", "traces", ".codex", "data", "var", "models", "code_sandbox"}
 SKIP_FILES = {".env", "apikey.txt", "memory.json", "sessions.sqlite", "rag_index.json"}
 MAX_FILE_BYTES = 2 * 1024 * 1024
 # 无扩展名的常见文本文件（GitHub 仓库里常有 README/LICENSE 不带后缀）
@@ -414,7 +415,7 @@ class RagIndex:
 
             if suffix in (".docx", ".xlsx", ".pptx"):
                 try:
-                    from office_docs import extract_sections
+                    from integrations.office_docs import extract_sections
 
                     sections = extract_sections(path)
                 except Exception:

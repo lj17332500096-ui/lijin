@@ -25,7 +25,7 @@ groups:
           service: forge-router
         annotations:
           summary: "FORGE Router 大面积误判"
-          description: "hit_zero_rate = {{ $value }}，超过 15% 严重阈值。立即检查 logs/tool_router.jsonl 最近 hit_zero=true 的查询模式。"
+          description: "hit_zero_rate = {{ $value }}，超过 15% 严重阈值。立即检查 var/logs/tool_router.jsonl 最近 hit_zero=true 的查询模式。"
 
       # 指标服务无数据 15 分钟 → 服务异常
       - alert: ForgeRouterMetricsStale

@@ -100,6 +100,14 @@ class TaskManagerTests(unittest.TestCase):
         self.assertEqual(restored.usage.tool_calls, 5)
         self.assertEqual(restored.usage.input_tokens, 100)
 
+    def test_run_latency_keeps_monotonic_sample_for_subsecond_run(self) -> None:
+        task = self.manager.create_task("s1", "快速 Run")
+        self.manager.transition(task.id, TaskState.RUNNING)
+        self.manager.record_run_latency(task.id, "s1", "completed", 3210)
+        summary = self.manager.run_latency_summary()
+        self.assertEqual(summary["count"], 1)
+        self.assertEqual(summary["p95_ms"], 3210)
+
     def test_checkpoint_write_read(self) -> None:
         task = self.manager.create_task("s1", "做调研", metadata={"mode": "async"})
         self.manager.write_checkpoint(task.id, 1, {"goal": "做调研", "final_summary": "完成"})
@@ -349,4 +357,3 @@ class RuntimeRunTurnTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
-

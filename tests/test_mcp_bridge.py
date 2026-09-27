@@ -6,7 +6,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
-import mcp_bridge
+from integrations import mcp_bridge
 
 
 class ConfigParseTests(unittest.TestCase):
@@ -25,6 +25,17 @@ class ConfigParseTests(unittest.TestCase):
         self.assertEqual(specs[0]["name"], "github")
         self.assertEqual(specs[0]["command"], "npx")
         self.assertIn("GITHUB_PERSONAL_ACCESS_TOKEN", specs[0]["env"])
+
+    def test_idempotency_is_an_explicit_remote_tool_declaration(self) -> None:
+        specs, errors = mcp_bridge.parse_specs(
+            '[{"name":"srv","command":"x","idempotent_tools":["list_items"]}]'
+        )
+        self.assertEqual(errors, [])
+        self.assertEqual(specs[0]["idempotent_tools"], ["list_items"])
+        _bad, errors = mcp_bridge.parse_specs(
+            '[{"name":"srv","command":"x","idempotent_tools":"list_items"}]'
+        )
+        self.assertTrue(errors)
 
     def test_invalid_json_reports_error(self) -> None:
         specs, errors = mcp_bridge.parse_specs("{not json")
@@ -73,10 +84,11 @@ class _FakeServer:
         return item
 
 
-def _invoke(server, args_json='{"q": "x"}'):
+def _invoke(server, args_json='{"q": "x"}', *, idempotent=False):
     import asyncio
 
-    fn = mcp_bridge._make_mcp_invoke(server, "remote_tool", "srv_remote_tool")
+    fn = mcp_bridge._make_mcp_invoke(server, "remote_tool", "srv_remote_tool",
+                                     idempotent=idempotent)
     return asyncio.run(fn(None, args_json))
 
 
@@ -103,19 +115,30 @@ def _restore(prev):
 
 
 class McpRetryTests(unittest.TestCase):
-    """MCP 工具的网络重试现已统一走 resilience.run_with_retries。
+    """MCP 工具只在显式声明幂等后才走 resilience.run_with_retries。
 
     此前 mcp_bridge 自带一份等价实现（同样的指数退避 + full jitter + 同样的
     异常集合），两份策略会各自漂移 —— 本组测试锁住"仍会重试、且不重复重试非网络错误"。
     """
 
-    def test_retries_network_error_then_succeeds(self) -> None:
+    def test_retries_network_error_then_succeeds_when_idempotent(self) -> None:
         prev = _fast_retry(3)
         try:
             srv = _FakeServer([ConnectionError("boom"), OSError("again"), "payload"])
-            out = _invoke(srv)
+            out = _invoke(srv, idempotent=True)
             self.assertEqual(srv.calls, 3, "应当在两次网络失败后第三次成功")
             self.assertIn("payload", out)
+        finally:
+            _restore(prev)
+
+    def test_non_idempotent_network_failure_is_not_replayed(self) -> None:
+        prev = _fast_retry(3)
+        try:
+            srv = _FakeServer([ConnectionError("result may have committed"), "second call"])
+            out = _invoke(srv)
+            self.assertEqual(srv.calls, 1)
+            self.assertIn("MCP_OUTCOME_UNKNOWN", out)
+            self.assertIn("未自动重试", out)
         finally:
             _restore(prev)
 
@@ -123,9 +146,9 @@ class McpRetryTests(unittest.TestCase):
         prev = _fast_retry(3)
         try:
             srv = _FakeServer([TimeoutError("t1"), TimeoutError("t2"), TimeoutError("t3")])
-            out = _invoke(srv)
+            out = _invoke(srv, idempotent=True)
             self.assertEqual(srv.calls, 3, "应当恰好尝试 attempts 次")
-            self.assertIn("已重试 3 次", out)
+            self.assertIn("幂等调用已尝试 3 次", out)
             self.assertIn("TimeoutError", out)
         finally:
             _restore(prev)
@@ -137,7 +160,7 @@ class McpRetryTests(unittest.TestCase):
             out = _invoke(srv)
             self.assertEqual(srv.calls, 1, "非网络类错误不该重试")
             self.assertIn("ValueError", out)
-            self.assertNotIn("已重试", out)
+            self.assertNotIn("重试", out)
         finally:
             _restore(prev)
 
@@ -151,7 +174,7 @@ class McpRetryTests(unittest.TestCase):
         """重试异常集合必须来自 resilience 的唯一一份定义，不得在 mcp_bridge 内另抄。"""
         import inspect
 
-        import resilience
+        from runtime import resilience
 
         self.assertTrue(hasattr(resilience, "NETWORK_RETRYABLE_EXCEPTIONS"))
         self.assertIs(resilience.NETWORK_RETRYABLE_EXCEPTIONS,

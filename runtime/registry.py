@@ -4,7 +4,7 @@
 用法：从主 Agent 的 tools 列表自动发现并登记（discover_from_agent）。
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 from runtime.errors import ToolError
@@ -54,6 +54,10 @@ def binding_from_function_tool(
     description = getattr(fn_tool, "description", "") or ""
     schema = getattr(fn_tool, "params_json_schema", None) or {}
     spec = spec_for(name, description=description, input_schema=schema, source=source)
+    if source == "mcp" and bool(getattr(fn_tool, "_mcp_idempotent", False)):
+        # MCP idempotency is a per-tool operator declaration. Merely having
+        # allow/approval policy does not make a call safe to replay.
+        spec = replace(spec, idempotent=True)
     return ToolBinding(spec=spec, invoke=fn_tool)
 
 

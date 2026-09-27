@@ -25,7 +25,7 @@ import sqlite3
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
-import compact
+from runtime import compact
 
 #: 新配置（默认值即保守档；全部可被 .env 覆盖）
 DEFAULT_HARD_CHARS = 260_000   # 硬字符/粗略 token 上限（应不低于软阈值 AUTO_SUMMARY_TRIGGER_CHARS）
@@ -454,19 +454,32 @@ async def _soft_compact_once(session: Any, emit: ProgressCb) -> tuple[str, str]:
 
 
 def delete_session_history(session_id: str, db_path: str) -> None:
-    """删除某个 SDK Session 的模型历史（Project/容器删除时调用）。"""
+    """删除某个 SDK Session 的模型历史；数据库不可用时向调用方报告失败。"""
     import sqlite3 as _sqlite3
-
+    from pathlib import Path as _Path
+    if not _Path(db_path).exists():
+        return  # 尚无 SDK Session 库，清理目标不存在
+    conn = _sqlite3.connect(str(db_path), timeout=10, check_same_thread=False)
     try:
-        conn = _sqlite3.connect(str(db_path), timeout=10, check_same_thread=False)
-        try:
-            conn.execute("DELETE FROM agent_messages WHERE session_id = ?", (session_id,))
-            conn.execute("DELETE FROM agent_sessions WHERE session_id = ?", (session_id,))
-            conn.commit()
-        finally:
-            conn.close()
-    except Exception:
-        pass
+        conn.execute("DELETE FROM agent_messages WHERE session_id = ?", (session_id,))
+        conn.execute("DELETE FROM agent_sessions WHERE session_id = ?", (session_id,))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def clear_session_history(session_id: str, db_path: str) -> None:
+    """清空 Session 消息但保留 session 记录；错误必须返回给清理队列。"""
+    import sqlite3 as _sqlite3
+    from pathlib import Path as _Path
+    if not _Path(db_path).exists():
+        return
+    conn = _sqlite3.connect(str(db_path), timeout=10, check_same_thread=False)
+    try:
+        conn.execute("DELETE FROM agent_messages WHERE session_id = ?", (session_id,))
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def session_ids(db_path: str) -> list[str]:

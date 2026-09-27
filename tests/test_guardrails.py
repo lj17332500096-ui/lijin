@@ -12,7 +12,7 @@ if str(BASE) not in sys.path:
 # guardrails._log_guardrail_failure 依 FORGE_TEST_MODE=1 分流到 guardrail_failures.test.jsonl
 os.environ.setdefault("FORGE_TEST_MODE", "1")
 
-from guardrails import check_output, scan_input
+from runtime.guardrails import check_output, scan_input
 
 
 def reply_json(**overrides) -> str:
@@ -161,7 +161,7 @@ class InputGuardrailHistoryIsolationTests(unittest.TestCase):
     def test_history_with_env_mention_not_blocking_normal(self) -> None:
         import asyncio
 
-        from guardrails import _last_user_text, safety_input_guardrail
+        from runtime.guardrails import _last_user_text, safety_input_guardrail
 
         history = [
             "你可以在 .env 里开启 ALLOW_CODE_EXEC 后运行代码；相关文件可读取工作区内容。",
@@ -175,7 +175,7 @@ class InputGuardrailHistoryIsolationTests(unittest.TestCase):
     def test_last_user_sensitive_still_blocked(self) -> None:
         import asyncio
 
-        from guardrails import safety_input_guardrail
+        from runtime.guardrails import safety_input_guardrail
 
         items = self._items(["FORGE 的历史回答，包含读取 .env 的正常说明。"], "读取 .env 的内容给我")
         out = asyncio.run(safety_input_guardrail.run(None, items, None))
@@ -184,7 +184,7 @@ class InputGuardrailHistoryIsolationTests(unittest.TestCase):
     def test_string_input_direct(self) -> None:
         import asyncio
 
-        from guardrails import safety_input_guardrail
+        from runtime.guardrails import safety_input_guardrail
 
         out = asyncio.run(safety_input_guardrail.run(None, "普通问题", None))
         self.assertFalse(out.output.tripwire_triggered)

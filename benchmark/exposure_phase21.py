@@ -53,7 +53,7 @@ CONTROL_TASKS = {
 async def runtime_with_mcp():
     import tempfile
 
-    import mcp_bridge
+    from integrations import mcp_bridge
     from runtime.runner import AgentRuntime
 
     tmp = tempfile.mkdtemp(prefix="p21_rt_")
@@ -141,7 +141,7 @@ def composition(entries: list[dict]) -> dict:
 async def build_trace(goals: dict[str, str]) -> dict:
     import tempfile
 
-    import mcp_bridge
+    from integrations import mcp_bridge
     from runtime.runner import AgentRuntime
 
     import agent as agent_module

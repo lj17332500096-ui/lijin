@@ -14,7 +14,14 @@ from runtime.laya_router import LayaDecision
 class PipelineTests(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
+        self._old_memory_db = os.environ.get("FORGE_MEMORY_DB")
         os.environ["FORGE_MEMORY_DB"] = str(self.tmp / "m.db")
+
+    def tearDown(self):
+        if self._old_memory_db is None:
+            os.environ.pop("FORGE_MEMORY_DB", None)
+        else:
+            os.environ["FORGE_MEMORY_DB"] = self._old_memory_db
 
     def _fake_router(self, intent="tool_needed", completeness="self_sufficient",
                      route="web_search", route_conf=0.997):
@@ -68,6 +75,57 @@ class PipelineTests(unittest.TestCase):
         # 这里未传 mutation_tools，route 命中 direct_tool 需要 route_conf 达标
         # 故只断言 pipeline 不崩、终态合法
         self.assertIn(out.verdict, ("completed", "fallback", "exhausted"))
+
+    def test_disabled_pipeline_does_not_execute_injected_callbacks(self):
+        executor = mock.Mock(side_effect=AssertionError("executor must not run"))
+        completer = mock.Mock(side_effect=AssertionError("completer must not run"))
+        comparer = mock.Mock(side_effect=AssertionError("comparer must not run"))
+        laya_screen = mock.Mock(side_effect=AssertionError("Laya must not run"))
+        laya_factory = mock.Mock(side_effect=AssertionError("Laya router must not load"))
+        with mock.patch("runtime.pipeline.orchestrator_enabled", return_value=False), \
+             mock.patch("runtime.pipeline.laya_fast_screen", laya_screen), \
+             mock.patch("runtime.pipeline.laya_router", laya_factory), \
+             mock.patch("runtime.pipeline.memory_layers.record_step") as record_step:
+            out = run_pipeline(
+                "query", "offline-run", tool_executor=executor,
+                llm_completer=completer, llm_comparer=comparer,
+            )
+        self.assertEqual(out.verdict, "fallback")
+        executor.assert_not_called()
+        completer.assert_not_called()
+        comparer.assert_not_called()
+        laya_screen.assert_not_called()
+        laya_factory.assert_not_called()
+        self.assertEqual(record_step.call_args.kwargs["db"], Path(":memory:"))
+
+    def test_pipeline_uses_only_explicitly_injected_executor(self):
+        router = self._fake_router()
+        executor = mock.Mock(return_value={"ok": True})
+        comparer = mock.Mock(return_value="done")
+        with mock.patch("runtime.pipeline.orchestrator_enabled", return_value=True), \
+             mock.patch("runtime.pipeline.laya_router", return_value=router), \
+             mock.patch("runtime.pipeline.laya_fast_screen", return_value="tool_needed"), \
+             mock.patch("runtime.pipeline.memory_layers.record_step"):
+            out = run_pipeline("query", "offline-run", tool_executor=executor,
+                               llm_comparer=comparer)
+        executor.assert_called_once_with("web_search", {})
+        comparer.assert_called_once_with("query", {"ok": True})
+        self.assertEqual(out.verdict, "completed")
+
+    def test_production_entrypoints_do_not_reference_pipeline(self):
+        root = Path(__file__).resolve().parents[1]
+        production_files = (
+            root / "main.py",
+            root / "agent.py",
+            root / "runtime" / "runner.py",
+            root / "runtime" / "registry.py",
+        )
+        forbidden = ("runtime.pipeline", "run_pipeline(")
+        for path in production_files:
+            source = path.read_text(encoding="utf-8")
+            for token in forbidden:
+                with self.subTest(path=path.name, token=token):
+                    self.assertNotIn(token, source)
 
 
 if __name__ == "__main__":

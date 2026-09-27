@@ -3,7 +3,7 @@
 设计：
 - 每个 Run 只允许访问「当前 Run 的文件范围」：本 Project 的 FORGE_DATA
   （forge_data/projects/<container>/）、本 Project 绑定的 WorkLocation、共享产物目录
-  （notes/exports/materials/summaries/logs）、代码沙箱（code_sandbox）。
+  （notes/exports/materials/summaries/logs）、代码沙箱（code_sandbox）。var/ 为运行时私有数据，不属于 Agent 项目写入根。
 - 无 WorkLocation 的显式 Project（session 前缀 proj-*）：只允许本 Project 数据与共享
   产物目录；不得把 BASE_DIR/WORKSPACE_ROOT 当作默认用户目录乱读。
 - Legacy 会话（personal / sess-*，个人助手语境）：保持既有 WORKSPACE_ROOT/BASE_DIR
@@ -118,6 +118,7 @@ WRITE_TOOLS = {"write_project_file", "edit_project_file"}
 #: 新增工具若既不在此登记、也不在 READ/WRITE/工具层自检名单 → 严格 Project 下默认 DENY
 #: （fail closed：未登记权限策略的工具不得进入生产执行）。
 NON_FILE_TOOLS = {
+    "extension_manager",
     "save_note", "read_note", "list_notes",
     "web_search", "get_current_datetime", "get_weather", "calculate",
     "remember", "recall_memory", "forget_memory",
@@ -143,7 +144,7 @@ def register_non_file_tools(names: set[str] | list[str] | tuple[str, ...]) -> No
     NON_FILE_TOOLS.update(names)
 
 #: 这些目录的共享产物子路径在相对路径语境下仍按旧根（WORKSPACE_ROOT 子树）解析
-_PREFIX_ROOT_HINTS = ("code_sandbox", "forge_data", "notes", "exports", "materials", "summaries", "logs")
+_PREFIX_ROOT_HINTS = ("code_sandbox", "forge_data", "notes", "exports", "materials", "summaries", "logs", "var")
 
 
 def _resolve_candidate(value: str, scope: FileScope) -> Path | None:

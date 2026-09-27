@@ -21,7 +21,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-import compact
+from runtime import compact
 from agents.memory import SQLiteSession
 
 from runtime import context

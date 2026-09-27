@@ -8,7 +8,7 @@
   .venv / __pycache__ / .git / logs / traces / data / models 等目录；
 - 后缀白名单（.py/.md/.txt/.json/.yaml/.yml/.html/.js/.css/.bat 等），单文件 ≤600KB，拒绝二进制；
 - 内容里出现 API Key/密钥格式 → 拒绝写入（防把凭据写进文件）；
-- 覆盖/改写已有文件前自动备份到 logs/backups/，便于回滚；新建文件无物可备，
+- 覆盖/改写已有文件前自动备份到 var/logs/backups/，便于回滚；新建文件无物可备，
   回执会明说"新建文件，无原文件可备份"，不装作备份过；
 - edit 默认要求 old 唯一匹配，出现多次须显式 replace_all，杜绝误改。
 - edit 默认要求 old 唯一匹配，出现多次须显式 replace_all，杜绝误改。
@@ -24,6 +24,7 @@ from agents import function_tool
 from dotenv import load_dotenv
 
 from runtime.key_patterns import has_key
+from runtime_paths import LOG_DIR
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
@@ -38,12 +39,12 @@ PROTECTED_NAMES = {
     ".env", ".env.example", "apikey.txt", "memory.json",
     "sessions.sqlite", "tasks.json", "rag_index.json",
 }
-PROTECTED_DIRS = {".venv", "__pycache__", ".git", "logs", "traces", "data", "models"}
+PROTECTED_DIRS = {".venv", "__pycache__", ".git", "logs", "traces", "data", "models", "var"}
 MAX_FILE_BYTES = 600 * 1024
 
 
 def _backup_dir() -> Path:
-    return BASE_DIR / "logs" / "backups"
+    return LOG_DIR / "backups"
 
 def _project_edit_enabled() -> bool:
     return os.getenv("ALLOW_PROJECT_EDIT", "").strip().lower() == "true"
@@ -101,7 +102,7 @@ def _validate_content(content: str) -> str | None:
 
 
 def _backup(path: Path) -> Path | None:
-    """覆盖前把原文件备份进 logs/backups/，返回备份文件路径。
+    """覆盖前把原文件备份进 var/logs/backups/，返回备份文件路径。
 
     文件不存在（=新建）时无物可备，返回 None —— 调用方必须据此如实回报，
     否则会出现"回执声称已备份、目录里却什么都没有"的假记录

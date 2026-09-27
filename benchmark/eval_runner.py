@@ -37,6 +37,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from benchmark.cases import BENCHMARK_CASES, case_ids  # noqa: E402
+from runtime_paths import RUNTIME_ROOT  # noqa: E402
 
 # 截止等待：真终态（completed/failed/cancelled/timeout/...）即停；
 # 否则到 deadline 记 observed_state_at_deadline（Phase 6 口径）。
@@ -330,7 +331,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--all", action="store_true", help="显式跑全部 50")
     parser.add_argument("--deadline", type=float, default=300.0,
                         help="单 case 观察截止（秒），超过记 observed_state_at_deadline")
-    parser.add_argument("--out", default="archive/runs_eval", help="raw 记录输出目录（默认写入 archive/，避免堆根）")
+    parser.add_argument(
+        "--out", default="",
+        help="raw 记录输出目录（默认写入带时间戳的 var/benchmark-runs/eval/<run-id>/）",
+    )
     parser.add_argument("--db", default="",
                         help="显式指定 agent.db 路径；缺省用临时 DB（隔离生产 agent.db）")
     parser.add_argument("--inject-episode", action="store_true",
@@ -371,7 +375,9 @@ def main(argv: list[str] | None = None) -> int:
     else:
         cases = list(BENCHMARK_CASES)
 
-    db_dir = Path(args.out)
+    db_dir = Path(args.out) if args.out else (
+        RUNTIME_ROOT / "benchmark-runs" / "eval" / time.strftime("%Y%m%d_%H%M%S")
+    )
     db_dir.mkdir(parents=True, exist_ok=True)
     db_path = args.db or os.path.join(tempfile.gettempdir(),
                                       f"forge_eval_{int(time.time())}.db")

@@ -6,7 +6,7 @@
 - 关键重复 = TR-001/TR-005/TR-009/TR-016/TR-025/TR-031/TR-036/TR-041/TR-047/TR-048
   各额外 3 次（-R1/-R2/-R3），与固定 60 + 随机 20 合计 110；
 - Coding 类案例一律运行在“真实隔离测试项目”的临时副本上（WorkLocation 指向
-  BASE/.test_artifacts_readiness/<case>/…），禁止触碰真实 FORGE 仓库；
+  BASE/var/tmp/test_artifacts_readiness/<case>/…），禁止触碰真实 FORGE 仓库；
 - 每个写操作案例：临时副本 → 运行 → 快照校验（真实仓库 0 变更）→ 销毁；
 - 多轮案例按 Run1(等待终态) → Run2 串行发送，保留“One Active Run Per Container”
   的 409 保护，不绕过；
@@ -28,9 +28,11 @@ import urllib.request
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]
+from runtime_paths import LOG_DIR, TEMP_DIR
+
 BASE_URL = os.getenv("FORGE_E2E_BASE_URL", "http://127.0.0.1:8765")
-OUT_DIR = BASE / "logs"
-ART_ROOT = BASE / ".test_artifacts_readiness"
+OUT_DIR = LOG_DIR
+ART_ROOT = TEMP_DIR / "test_artifacts_readiness"
 OUT = Path(os.getenv(
     "FORGE_E2E_OUT",
     str(OUT_DIR / f"readiness_e2e_v2_{time.strftime('%Y%m%d_%H%M%S')}.jsonl"),
@@ -56,7 +58,7 @@ _SNAPSHOT_SUFFIXES = {".py", ".ts", ".js", ".jsx", ".tsx", ".html", ".css",
 _SNAPSHOT_EXCLUDE_PARTS = {
     ".venv", ".git", "logs", "data", "exports", "notes", "summaries",
     "materials", "models", "code_sandbox", "forge_data", "node_modules",
-    "__pycache__", ".test_artifacts_readiness",
+    "__pycache__", "test_artifacts_readiness",
 }
 
 

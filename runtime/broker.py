@@ -14,6 +14,7 @@ schema 校验 → Policy 检查 → 执行（含退避重试 + 并发限流）�
 import asyncio
 import json
 import os
+import uuid
 from typing import Any, Awaitable, Callable
 
 from agents.tool_context import ToolContext
@@ -67,7 +68,7 @@ class ToolBroker:
         input_json = json.dumps(arguments, ensure_ascii=False, sort_keys=True)
         cap = max_concurrent if max_concurrent is not None else self.max_concurrent
         if cap and cap > 0:
-            import resilience
+            from runtime import resilience
 
             async with resilience.tool_slot(self.run_id or "anon",
                                              max_concurrent=cap):
@@ -86,7 +87,7 @@ class ToolBroker:
                                 ) -> str:
         """退避抖动重试 + 并发限流的执行入口（显式 opt-in）。
 
-        - 每次尝试都会重新执行工具（适合幂等的网络类工具）；
+        - 仅 ToolSpec.idempotent=True 的工具可进入此入口；每次尝试都有独立 invocation id；
         - 非网络类异常（ValueError/AgentError 等）直接透传，不重试；
         - attempts 耗尽后抛出最后一次网络类异常；
         - 幂等键：``resilience.idempotency_key(run_id, name, args_json)`` 可用作
@@ -94,9 +95,14 @@ class ToolBroker:
         """
         if not self.registry.contains(name):
             raise ToolError(f"tool not found: {name}（registry 未登记）")
+        binding = self.registry.get(name)
+        if not binding.spec.idempotent:
+            raise ToolError(
+                f"tool is not declared idempotent; resilient retry refused: {name}"
+            )
         arguments = arguments or {}
         input_json = json.dumps(arguments, ensure_ascii=False, sort_keys=True)
-        import resilience
+        from runtime import resilience
 
         async def _once() -> str:
             cap = max_concurrent if max_concurrent is not None else self.max_concurrent
@@ -104,9 +110,9 @@ class ToolBroker:
                 async with resilience.tool_slot(self.run_id or "anon",
                                                  max_concurrent=cap):
                     return await self._execute_core(name, arguments,
-                                                    "broker-resilient", input_json)
+                                                    f"broker-resilient-{uuid.uuid4().hex}", input_json)
             return await self._execute_core(name, arguments,
-                                            "broker-resilient", input_json)
+                                            f"broker-resilient-{uuid.uuid4().hex}", input_json)
 
         return await resilience.run_with_retries(
             _once, attempts=attempts, base_delay=base_delay, cap=cap_delay,

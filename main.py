@@ -20,18 +20,23 @@ from agents.memory import SQLiteSession, SessionSettings
 from dotenv import load_dotenv
 
 from agent import MODEL_PROVIDER, build_assistant_agent, assistant_agent, gateway_assistant_agent
-from compact import maybe_compact
-from mcp_bridge import ensure_connected as ensure_mcp
-from observability import install_local_tracing, trace_log_path
+from runtime.compact import maybe_compact
+from integrations.mcp_bridge import ensure_connected as ensure_mcp
+from runtime.observability import install_local_tracing, trace_log_path
 from runtime.runner import AgentRuntime
 from runtime.task_manager import TaskManager
 from runtime.errors import FinalResponseFailed
+from runtime_paths import LOG_DIR
+from runtime_paths import state_db_path
 import scheduler
 from schemas import AgentReply
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
-SESSIONS_DB = BASE_DIR / "sessions.sqlite"
+SESSIONS_DB = state_db_path(
+    "sessions.sqlite", env_vars=("FORGE_SESSIONS_DB",),
+    legacy_path=BASE_DIR / "sessions.sqlite",
+)
 
 _KIND_LABELS = {
     "answer": "💬 回答",
@@ -122,9 +127,16 @@ def clear_session(session_name: str, db_path: str | None = None) -> str:
         return f"没有找到会话文件，无需清理（{session_name} 不存在）。"
     try:
         conn = sqlite3.connect(str(path), timeout=5)
-        cur = conn.execute("DELETE FROM agent_sessions WHERE session_id = ?", (session_name,))
-        conn.commit()
-        deleted = cur.rowcount
+        with conn:
+            # SQLite foreign-key enforcement is connection-local and is not
+            # enabled by every SDK build. Delete both sides explicitly.
+            messages = conn.execute(
+                "DELETE FROM agent_messages WHERE session_id = ?", (session_name,)
+            ).rowcount
+            sessions = conn.execute(
+                "DELETE FROM agent_sessions WHERE session_id = ?", (session_name,)
+            ).rowcount
+        deleted = sessions or messages
         conn.close()
     except sqlite3.Error as exc:
         return f"清空会话失败：{exc}"
@@ -690,12 +702,28 @@ async def chat_async(
                     print("任务仍停留在「等待审批」，可以重新发起同样请求继续处理，或用 python -m runtime --task "
                           + result.task.id + " 查看。")
                     continue
+            outcome = str(getattr(result, "outcome", "completed") or "completed")
+            if outcome != "completed":
+                labels = {
+                    "needs_user": "需要补充信息",
+                    "partial": "部分完成，已有操作可能保留",
+                    "blocked": "任务受阻",
+                    "failed": "任务失败",
+                    "cancelled": "任务已取消",
+                }
+                print(f"\n【{labels.get(outcome, outcome)}】")
             final_output = result.final_output
             display_output(final_output)
             _print_artifacts(getattr(result, "artifacts", []) or [])
             await _auto_compact(session, auto_summary)
     finally:
         session.close()
+        try:
+            from integrations.mcp_bridge import close_servers as close_mcp_servers
+
+            await close_mcp_servers()
+        except Exception:
+            pass
 
 
 async def _resolve_approvals_interactive(
@@ -775,10 +803,6 @@ def chat_sync(
 ) -> None:
     """同步聊天循环：与异步共用同一核心，只是执行方式为 sync（也登记 Task）。"""
     check_api_key()
-    try:
-        asyncio.run(ensure_mcp())
-    except Exception:
-        pass
     asyncio.run(
         chat_async(
             session_name,
@@ -851,34 +875,36 @@ def chat_voice(
             print(f"\n你（语音）> {text}")
             print("\n助手 >")
             try:
-                voice_result = asyncio.run(
-                    AgentRuntime.get_default().run_turn(
-                        text,
-                        session=session,
-                        session_id=session_name,
-                        mode="async",
-                        max_turns=max_turns,
-                        history_limit=history_limit,
-                        metadata={"channel": "voice"},
-                        raise_on_error=True,
-                        context_guard=auto_summary,
-                    )
-                )
-                if voice_result.waiting_approval:
-                    voice_result = asyncio.run(
-                        _resolve_approvals_interactive(
-                            AgentRuntime.get_default(),
-                            voice_result,
+                async def _voice_turn():
+                    from integrations.mcp_bridge import close_servers
+
+                    try:
+                        result = await AgentRuntime.get_default().run_turn(
+                            text,
                             session=session,
+                            session_id=session_name,
                             mode="async",
                             max_turns=max_turns,
                             history_limit=history_limit,
+                            metadata={"channel": "voice"},
+                            raise_on_error=True,
+                            context_guard=auto_summary,
                         )
-                    )
-                    if voice_result.waiting_approval:
-                        print("任务仍停留在「等待审批」，请稍后再次发起或查看：python -m runtime --task "
-                              + voice_result.task.id)
-                        continue
+                        if result.waiting_approval:
+                            result = await _resolve_approvals_interactive(
+                                AgentRuntime.get_default(), result, session=session,
+                                mode="async", max_turns=max_turns,
+                                history_limit=history_limit,
+                            )
+                        return result
+                    finally:
+                        await close_servers()
+
+                voice_result = asyncio.run(_voice_turn())
+                if voice_result.waiting_approval:
+                    print("任务仍停留在「等待审批」，请稍后再次发起或查看：python -m runtime --task "
+                          + voice_result.task.id)
+                    continue
                 final_output = voice_result.final_output
             except (InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered,
                     FinalResponseFailed) as exc:
@@ -922,8 +948,10 @@ async def _run_task_prompt(task: dict, max_turns: int) -> tuple[str, str]:
             max_turns=max_turns,
             metadata={"channel": "scheduled", "schedule_id": task["id"]},
         )
-        if not result.ok:
-            return "error", (result.error or "")[:300]
+        outcome = str(getattr(result, "outcome", "completed") or "completed")
+        if outcome != "completed":
+            detail = result.error or outcome
+            return "error", str(detail)[:300]
         reply = coerce_reply(result.final_output)
         if isinstance(reply, AgentReply):
             summary = reply.summary or reply.content[:200]
@@ -935,7 +963,7 @@ async def _run_task_prompt(task: dict, max_turns: int) -> tuple[str, str]:
 
 
 def _log_task_result(task: dict, status: str, summary: str) -> None:
-    log_dir = BASE_DIR / "logs"
+    log_dir = LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
     line = (
         f"[{datetime.now():%Y-%m-%d %H:%M:%S}] {task['id']}｜{task['name']}｜"
@@ -1003,6 +1031,16 @@ async def run_scheduled_task_once(task_id: str, max_turns: int) -> int:
     return 0
 
 
+async def _run_with_mcp_cleanup(awaitable):
+    """保持 MCP stdio resources 与 daemon/单次任务处于同一 asyncio 生命周期。"""
+    try:
+        return await awaitable
+    finally:
+        from integrations.mcp_bridge import close_servers
+
+        await close_servers()
+
+
 def main() -> None:
     ensure_utf8_console()
     # 审计 D3：结构化日志（opt-in，FORGE_STRUCTURED_LOG=1）。默认不挂 handler，
@@ -1059,7 +1097,7 @@ def main() -> None:
         action="store_true",
         help="语音输入时只显示文字、不朗读回复（与 --voice 一起用）",
     )
-    parser.add_argument("--trace", action="store_true", help="开启本地追踪，把每一步 span 写入 traces/traces.jsonl")
+    parser.add_argument("--trace", action="store_true", help="开启本地追踪，把每一步 span 写入 var/traces/traces.jsonl")
     parser.add_argument("--tui", action="store_true", help="使用 Textual TUI 界面（需安装 textual，默认仍走 CLI 消息平台）")
     args = parser.parse_args()
 
@@ -1119,10 +1157,12 @@ def main() -> None:
         return
     if args.run_task:
         check_api_key()
-        raise SystemExit(asyncio.run(run_scheduled_task_once(args.run_task, args.max_turns)))
+        raise SystemExit(asyncio.run(_run_with_mcp_cleanup(
+            run_scheduled_task_once(args.run_task, args.max_turns)
+        )))
     if args.daemon:
         check_api_key()
-        asyncio.run(daemon_loop(args.max_turns))
+        asyncio.run(_run_with_mcp_cleanup(daemon_loop(args.max_turns)))
         return
 
     # 默认入口：CLI 消息平台（进程内直连 Runtime，带命令体系/过程展示/诊断码）

@@ -93,6 +93,9 @@ class ApprovalAutoExecutionTests(unittest.TestCase):
         aps = self.runtime.tasks.list_pending_approvals(self.task.id)
         self.runtime.tasks.decide_approval(aps[0]["id"], "approved")
 
+        # The worker must claim the approved side effect before execution is recorded.
+        self.assertTrue(self.runtime.tasks.claim_approval_execution(aps[0]["id"]))
+
         # First mark: succeeds
         result1 = self.runtime.tasks.mark_approval_executed(aps[0]["id"])
         self.assertTrue(result1)

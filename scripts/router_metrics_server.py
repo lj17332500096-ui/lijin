@@ -25,40 +25,67 @@ Prometheus 抓取配置（prometheus.yml 示例）：
 """
 import argparse
 import json
+import math
 import re
 import sys
 from datetime import datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import List, Optional
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from runtime_paths import LOG_DIR
 
-_LOG_PATH = Path(__file__).resolve().parents[1] / "logs" / "tool_router.jsonl"
+_LOG_PATH = LOG_DIR / "tool_router.jsonl"
 _WINDOW_SECONDS = 24 * 3600  # 默认聚合窗口 24h
 
 
 def _read_entries(cutoff: datetime) -> List[dict]:
-    if not _LOG_PATH.exists():
-        return []
     out = []
-    with _LOG_PATH.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            ts = rec.get("ts")
-            if not ts:
-                continue
-            try:
-                t = datetime.fromisoformat(ts)
-            except ValueError:
-                continue
-            if t >= cutoff:
-                out.append(rec)
+    paths = [_LOG_PATH.with_name(_LOG_PATH.name + f".{i}") for i in range(1, 4)] + [_LOG_PATH]
+    for path in paths:
+        if not path.exists():
+            continue
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                ts = rec.get("ts")
+                if not ts:
+                    continue
+                try:
+                    t = datetime.fromisoformat(ts)
+                except ValueError:
+                    continue
+                if t >= cutoff:
+                    out.append(rec)
     return out
+
+
+def _read_run_latency() -> dict:
+    """Read bounded Run samples without opening TaskManager or mutating the DB."""
+    try:
+        import sqlite3
+        from runtime.task_manager import DEFAULT_DB_PATH
+        if not DEFAULT_DB_PATH.exists():
+            raise FileNotFoundError(DEFAULT_DB_PATH)
+        con = sqlite3.connect(f"file:{DEFAULT_DB_PATH}?mode=ro", uri=True, timeout=3)
+        try:
+            rows = con.execute("SELECT latency_ms FROM run_metrics ORDER BY sample_at DESC LIMIT 20000").fetchall()
+        finally:
+            con.close()
+        values = sorted(max(0, int(row[0])) for row in rows)
+        return {"count": len(values),
+                "p50_ms": values[max(0, math.ceil(.50 * len(values)) - 1)] if values else None,
+                "p95_ms": values[max(0, math.ceil(.95 * len(values)) - 1)] if values else None}
+    except Exception:
+        return {"count": 0, "p50_ms": None, "p95_ms": None}
 
 
 def compute_metrics() -> dict:
@@ -67,9 +94,10 @@ def compute_metrics() -> dict:
     total = len(entries)
     hit_zero = sum(1 for e in entries if e.get("hit_zero"))
     selected = [e.get("selected_count", 0) for e in entries]
-    qlens = sorted(len(e.get("query", "")) for e in entries)
-    p95 = qlens[min(total - 1, int(0.95 * total))] if qlens else 0
+    qlens = sorted(len(str(e.get("query", "")).encode("utf-8")) for e in entries)
+    p95 = qlens[max(0, math.ceil(0.95 * total) - 1)] if qlens else 0
     last_ts = max((e.get("ts") for e in entries), default=None)
+    run_latency = _read_run_latency()
     return {
         "total": total,
         "hit_zero": hit_zero,
@@ -77,6 +105,7 @@ def compute_metrics() -> dict:
         "avg_selected": (sum(selected) / total) if total else 0.0,
         "p95_query_len": p95,
         "last_observed": last_ts,
+        "run_latency": run_latency,
     }
 
 
@@ -111,6 +140,18 @@ def render_prometheus() -> str:
         "# HELP forge_router_last_observed_timestamp Unix timestamp of the most recent router log entry",
         "# TYPE forge_router_last_observed_timestamp gauge",
         f"forge_router_last_observed_timestamp {last_ts_float:.0f}",
+        "",
+        "# HELP forge_run_latency_p50_ms End-to-end Run latency p50 from durable run_metrics samples",
+        "# TYPE forge_run_latency_p50_ms gauge",
+        f"forge_run_latency_p50_ms {m['run_latency']['p50_ms'] or 0}",
+        "",
+        "# HELP forge_run_latency_p95_ms End-to-end Run latency p95 from durable run_metrics samples",
+        "# TYPE forge_run_latency_p95_ms gauge",
+        f"forge_run_latency_p95_ms {m['run_latency']['p95_ms'] or 0}",
+        "",
+        "# HELP forge_run_latency_samples Number of retained end-to-end Run samples",
+        "# TYPE forge_run_latency_samples gauge",
+        f"forge_run_latency_samples {m['run_latency']['count']}",
         "",
     ]
     return "\n".join(lines)

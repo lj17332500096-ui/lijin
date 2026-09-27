@@ -38,12 +38,15 @@ class ProjectEditTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = Path(tempfile.mkdtemp(prefix="proj_edit_"))
         self._orig_base = pe.BASE_DIR
+        self._orig_log_dir = pe.LOG_DIR
         self._orig_env = os.environ.get("ALLOW_PROJECT_EDIT")
         pe.BASE_DIR = self._tmp
+        pe.LOG_DIR = self._tmp / "var" / "logs"
         os.environ["ALLOW_PROJECT_EDIT"] = "true"
 
     def tearDown(self) -> None:
         pe.BASE_DIR = self._orig_base
+        pe.LOG_DIR = self._orig_log_dir
         if self._orig_env is None:
             os.environ.pop("ALLOW_PROJECT_EDIT", None)
         else:
@@ -60,7 +63,7 @@ class ProjectEditTests(unittest.TestCase):
         self.assertTrue((self._tmp / "demo.py").exists())
         second = call_tool(pe.write_project_file, path="demo.py", content="x = 2\n")
         self.assertIn("覆盖", second)
-        backups = (self._tmp / "logs" / "backups").glob("*.py")
+        backups = (self._tmp / "var" / "logs" / "backups").glob("*.py")
         self.assertEqual(len(list(backups)), 1)
 
     def test_receipt_does_not_claim_backup_for_new_file(self) -> None:
@@ -74,7 +77,7 @@ class ProjectEditTests(unittest.TestCase):
         self.assertIn("新建", out)
         self.assertIn("无原文件可备份", out)
         self.assertNotIn("已备份到", out)
-        self.assertFalse((self._tmp / "logs" / "backups").exists(),
+        self.assertFalse((self._tmp / "var" / "logs" / "backups").exists(),
                          "新建文件不该凭空造出备份目录")
 
     def test_receipt_names_the_actual_backup_file(self) -> None:
@@ -82,10 +85,10 @@ class ProjectEditTests(unittest.TestCase):
         call_tool(pe.write_project_file, path="demo.py", content="x = 1\n")
         out = call_tool(pe.write_project_file, path="demo.py", content="x = 2\n")
         self.assertIn("覆盖", out)
-        self.assertIn("已备份到 logs/backups/", out)
-        m = re.search(r"logs/backups/([^\s。）]+)", out)
+        self.assertIn("已备份到 var/logs/backups/", out)
+        m = re.search(r"var/logs/backups/([^\s。）]+)", out)
         self.assertIsNotNone(m, f"回执未给出备份文件名：{out}")
-        self.assertTrue((self._tmp / "logs" / "backups" / m.group(1)).exists(),
+        self.assertTrue((self._tmp / "var" / "logs" / "backups" / m.group(1)).exists(),
                         f"回执点名的备份文件不存在：{m.group(1)}")
 
     def test_edit_receipt_names_backup(self) -> None:
@@ -93,10 +96,10 @@ class ProjectEditTests(unittest.TestCase):
         call_tool(pe.write_project_file, path="e.py", content="a\n")
         out = call_tool(pe.edit_project_file, path="e.py", old_string="a", new_string="b")
         self.assertIn("替换 1 处", out)
-        self.assertIn("已备份到 logs/backups/", out)
-        m = re.search(r"logs/backups/([^\s。）]+)", out)
+        self.assertIn("已备份到 var/logs/backups/", out)
+        m = re.search(r"var/logs/backups/([^\s。）]+)", out)
         self.assertIsNotNone(m, f"回执未给出备份文件名：{out}")
-        self.assertTrue((self._tmp / "logs" / "backups" / m.group(1)).exists())
+        self.assertTrue((self._tmp / "var" / "logs" / "backups" / m.group(1)).exists())
 
     def test_protected_and_escape_rejected(self) -> None:
         for path in (".env", "logs/x.py", "../outside.py", "C:/Windows/x.py", ".venv/lib/x.py"):

@@ -22,9 +22,9 @@ if str(BASE) not in sys.path:
 
 from agents.tool_context import ToolContext
 
-import compact
-import multimodal
-import research
+from runtime import compact
+from integrations import multimodal
+from integrations import research
 import runtime.codex_loop as codex_loop
 from runtime.provider_errors import (ProviderErrorKind, ProviderTransportError,
                                      attach_provider_meta,

@@ -174,7 +174,7 @@ async def cmd_history(app, arg: str) -> None:
 
 
 async def cmd_compact(app, arg: str) -> None:
-    from compact import maybe_compact
+    from runtime.compact import maybe_compact
 
     app.print(theme.dim("正在压缩较早的对话…"))
     try:

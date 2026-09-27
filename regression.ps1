@@ -41,10 +41,14 @@ $longTemp = Join-Path $env:LOCALAPPDATA 'Temp'
 $env:TMP = $longTemp
 $env:TEMP = $longTemp
 
-$logDir = Join-Path $root 'logs'
-New-Item -ItemType Directory -Force -Path $logDir | Out-Null
+$runtimeRoot = if ($env:FORGE_RUNTIME_DIR) { $env:FORGE_RUNTIME_DIR } else { Join-Path $root 'var' }
+if (-not [System.IO.Path]::IsPathRooted($runtimeRoot)) {
+    $runtimeRoot = Join-Path $root $runtimeRoot
+}
+$reportDir = Join-Path $runtimeRoot 'test-reports'
+New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
-$log = Join-Path $logDir "regression_$stamp.log"
+$log = Join-Path $reportDir "regression_$stamp.log"
 
 if ($Full) {
     $listening = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue

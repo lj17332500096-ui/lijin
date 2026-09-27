@@ -248,6 +248,18 @@ class SnapshotTests(unittest.TestCase):
         self.assertIn("hash", result.get("error", ""))
         self.assertEqual(self._val(self.agent).get("meta"), "value A1")  # 未被改动
 
+    def test_restore_recovers_corrupted_current_database(self):
+        snap = create_snapshot(self.agent, self.sessions, self.snaps)
+        with self.agent.open("wb") as fh:
+            fh.write(b"corrupted current agent database")
+
+        result = restore_snapshot(snap, self.agent, self.sessions, self.snaps)
+
+        self.assertTrue(result.get("ok"), result)
+        self.assertEqual(result.get("pre_restore_raw"), ["agent_db"])
+        self.assertEqual(self._val(self.agent).get("meta"), "value A1")
+        self.assertTrue(result.get("consistency", {}).get("ok"))
+
     def test_mid_restore_failure_rolls_back_both(self):
         snap = create_snapshot(self.agent, self.sessions, self.snaps)
         self._mk(self.agent, [("meta", "value A3")])

@@ -7,7 +7,7 @@
 文件夹记忆（folder_memory 表）：指定文件夹的索引与摘要，供 search_folder 检索。
 
 设计纪律：
-- 独立 SQLite 文件（FORGE_MEMORY_DB，默认 agent.db 同目录的 memory.db），
+- 独立 SQLite 文件（FORGE_MEMORY_DB，默认和 agent.db 同在 var/state/），
   不侵入 task_manager 的大建表逻辑，保持改动最小、基线零影响。
 - WAL 模式 + 单写，与项目既有存储约定一致。
 - 纯同步 sqlite3，供编排器在 run 内同步调用；不引入异步复杂度。
@@ -20,15 +20,22 @@ import sqlite3
 from pathlib import Path
 from typing import Any, Iterator, Optional
 
+from runtime_paths import state_db_path
+
 _DEFAULT_DB = Path(os.getenv("FORGE_MEMORY_DB", "")) if os.getenv("FORGE_MEMORY_DB") else None
 
 
 def default_db_path() -> Path:
     if _DEFAULT_DB is not None:
         return _DEFAULT_DB
-    # 默认落在 agent.db 同目录，避免散落
     repo = Path(__file__).resolve().parent.parent
-    return repo / "memory.db"
+    agent_db = state_db_path(
+        "agent.db", env_vars=("FORGE_AGENT_DB", "FORGE_DB_PATH"),
+        legacy_path=repo / "agent.db",
+    )
+    new_path = agent_db.with_name("memory.db")
+    legacy_path = repo / "memory.db"
+    return new_path if new_path.exists() or not legacy_path.exists() else legacy_path
 
 
 _SCHEMA = """

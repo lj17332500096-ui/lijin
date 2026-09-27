@@ -26,8 +26,8 @@
 """
 
 import json
+import logging
 import os
-from pathlib import Path
 from typing import Any
 
 from agents.mcp import MCPServerStdio
@@ -35,7 +35,8 @@ from agents.tool import FunctionTool
 
 from agent import assistant_agent
 
-BASE_DIR = Path(__file__).resolve().parent
+_logger = logging.getLogger(__name__)
+
 ENV_KEY = "MCP_SERVERS"
 ALLOWLIST_ENV = "FORGE_MCP_ALLOWLIST"
 
@@ -100,6 +101,10 @@ def parse_specs(text: str) -> tuple[list[dict], list[str]]:
             item.get("default_tool_policy", DEFAULT_POLICY),
             errors, f"{where} default_tool_policy",
         )
+        raw_idempotent = item.get("idempotent_tools") or []
+        if not isinstance(raw_idempotent, list):
+            errors.append(f"{where} idempotent_tools 应为字符串数组，已忽略")
+            raw_idempotent = []
         specs.append(
             {
                 "name": name,
@@ -108,6 +113,10 @@ def parse_specs(text: str) -> tuple[list[dict], list[str]]:
                 "env": {str(k): str(v) for k, v in (item.get("env") or {}).items()},
                 "tool_policy": tool_policy,
                 "default_tool_policy": default,
+                # Retrying a remote call is safe only when the operator explicitly
+                # declares the remote operation idempotent. Authorization is not
+                # an idempotency guarantee.
+                "idempotent_tools": [str(n) for n in raw_idempotent if str(n).strip()],
             }
         )
     return specs, errors
@@ -186,7 +195,8 @@ def format_mcp_result(display_name: str, result: Any, max_len: int = 6000) -> st
     return tag(f"MCP 工具输出({display_name})", None, joined[:max_len])
 
 
-def _make_mcp_invoke(server: MCPServerStdio, remote_name: str, display_name: str):
+def _make_mcp_invoke(server: MCPServerStdio, remote_name: str, display_name: str,
+                     *, idempotent: bool = False):
     import json as _json
 
     async def invoke(_ctx: Any, args_json: str) -> str:
@@ -200,9 +210,9 @@ def _make_mcp_invoke(server: MCPServerStdio, remote_name: str, display_name: str
         import logging as _logging
         import os as _os
 
-        import resilience
+        from runtime import resilience
 
-        attempts = int(_os.getenv("FORGE_MCP_ATTEMPTS", "3") or 3)
+        attempts = int(_os.getenv("FORGE_MCP_ATTEMPTS", "3") or 3) if idempotent else 1
         base_delay = float(_os.getenv("FORGE_MCP_BASE_DELAY", "0.5") or 0.5)
         cap = float(_os.getenv("FORGE_MCP_RETRY_CAP", "8.0") or 8.0)
 
@@ -213,19 +223,25 @@ def _make_mcp_invoke(server: MCPServerStdio, remote_name: str, display_name: str
             )
 
         try:
-            # 复用 resilience.run_with_retries（指数退避 + full jitter）。
-            # 这里曾经自带一份等价实现，两份策略会各自漂移 —— 现统一到一处。
-            result = await resilience.run_with_retries(
-                lambda: server.call_tool(remote_name, arguments),
-                attempts=attempts,
-                base_delay=base_delay,
-                cap=cap,
-                retryable=resilience.NETWORK_RETRYABLE_EXCEPTIONS,
-                on_attempt=_on_attempt,
-            )
+            if idempotent:
+                # Only explicitly declared idempotent remote tools may be replayed.
+                result = await resilience.run_with_retries(
+                    lambda: server.call_tool(remote_name, arguments),
+                    attempts=attempts,
+                    base_delay=base_delay,
+                    cap=cap,
+                    retryable=resilience.NETWORK_RETRYABLE_EXCEPTIONS,
+                    on_attempt=_on_attempt,
+                )
+            else:
+                result = await server.call_tool(remote_name, arguments)
         except resilience.NETWORK_RETRYABLE_EXCEPTIONS as exc:
-            return (f"{display_name} 执行出错（已重试 {attempts} 次）："
-                    f"{type(exc).__name__}: {str(exc)[:300]}")
+            retry_note = (f"幂等调用已尝试 {attempts} 次" if idempotent
+                          else "未自动重试，以避免重复产生副作用")
+            return ("MCP_OUTCOME_UNKNOWN: "
+                    f"{display_name} 网络调用失败；{retry_note}。"
+                    f"无法确认远端是否已执行，请先核对远端状态。"
+                    f"({type(exc).__name__}: {str(exc)[:240]})")
         except Exception as exc:  # 非网络类（参数/认证等）：不重试，原样报错
             return f"{display_name} 执行出错：{type(exc).__name__}: {str(exc)[:300]}"
 
@@ -237,17 +253,20 @@ def _make_mcp_invoke(server: MCPServerStdio, remote_name: str, display_name: str
 def _build_tool(server: MCPServerStdio, spec: dict, remote_tool: Any, policy: str) -> FunctionTool:
     remote_name = getattr(remote_tool, "name", "")
     display_name = tool_full_name(spec["name"], remote_name)
+    idempotent = remote_name in set(spec.get("idempotent_tools") or [])
     tool = FunctionTool(
         name=display_name,
         description=getattr(remote_tool, "description", "") or "",
         params_json_schema=getattr(remote_tool, "inputSchema", None) or {},
-        on_invoke_tool=_make_mcp_invoke(server, remote_name, display_name),
+        on_invoke_tool=_make_mcp_invoke(server, remote_name, display_name,
+                                        idempotent=idempotent),
         strict_json_schema=False,
     )
     setattr(tool, "_mcp_source", "mcp")
     setattr(tool, "_mcp_server", spec["name"])
     setattr(tool, "_mcp_remote", remote_name)
     setattr(tool, "_mcp_policy", policy)
+    setattr(tool, "_mcp_idempotent", idempotent)
     return tool
 
 
@@ -365,6 +384,43 @@ async def ensure_connected() -> bool:
     return bool(mounted_total)
 
 
+async def close_servers() -> list[str]:
+    """在创建 MCP 连接的同一事件循环中有序关闭并清理模块状态。
+
+    MCP stdio transport 持有 AnyIO task group，不能等到 asyncio.run() 已退出后
+    再依赖解释器回收。调用方应在应用的 async 生命周期 finally 中调用此方法。
+    """
+    global _connected
+    errors: list[str] = []
+    servers = list(reversed(_servers))
+    _servers.clear()
+    for server in servers:
+        try:
+            await server.cleanup()
+        except Exception as exc:
+            message = (
+                f"{getattr(server, 'name', 'MCP')} cleanup: "
+                f"{type(exc).__name__}: {str(exc)[:160]}"
+            )
+            errors.append(message)
+            _logger.warning("MCP server cleanup failed: %s", message, exc_info=True)
+
+    if _mounted_names:
+        names = set(_mounted_names)
+        assistant_agent.tools = [
+            tool for tool in list(getattr(assistant_agent, "tools", []) or [])
+            if getattr(tool, "name", "") not in names
+        ]
+        _mounted_names.clear()
+    assistant_agent.mcp_servers = []
+    _connected_names.clear()
+    _config_errors.clear()
+    _skip_reasons.clear()
+    _policy_summary.update(allow=0, approval=0, deny=0)
+    _connected = False
+    return errors
+
+
 def status_text() -> str:
     """给启动横幅/Runtime 状态用的 MCP 摘要（含策略统计，不含密钥）。"""
     lines: list[str] = []
@@ -374,7 +430,17 @@ def status_text() -> str:
         lines.append("[MCP] 已接入服务器：" + "、".join(_connected_names))
     if sum(_policy_summary.values()):
         allow, approval, deny = _policy_summary["allow"], _policy_summary["approval"], _policy_summary["deny"]
-        lines.append(f"[MCP] 工具权限映射：allow={allow} / approval={approval} / deny={deny}")
+        approval_enabled = os.getenv("APPROVAL", "").strip().lower() not in ("off", "false", "0")
+        effective_allow = allow + (0 if approval_enabled else approval)
+        effective_approval = approval if approval_enabled else 0
+        lines.append(
+            f"[MCP] 工具权限映射：allow={allow} / approval={approval} / deny={deny}"
+            f"；当前有效：allow={effective_allow} / approval={effective_approval} / deny={deny}"
+        )
+        if approval and not approval_enabled:
+            lines.append(
+                f"[MCP] 全局 APPROVAL=off：{approval} 个配置为 approval 的工具当前按 allow 执行"
+            )
     if _skip_reasons:
         lines.append("[MCP] " + "；".join(_skip_reasons[-12:]))
     return "\n".join(lines)

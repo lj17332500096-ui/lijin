@@ -89,6 +89,15 @@ class BrokerTests(unittest.TestCase):
         self.assertEqual(calls, [("calculate", "1+1")])
         self.assertIn("= 2", result)
 
+    def test_resilient_execution_rejects_non_idempotent_tools(self) -> None:
+        from runtime.registry import ToolBinding
+
+        reg = ToolRegistry()
+        reg.register(ToolBinding(spec=spec_for("future_mcp_write"), invoke=object()))
+        broker = ToolBroker(reg, run_id="retry-guard")
+        with self.assertRaisesRegex(ToolError, "not declared idempotent"):
+            asyncio.run(broker.execute_resilient("future_mcp_write", {}, attempts=3))
+
 
 class RuntimeFacadeTests(unittest.TestCase):
     def test_summary_reports_inventory(self) -> None:

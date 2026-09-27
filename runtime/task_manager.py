@@ -22,14 +22,18 @@ PRAGMA：WAL / synchronous=NORMAL / busy_timeout。上层不直接写 SQL——
 
 import json
 import logging
+import math
+import os
 import sqlite3
 import time
 import uuid
+from datetime import datetime
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Any, Iterator
 
 from runtime.errors import AgentError
+from runtime_paths import PROJECT_ROOT, state_db_path
 from runtime.state_machine import RESUMABLE_FROM, assert_transition
 from runtime.task import RunBudget, Task, TaskEvent, TaskState, TaskUsage, utcnow_iso
 
@@ -38,8 +42,11 @@ _logger = logging.getLogger(__name__)
 # 审计 D3：结构化日志代理（opt-in，FORGE_STRUCTURED_LOG=1）。
 from runtime.structured_log import slog
 
-DEFAULT_DB_PATH = Path(__file__).resolve().parent.parent / "agent.db"
-FORGE_DATA_DIR = Path(__file__).resolve().parent.parent / "forge_data"
+DEFAULT_DB_PATH = state_db_path(
+    "agent.db", env_vars=("FORGE_AGENT_DB", "FORGE_DB_PATH"),
+    legacy_path=PROJECT_ROOT / "agent.db",
+)
+FORGE_DATA_DIR = Path(os.getenv("FORGE_DATA_DIR") or PROJECT_ROOT / "forge_data")
 
 
 def project_sources_dir(container_id: str) -> Path:
@@ -180,6 +187,9 @@ CREATE TABLE IF NOT EXISTS model_calls (
     input_tokens INTEGER DEFAULT 0,
     output_tokens INTEGER DEFAULT 0,
     latency_ms INTEGER,
+    cost_usd REAL,
+    pricing_version TEXT,
+    currency TEXT NOT NULL DEFAULT 'USD',
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_model_calls_task ON model_calls(task_id, turn_number);
@@ -249,6 +259,29 @@ CREATE TABLE IF NOT EXISTS provider_attempts (
     created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_provider_attempts_task ON provider_attempts(task_id);
+
+-- Session DB is a separate durability domain. Keep cleanup intent here until
+-- the SDK database confirms the corresponding operation.
+CREATE TABLE IF NOT EXISTS session_cleanup_queue (
+    container_id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL,
+    operation TEXT NOT NULL CHECK(operation IN ('clear','delete')),
+    retry_count INTEGER NOT NULL DEFAULT 0,
+    last_error TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_session_cleanup_updated ON session_cleanup_queue(updated_at);
+
+-- Compact Run-level latency samples survive router log rotation.
+CREATE TABLE IF NOT EXISTS run_metrics (
+    run_id TEXT PRIMARY KEY,
+    container_id TEXT,
+    state TEXT NOT NULL,
+    latency_ms INTEGER NOT NULL,
+    sample_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_run_metrics_sample ON run_metrics(sample_at);
 """
 
 _SCHEMA_V1_LEGACY_TASKS = """
@@ -541,8 +574,11 @@ class TaskManager:
             _ensure_v31_tables(conn)  # v3.1：message_attachments（无条件确保，兼容早先已到 v3 的库）
             # v4：tool_calls.invocation_id（Write-Ahead 副作用台账用）+ client_messages 幂等表
             _ensure_columns(conn, "tool_calls", {"invocation_id": "TEXT"})
-            # v5: approvals.executed — exactly-once execution tracking (Phase 38)
+            # v5/6: separate approval execution claim from confirmed execution.
             _ensure_columns(conn, "approvals", {"executed": "INTEGER NOT NULL DEFAULT 0"})
+            _ensure_columns(conn, "approvals", {
+                "execution_claimed": "INTEGER NOT NULL DEFAULT 0"
+            })
             # B7（P1-8，2026-09-22）：tool_calls 补 4 列。此前这张表只有
             # (tool_name, arguments, status, result_excerpt)，无法回答「这次调用花了多久 /
             # 属于哪一轮模型 / 参数是否与上次同形 / 结果是否与上次同形」——
@@ -556,6 +592,11 @@ class TaskManager:
                 "turn_number": "INTEGER",
                 "normalized_arguments": "TEXT",
                 "fingerprint": "TEXT",
+            })
+            _ensure_columns(conn, "model_calls", {
+                "cost_usd": "REAL",
+                "pricing_version": "TEXT",
+                "currency": "TEXT NOT NULL DEFAULT 'USD'",
             })
             conn.execute(
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_calls_invocation "
@@ -590,9 +631,16 @@ class TaskManager:
             except Exception:
                 pass
             _backfill_containers(conn)  # 空壳任务在（旧）库连接期间存在性保证后回填
+        # A prior process may have stopped while SDK Session cleanup was pending.
+        # Retry once on manager startup; failures stay durable in the queue.
+        try:
+            self.retry_pending_session_cleanups(limit=100)
+        except Exception:
+            _logger.warning("启动时重试 SDK Session 清理失败", exc_info=True)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
+        self.db_path.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(str(self.db_path), timeout=10)
         conn.row_factory = sqlite3.Row
         try:
@@ -983,6 +1031,41 @@ class TaskManager:
 
     # ---------- 工具 Write-Ahead 副作用台账（P0：崩溃一致性） ----------
 
+    def begin_side_effect_tool_call(
+        self, *, task_id: str, tool_name: str, arguments: dict,
+        invocation_id: str, turn_number: int | None = None,
+    ) -> bool:
+        """Atomically claim a unique invocation before allowing a side effect.
+
+        False means this invocation id was already claimed. Database errors are
+        raised so the runtime can fail closed instead of executing unjournaled.
+        """
+        if not invocation_id:
+            raise AgentError("side-effect invocation requires a durable invocation_id")
+        from runtime.audit import redact_text, redact_value
+
+        args_json = json.dumps(redact_value(arguments or {}), ensure_ascii=False)[:8000]
+        row_id = "tc_" + uuid.uuid4().hex[:8]
+        try:
+            with self._connect() as conn:
+                conn.execute(
+                    "INSERT INTO tool_calls (id, task_id, tool_name, arguments_json, status, "
+                    "invocation_id, turn_number, normalized_arguments, created_at) "
+                    "VALUES (?,?,?,?,?,?,?,?,?)",
+                    (row_id, task_id, str(tool_name)[:200], args_json, "pending",
+                     invocation_id, turn_number,
+                     redact_text(json.dumps(redact_value(arguments or {}), ensure_ascii=False))[:8000],
+                     utcnow_iso()),
+                )
+            return True
+        except sqlite3.IntegrityError:
+            # Only treat a uniqueness collision as a duplicate. Other constraint
+            # failures are durability failures and must stop execution.
+            existing = self.find_tool_call_by_invocation(task_id, invocation_id)
+            if existing is not None:
+                return False
+            raise
+
     def pending_side_effect_rows(self, task_id: str) -> list[dict]:
         """status='pending' 的副作用行（恢复时视为执行结果 UNKNOWN）。"""
         with self._connect() as conn:
@@ -995,27 +1078,31 @@ class TaskManager:
         return [dict(r) for r in rows]
 
     def interrupt_pending_side_effects(self, task_id: str, *, reason: str = "interrupted") -> int:
-        """崩溃恢复/取消收口：把该 Run 未决的副作用行标记为 interrupted（绝不自动重放）。"""
+        """Mark unresolved side effects UNKNOWN at crash/cancel; never claim they were undone."""
         with self._connect() as conn:
             cursor = conn.execute(
-                "UPDATE tool_calls SET status = ? WHERE task_id = ? AND status = 'pending' "
+                "UPDATE tool_calls SET status = 'unknown', result_excerpt = ? "
+                "WHERE task_id = ? AND status = 'pending' "
                 "AND invocation_id IS NOT NULL",
-                (reason, task_id),
+                (("unresolved after " + str(reason))[:1000], task_id),
             )
             return int(cursor.rowcount or 0)
 
     def update_tool_call_status(
         self, task_id: str, invocation_id: str, *, status: str, result_excerpt: str | None = None
-    ) -> None:
-        """Write-Ahead 行状态推进：pending → executed/error/blocked/interrupted。"""
+    ) -> bool:
+        """CAS the Write-Ahead row from pending to one terminal invocation status."""
         if not invocation_id:
-            return
+            return False
+        if status not in {"executed", "error", "blocked", "cancelled", "interrupted", "unknown"}:
+            raise AgentError(f"invalid side-effect invocation status: {status}")
         with self._connect() as conn:
-            conn.execute(
+            cursor = conn.execute(
                 "UPDATE tool_calls SET status = ?, result_excerpt = ? "
-                "WHERE task_id = ? AND invocation_id = ?",
+                "WHERE task_id = ? AND invocation_id = ? AND status = 'pending'",
                 (status, (result_excerpt or "")[:1000], task_id, invocation_id),
             )
+            return cursor.rowcount == 1
 
     def find_tool_call_by_invocation(self, task_id: str, invocation_id: str) -> dict | None:
         if not invocation_id:
@@ -1053,8 +1140,8 @@ class TaskManager:
         - ``WHERE id=? AND state=<刚读到的旧状态>`` 让「写」对「读」负责：若状态
           在两者之间被动过，rowcount 就是 0，而不是安静地覆盖掉别人的终态。
 
-        事件写入与回读放在事务**之外**：``add_event`` 自己开连接，若在上面的写事务
-        内调用会自我阻塞到 busy_timeout（SQLite 单写者）。
+        权威状态流转事件与状态更新在同一事务提交，避免出现 state 已变而
+        task.<state> 事件缺失。辅助事件仍由 ``add_event`` 独立写入。
         """
         now = utcnow_iso()
         old_state: TaskState
@@ -1095,9 +1182,13 @@ class TaskManager:
                     "WHERE task_id=? AND status='pending'",
                     (now, task_id),
                 )
-
-        self.add_event(task_id, f"task.{target.value}",
-                       {"from": old_state.value, "reason": reason})
+            transition_payload = {"from": old_state.value, "reason": reason}
+            conn.execute(
+                "INSERT INTO task_events (task_id, event_type, payload_json, created_at) "
+                "VALUES (?,?,?,?)",
+                (task_id, f"task.{target.value}",
+                 json.dumps(transition_payload, ensure_ascii=False), now),
+            )
         updated = self.get_task(task_id)
         assert updated is not None
         return updated
@@ -1136,7 +1227,8 @@ class TaskManager:
             "output_tokens": task.usage.output_tokens,
             "cost_usd": task.usage.cost_usd,
         }
-        usage.update({k: int(v) for k, v in updates.items()})
+        usage.update({k: (float(v) if k == "cost_usd" else int(v))
+                      for k, v in updates.items()})
         with self._connect() as conn:
             conn.execute(
                 "UPDATE runs SET usage_json = ?, updated_at = ? WHERE id = ?",
@@ -1154,6 +1246,34 @@ class TaskManager:
             )
         return event
 
+    def add_terminal_event(
+        self, task_id: str, expected_state: TaskState, payload: dict
+    ) -> TaskEvent:
+        """Persist terminal evidence only if it matches the durable Run state.
+
+        The state transition itself already writes ``task.<state>`` atomically.
+        This transaction closes the race between reading that state and writing
+        the richer terminal evidence snapshot.
+        """
+        event = TaskEvent(task_id=task_id, event_type="run.terminal", payload=payload)
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute("SELECT state FROM runs WHERE id = ?", (task_id,)).fetchone()
+            if row is None:
+                raise AgentError(f"task not found: {task_id}")
+            if str(row["state"]) != expected_state.value:
+                raise AgentError(
+                    f"terminal evidence state mismatch: expected={expected_state.value} "
+                    f"actual={row['state']}"
+                )
+            conn.execute(
+                "INSERT INTO task_events (task_id, event_type, payload_json, created_at) "
+                "VALUES (?,?,?,?)",
+                (task_id, event.event_type,
+                 json.dumps(payload, ensure_ascii=False), event.created_at),
+            )
+        return event
+
     # ---------- P1-4：provider attempt 跨进程持久化 ----------
 
     def record_provider_attempt(
@@ -1164,6 +1284,17 @@ class TaskManager:
         进程崩溃后 resume 仍保有审计链（内存 _ATTEMPTS 之外的兜底）。"""
         meta = meta or {}
         with self._connect() as conn:
+            attempt_id = meta.get("attempt_id")
+            if attempt_id:
+                for row in conn.execute(
+                    "SELECT detail_json FROM provider_attempts WHERE task_id = ?",
+                    (task_id,),
+                ):
+                    try:
+                        if json.loads(row["detail_json"]).get("attempt_id") == attempt_id:
+                            return
+                    except (TypeError, json.JSONDecodeError):
+                        continue
             conn.execute(
                 "INSERT INTO provider_attempts "
                 "(task_id, kind, model, latency_ms, error, detail_json, created_at) "
@@ -1358,7 +1489,7 @@ class TaskManager:
                 interrupted = self.interrupt_pending_side_effects(task_id, reason="interrupted")
                 if interrupted:
                     self.add_event(task_id, "tool.side_effect_unknown", {
-                        "reason": "进程重启恢复：存在未决副作用行（执行结果 UNKNOWN），已标记 interrupted，不自动重放",
+                        "reason": "进程重启恢复：存在未决副作用行（执行结果 UNKNOWN），不自动重放",
                         "rows": interrupted,
                     })
             except Exception:
@@ -1500,18 +1631,69 @@ class TaskManager:
         )
         return {"id": approval_id, "status": decision}
 
-    def mark_approval_executed(self, approval_id: str) -> bool:
-        """Phase 38: mark an approved approval as executed (exactly-once).
+    def claim_approval_execution(self, approval_id: str) -> bool:
+        """Atomically claim an approved invocation before executing it.
 
-        Returns True if the approval was found, approved, and not yet executed.
+        External side effects cannot be made exactly-once by SQLite. Claiming
+        before execution prevents silent replay; a crash after the claim is an
+        uncertain outcome and requires reconciliation.
+
+        Returns True only for the process that claimed it.
         Returns False if already executed or not approvable.
         """
         with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT task_id, tool_name FROM approvals WHERE id = ? AND status = 'approved'",
+                (approval_id,),
+            ).fetchone()
+            if row is None:
+                return False
             cursor = conn.execute(
-                "UPDATE approvals SET executed = 1 WHERE id = ? AND status = 'approved' AND executed = 0",
+                "UPDATE approvals SET execution_claimed = 1 "
+                "WHERE id = ? AND status = 'approved' AND executed = 0 AND execution_claimed = 0",
                 (approval_id,),
             )
-            return cursor.rowcount == 1
+            if cursor.rowcount != 1:
+                return False
+            payload = {"approval_id": approval_id, "tool": row["tool_name"],
+                       "execution_claimed": True}
+            conn.execute(
+                "INSERT INTO task_events (task_id, event_type, payload_json, created_at) "
+                "VALUES (?,?,?,?)",
+                (row["task_id"], "task.approval.execution_claimed",
+                 json.dumps(payload, ensure_ascii=False), utcnow_iso()),
+            )
+            return True
+
+    def mark_approval_executed(self, approval_id: str) -> bool:
+        """Record confirmed execution after the wrapper returns successfully."""
+        with self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            row = conn.execute(
+                "SELECT task_id, tool_name FROM approvals WHERE id = ? AND status = 'approved' "
+                "AND execution_claimed = 1 AND executed = 0",
+                (approval_id,),
+            ).fetchone()
+            if row is None:
+                return False
+            cursor = conn.execute(
+                "UPDATE approvals SET executed = 1 "
+                "WHERE id = ? AND status = 'approved' AND execution_claimed = 1 AND executed = 0",
+                (approval_id,),
+            )
+            if cursor.rowcount != 1:
+                return False
+            payload = {"approval_id": approval_id, "tool": row["tool_name"],
+                       "invocation_id": f"approval:{approval_id}",
+                       "execution_status": "executed"}
+            conn.execute(
+                "INSERT INTO task_events (task_id, event_type, payload_json, created_at) "
+                "VALUES (?,?,?,?)",
+                (row["task_id"], "task.approval.execution_committed",
+                 json.dumps(payload, ensure_ascii=False), utcnow_iso()),
+            )
+            return True
 
     def expire_stale_approvals(
         self,
@@ -1563,6 +1745,7 @@ class TaskManager:
             rows = conn.execute(
                 "SELECT id, tool_name, arguments_json, args_key FROM approvals "
                 "WHERE task_id = ? AND status = 'approved' AND executed = 0 "
+                "AND execution_claimed = 0 "
                 "ORDER BY created_at ASC",
                 (task_id,),
             ).fetchall()
@@ -1683,14 +1866,19 @@ class TaskManager:
         input_tokens: int = 0,
         output_tokens: int = 0,
         latency_ms: int | None = None,
+        cost_usd: float | None = None,
+        pricing_version: str | None = None,
+        currency: str = "USD",
     ) -> str:
         row_id = "mc_" + uuid.uuid4().hex[:8]
         with self._connect() as conn:
             conn.execute(
                 "INSERT INTO model_calls (id, task_id, turn_number, model, status, input_tokens, "
-                "output_tokens, latency_ms, created_at) VALUES (?,?,?,?,?,?,?,?,?)",
+                "output_tokens, latency_ms, cost_usd, pricing_version, currency, created_at) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 (row_id, task_id, int(turn_number), model, status, int(input_tokens),
-                 int(output_tokens), latency_ms, utcnow_iso()),
+                 int(output_tokens), latency_ms, cost_usd, pricing_version,
+                 currency, utcnow_iso()),
             )
         return row_id
 
@@ -1738,6 +1926,7 @@ class TaskManager:
         with self._connect() as conn:
             rows = conn.execute(
                 "SELECT id, turn_number, model, status, input_tokens, output_tokens, latency_ms, "
+                "cost_usd, pricing_version, currency, "
                 "created_at FROM model_calls WHERE task_id = ? ORDER BY rowid ASC LIMIT ?",
                 (task_id, max(1, min(int(limit), 2000))),
             ).fetchall()
@@ -2083,47 +2272,76 @@ class TaskManager:
         runtime.context.delete_session_history(session_id) 一并清理。
         """
         with self._connect() as conn:
+            row = conn.execute("SELECT session_id FROM tasks WHERE id = ?", (container_id,)).fetchone()
             cur = conn.execute("DELETE FROM messages WHERE task_id = ?", (container_id,))
             conn.execute("UPDATE tasks SET summary = '' WHERE id = ?", (container_id,))
             conn.execute("UPDATE tasks SET updated_at = ? WHERE id = ?", (utcnow_iso(), container_id))
+            if row and row["session_id"]:
+                now = utcnow_iso()
+                conn.execute(
+                    "INSERT INTO session_cleanup_queue(container_id,session_id,operation,created_at,updated_at) "
+                    "VALUES(?,?, 'clear', ?, ?) ON CONFLICT(container_id) DO UPDATE SET "
+                    "session_id=excluded.session_id,operation='clear',retry_count=0,last_error=NULL,updated_at=excluded.updated_at",
+                    (container_id, row["session_id"], now, now),
+                )
+        self.retry_pending_session_cleanups(container_id=container_id)
         return cur.rowcount or 0
 
     def delete_container(self, container_id: str) -> bool:
         """硬删除容器及其全部子数据（回收站「清除」用，不可恢复）。"""
         with self._connect() as conn:
-            row = conn.execute("SELECT id FROM tasks WHERE id = ?", (container_id,)).fetchone()
+            row = conn.execute(
+                "SELECT id, session_id FROM tasks WHERE id = ?", (container_id,)
+            ).fetchone()
             if row is None:
-                return False
-            run_ids = [r["id"] for r in conn.execute(
-                "SELECT id FROM runs WHERE task_id = ?", (container_id,)).fetchall()]
-            ids = run_ids + [container_id]
-            ph = ",".join("?" * len(ids))
-            for table, col in [("task_events", "task_id"), ("checkpoints", "task_id"),
-                               ("approvals", "task_id"), ("model_calls", "task_id"),
-                               ("tool_calls", "task_id"), ("message_attachments", "task_id")]:
-                conn.execute(f"DELETE FROM {table} WHERE {col} IN ({ph})", ids)
-            if run_ids:
-                rph = ",".join("?" * len(run_ids))
-                conn.execute(f"DELETE FROM artifacts WHERE task_id IN ({rph})", run_ids)
-            conn.execute(f"DELETE FROM messages WHERE task_id = ?", (container_id,))
-            conn.execute("DELETE FROM project_sources WHERE task_id = ?", (container_id,))
-            conn.execute("DELETE FROM project_memories WHERE task_id = ?", (container_id,))
-            # Sources RAG 索引（chunks + FTS external content + vectors）随容器级联清除
-            try:
-                chunk_cids = [r["cid"] for r in conn.execute(
-                    "SELECT cid FROM source_chunks WHERE project_id = ?",
-                    (container_id,)).fetchall()]
-                if chunk_cids:
-                    conn.executemany("DELETE FROM source_chunks_fts WHERE rowid = ?",
-                                     [(c,) for c in chunk_cids])
-                conn.execute("DELETE FROM source_chunk_vectors WHERE project_id = ?",
-                             (container_id,))
-                conn.execute("DELETE FROM source_chunks WHERE project_id = ?",
-                             (container_id,))
-            except Exception:
+                pending = conn.execute(
+                    "SELECT 1 FROM session_cleanup_queue WHERE container_id = ?", (container_id,)
+                ).fetchone()
+                if not pending:
+                    return False
+                session_id = None
+            else:
+                session_id = row["session_id"]
+                if session_id:
+                    now = utcnow_iso()
+                    conn.execute(
+                        "INSERT INTO session_cleanup_queue(container_id,session_id,operation,created_at,updated_at) "
+                        "VALUES(?,?, 'delete', ?, ?) ON CONFLICT(container_id) DO UPDATE SET "
+                        "session_id=excluded.session_id,operation='delete',retry_count=0,last_error=NULL,updated_at=excluded.updated_at",
+                        (container_id, session_id, now, now),
+                    )
+            if row is None:
+                # A prior deletion left durable cleanup work. Retry below.
                 pass
-            conn.execute("DELETE FROM runs WHERE task_id = ?", (container_id,))
-            conn.execute("DELETE FROM tasks WHERE id = ?", (container_id,))
+            else:
+                run_ids = [r["id"] for r in conn.execute(
+                    "SELECT id FROM runs WHERE task_id = ?", (container_id,)).fetchall()]
+                ids = run_ids + [container_id]
+                ph = ",".join("?" * len(ids))
+                for table, col in [("task_events", "task_id"), ("checkpoints", "task_id"),
+                                   ("approvals", "task_id"), ("model_calls", "task_id"),
+                                   ("tool_calls", "task_id"), ("message_attachments", "task_id")]:
+                    conn.execute(f"DELETE FROM {table} WHERE {col} IN ({ph})", ids)
+                if run_ids:
+                    rph = ",".join("?" * len(run_ids))
+                    conn.execute(f"DELETE FROM artifacts WHERE task_id IN ({rph})", run_ids)
+                conn.execute("DELETE FROM messages WHERE task_id = ?", (container_id,))
+                conn.execute("DELETE FROM project_sources WHERE task_id = ?", (container_id,))
+                conn.execute("DELETE FROM project_memories WHERE task_id = ?", (container_id,))
+                # Sources RAG tables may not exist in older installations.
+                try:
+                    chunk_cids = [r["cid"] for r in conn.execute(
+                        "SELECT cid FROM source_chunks WHERE project_id = ?", (container_id,)).fetchall()]
+                    if chunk_cids:
+                        conn.executemany("DELETE FROM source_chunks_fts WHERE rowid = ?", [(c,) for c in chunk_cids])
+                    conn.execute("DELETE FROM source_chunk_vectors WHERE project_id = ?", (container_id,))
+                    conn.execute("DELETE FROM source_chunks WHERE project_id = ?", (container_id,))
+                except Exception:
+                    pass
+                conn.execute("DELETE FROM runs WHERE task_id = ?", (container_id,))
+                conn.execute("DELETE FROM tasks WHERE id = ?", (container_id,))
+        if session_id or row is None:
+            self.retry_pending_session_cleanups(container_id=container_id)
         # 物理清理项目文件区（attachments/sources 由行删除时已删文件，这里兜底清空目录树）
         try:
             from runtime.task_manager import FORGE_DATA_DIR
@@ -2136,6 +2354,91 @@ class TaskManager:
         except Exception:
             pass
         return True
+
+    def retry_pending_session_cleanups(self, *, container_id: str | None = None, limit: int = 100) -> dict:
+        """Retry durable SDK Session clear/delete intents; failed rows remain inspectable."""
+        sql = "SELECT container_id,session_id,operation FROM session_cleanup_queue"
+        params: list = []
+        if container_id:
+            sql += " WHERE container_id = ?"
+            params.append(container_id)
+        sql += " ORDER BY updated_at LIMIT ?"
+        params.append(max(1, min(int(limit), 1000)))
+        with self._connect() as conn:
+            rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        succeeded = 0
+        for item in rows:
+            try:
+                sessions_path = state_db_path(
+                    "sessions.sqlite", env_vars=("FORGE_SESSIONS_DB",),
+                    legacy_path=PROJECT_ROOT / "sessions.sqlite",
+                )
+                from runtime.context import clear_session_history, delete_session_history
+                if item["operation"] == "clear":
+                    clear_session_history(item["session_id"], str(sessions_path))
+                else:
+                    delete_session_history(item["session_id"], str(sessions_path))
+                with self._connect() as conn:
+                    conn.execute("DELETE FROM session_cleanup_queue WHERE container_id = ?", (item["container_id"],))
+                succeeded += 1
+            except Exception as exc:
+                with self._connect() as conn:
+                    conn.execute(
+                        "UPDATE session_cleanup_queue SET retry_count=retry_count+1,last_error=?,updated_at=? WHERE container_id=?",
+                        (f"{type(exc).__name__}: {exc}"[:1000], utcnow_iso(), item["container_id"]),
+                    )
+                _logger.warning("Session 清理待重试 container=%s session=%s operation=%s",
+                                item["container_id"], item["session_id"], item["operation"], exc_info=True)
+        return {"attempted": len(rows), "succeeded": succeeded, "pending": len(rows) - succeeded}
+
+    def list_pending_session_cleanups(self, limit: int = 100) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT container_id,session_id,operation,retry_count,last_error,created_at,updated_at "
+                "FROM session_cleanup_queue ORDER BY updated_at LIMIT ?",
+                (max(1, min(int(limit), 1000)),),
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def record_run_latency(self, run_id: str, container_id: str | None, state: str, latency_ms: int) -> None:
+        now = utcnow_iso()
+        with self._connect() as conn:
+            run = conn.execute("SELECT started_at,created_at FROM runs WHERE id = ?", (run_id,)).fetchone()
+            start_value = (run["started_at"] or run["created_at"]) if run else None
+            if start_value:
+                try:
+                    wall_ms = int((datetime.fromisoformat(now) - datetime.fromisoformat(start_value)).total_seconds() * 1000)
+                    # Timestamps are persisted at second precision in legacy rows; for fast
+                    # Runs their difference can be 0 even though Runner supplied monotonic
+                    # elapsed time. Keep the monotonic sample as the floor, while the wall
+                    # clock still captures the full span of a resumed Run.
+                    latency_ms = max(int(latency_ms), wall_ms)
+                except (TypeError, ValueError):
+                    pass
+            conn.execute(
+                "INSERT INTO run_metrics(run_id,container_id,state,latency_ms,sample_at) VALUES(?,?,?,?,?) "
+                "ON CONFLICT(run_id) DO UPDATE SET container_id=excluded.container_id,state=excluded.state,"
+                "latency_ms=excluded.latency_ms,sample_at=excluded.sample_at",
+                (run_id, container_id, state, max(0, int(latency_ms)), now),
+            )
+            # Bounded raw sample retention; latest percentile still survives router log rotation.
+            conn.execute("DELETE FROM run_metrics WHERE run_id IN (SELECT run_id FROM run_metrics ORDER BY sample_at DESC LIMIT -1 OFFSET 20000)")
+
+    def run_latency_summary(self, *, limit: int = 20000) -> dict:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT latency_ms,state FROM run_metrics ORDER BY sample_at DESC LIMIT ?",
+                (max(1, min(int(limit), 20000)),),
+            ).fetchall()
+        values = sorted(int(r["latency_ms"]) for r in rows)
+        def percentile(p: float) -> int | None:
+            if not values:
+                return None
+            return values[max(0, math.ceil(p * len(values)) - 1)]
+        return {"count": len(values), "p50_ms": percentile(.50), "p95_ms": percentile(.95),
+                "average_ms": round(sum(values) / len(values)) if values else None,
+                "states": {state: sum(1 for r in rows if r["state"] == state)
+                           for state in sorted({r["state"] for r in rows})}}
 
     def restore_container(self, container_id: str) -> bool:
         with self._connect() as conn:

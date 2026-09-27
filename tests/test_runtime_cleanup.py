@@ -13,7 +13,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
-import compact
+from runtime import compact
 import main as main_module
 from agents.memory import SQLiteSession
 from runtime.approval import ApprovalGate

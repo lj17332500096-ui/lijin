@@ -25,8 +25,9 @@ from schemas import AgentReply
 from pydantic import ValidationError
 
 from runtime.key_patterns import KEY_PATTERNS, mask_keys, has_key
+from runtime_paths import LOG_DIR, PROJECT_ROOT
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = PROJECT_ROOT
 NOTES_DIR = BASE_DIR / "notes"
 EXPORTS_DIR = BASE_DIR / "exports"
 OFFICE_SUFFIXES = {".docx", ".xlsx", ".pptx"}
@@ -37,7 +38,6 @@ UI_MAX_DATA_ROWS = 500     # 图表 labels / 表格行 数据总量上限
 UI_MAX_FIELDS = 6          # 表单字段数上限
 UI_MAX_FILES = 100         # 文件清单条目上限
 
-_LOG_DIR = BASE_DIR / "logs"
 
 
 def _mask_secrets(text: str) -> str:
@@ -63,7 +63,7 @@ def _log_guardrail_failure(output: object, reason: str) -> None:
     test_mode = os.environ.get("FORGE_TEST_MODE") == "1"
     if eval_mode and "FINAL-EMPTY" in reason:
         return  # 评测回放的空回答样本不写日志（benchmark 报告已留存）
-    _LOG_DIR.mkdir(parents=True, exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     record = {
         "time": datetime.now().isoformat(timespec="seconds"),
         "reason_head": reason[:200],
@@ -73,7 +73,7 @@ def _log_guardrail_failure(output: object, reason: str) -> None:
     }
     fname = "guardrail_failures.eval.jsonl" if eval_mode else (
         "guardrail_failures.test.jsonl" if test_mode else "guardrail_failures.jsonl")
-    with (_LOG_DIR / fname).open("a", encoding="utf-8") as fh:
+    with (LOG_DIR / fname).open("a", encoding="utf-8") as fh:
         fh.write(json.dumps(record, ensure_ascii=False) + "\n")
 
 

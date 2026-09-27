@@ -19,11 +19,12 @@ from typing import Any
 
 from dotenv import load_dotenv
 from openai import OpenAI
+from runtime_paths import PROJECT_ROOT, RUNTIME_ROOT
 
-BASE_DIR = Path(__file__).resolve().parent
+BASE_DIR = PROJECT_ROOT
 load_dotenv(BASE_DIR / ".env")
 
-SUMMARY_DIR = BASE_DIR / "summaries"
+SUMMARY_DIR = RUNTIME_ROOT / "summaries"
 
 # 长会话自动摘要阈值（激进档默认：贴近 256K 上下文才触发；可用 .env 覆盖：
 # AUTO_SUMMARY_MIN_TURNS / AUTO_SUMMARY_TRIGGER_TURNS / AUTO_SUMMARY_TRIGGER_CHARS /

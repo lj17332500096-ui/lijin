@@ -1,6 +1,6 @@
 """沙箱快照与回滚：把 code_sandbox/<project> 的文件树拍成快照，失败可一键回滚。
 
-- 快照存到 logs/sandbox_snapshots/<project>/<stamp>/（manifest.json + files 镜像）；
+- 快照存到 var/artifacts/sandbox_snapshots/<project>/<stamp>/（manifest.json + files 镜像）；
 - 单文件 ≤2MB、单次快照总量 ≤50MB，跳过 __pycache__/.git/缓存后缀；
 - 每项目最多保留 5 份快照，超出自动删最旧；
 - 回滚 = 清空项目目录后按快照还原，支持 dry_run 预览（列出增/删/改清单）。
@@ -16,9 +16,9 @@ from pathlib import Path
 from agents import function_tool
 
 from code_exec import SANDBOX_ROOT, _project_dir
+from runtime_paths import ARTIFACT_DIR
 
-BASE_DIR = Path(__file__).resolve().parents[1]
-SNAPSHOT_ROOT = BASE_DIR / "logs" / "sandbox_snapshots"
+SNAPSHOT_ROOT = ARTIFACT_DIR / "sandbox_snapshots"
 
 MAX_SNAPSHOTS = 5
 MAX_FILE_BYTES = 2 * 1024 * 1024

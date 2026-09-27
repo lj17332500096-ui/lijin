@@ -7,7 +7,7 @@
   不动任何表结构与事件写入。
 - **两个事实源**：
   1. Runtime 事件表（task_events，结构化事实）
-  2. OTel JSONL 轨迹（traces/traces.jsonl，observability 埋点）
+  2. OTel JSONL 轨迹（var/traces/traces.jsonl，observability 埋点）
 - 导出 JSON 形如：
   {
     "trace_id": "<run_id>",
@@ -22,8 +22,8 @@
 
 用法
 ----
-    python trace_export.py <run_id> [--jsonl traces/traces.jsonl] [--db agent.db]
-    python trace_export.py <run_id> --stdout
+    python -m runtime.trace_export <run_id> [--jsonl var/traces/traces.jsonl] [--db <state database>]
+    python -m runtime.trace_export <run_id> --stdout
 """
 
 from __future__ import annotations
@@ -33,7 +33,12 @@ import json
 import sys
 from pathlib import Path
 
-BASE = Path(__file__).resolve().parent
+BASE = Path(__file__).resolve().parents[1]
+if str(BASE) not in sys.path:
+    sys.path.insert(0, str(BASE))
+
+from runtime.task_manager import DEFAULT_DB_PATH
+from runtime_paths import TRACE_DIR
 
 
 def _load_events(run_id: str, db_path: str) -> list[dict]:
@@ -112,23 +117,28 @@ def _load_spans(run_id: str, jsonl_path: str | None) -> list[dict]:
     条件恒为假 —— 导出结果里 ``spans`` 永远是空的（"跨层追踪"实际不存在）。
     新记录都带 ``run_id`` 字段；``trace_id`` 作为旧文件的回退，保持向后兼容。
     """
-    if not jsonl_path or not Path(jsonl_path).exists():
+    if not jsonl_path:
         return []
     out = []
-    for line in Path(jsonl_path).read_text(encoding="utf-8").splitlines():
-        if not line.strip():
+    primary = Path(jsonl_path)
+    paths = [primary.with_name(primary.name + f".{i}") for i in range(1, 4)] + [primary]
+    for path in paths:
+        if not path.exists():
             continue
-        try:
-            rec = json.loads(line)
-        except Exception:
-            continue
-        if str(rec.get("run_id") or rec.get("trace_id") or "") == run_id:
-            out.append(rec)
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            try:
+                rec = json.loads(line)
+            except Exception:
+                continue
+            if str(rec.get("run_id") or rec.get("trace_id") or "") == run_id:
+                out.append(rec)
     return out
 
 
-def export(run_id: str, *, db_path: str = "agent.db",
-           jsonl_path: str | None = "traces/traces.jsonl") -> dict:
+def export(run_id: str, *, db_path: str | Path = DEFAULT_DB_PATH,
+           jsonl_path: str | Path | None = TRACE_DIR / "traces.jsonl") -> dict:
     container = _load_container(run_id, db_path) or ""
     return {
         "trace_id": run_id,
@@ -151,8 +161,8 @@ def export(run_id: str, *, db_path: str = "agent.db",
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(prog="trace_export")
     p.add_argument("run_id")
-    p.add_argument("--db", default=str(BASE / "agent.db"))
-    p.add_argument("--jsonl", default=str(BASE / "traces" / "traces.jsonl"))
+    p.add_argument("--db", default=str(DEFAULT_DB_PATH))
+    p.add_argument("--jsonl", default=str(TRACE_DIR / "traces.jsonl"))
     p.add_argument("--stdout", action="store_true")
     p.add_argument("--out", default="")
     args = p.parse_args(argv)

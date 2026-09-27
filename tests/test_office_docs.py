@@ -9,7 +9,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
-import office_docs as od
+from integrations import office_docs as od
 
 
 class RoundTripTests(unittest.TestCase):
@@ -161,7 +161,7 @@ class SpreadsheetReadTests(unittest.TestCase):
 
 class GuardrailOfficeSaveTests(unittest.TestCase):
     def setUp(self) -> None:
-        import guardrails
+        from runtime import guardrails
 
         self._g = guardrails
         self._tmp = Path(tempfile.mkdtemp(prefix="office_gr_"))
@@ -176,7 +176,7 @@ class GuardrailOfficeSaveTests(unittest.TestCase):
         od.EXPORTS_DIR = self._orig_od
 
     def test_office_saved_file_allowed(self) -> None:
-        import guardrails
+        from runtime import guardrails
 
         reply = json.dumps(
             {
@@ -193,7 +193,7 @@ class GuardrailOfficeSaveTests(unittest.TestCase):
 
     def test_fake_office_file_forgiven(self) -> None:
         # 新契约：伪造 saved_file 被宽恕（丢弃+警告），不再拒绝整个回复
-        import guardrails
+        from runtime import guardrails
 
         reply = json.dumps(
             {

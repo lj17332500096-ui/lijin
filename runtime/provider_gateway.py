@@ -40,6 +40,7 @@ import json
 import os
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -55,6 +56,7 @@ from runtime.provider_errors import (
     fallback_allowed,
     retry_policy,
 )
+from runtime_paths import LOG_DIR
 
 # P5-修复：Windows 下 httpcore2 async connect_tcp 默认走 getaddrinfo 全量结果
 # （含 IPv6），而本机 IPv6 出站可能不通 → "All connection attempts failed"。
@@ -94,11 +96,63 @@ _force_ipv4_httpcore()
 _SHARED_NO_PROXY_CLIENT: "httpx2.AsyncClient | None" = None
 
 
+class _DoneCheckedSSEStream(httpx2.AsyncByteStream):
+    """Pass SSE bytes through, but reject a clean EOF without the protocol marker.
+
+    The Agents SDK currently turns ordinary iterator exhaustion into a completed
+    response. Chat Completions uses ``data: [DONE]`` to distinguish a completed
+    stream from a gateway that closed the socket after a partial response.
+    """
+
+    def __init__(self, inner: httpx2.AsyncByteStream) -> None:
+        self._inner = inner
+        self._line_buffer = b""
+        self._done = False
+
+    async def __aiter__(self):
+        async for chunk in self._inner:
+            self._scan(chunk)
+            yield chunk
+        if not self._done:
+            raise httpx2.RemoteProtocolError(
+                "Chat Completions SSE ended without the data: [DONE] marker"
+            )
+
+    def _scan(self, chunk: bytes) -> None:
+        self._line_buffer += chunk
+        lines = self._line_buffer.split(b"\n")
+        self._line_buffer = lines.pop()
+        for line in lines:
+            if line.rstrip(b"\r").strip() == b"data: [DONE]":
+                self._done = True
+        if self._line_buffer.rstrip(b"\r").strip() == b"data: [DONE]":
+            self._done = True
+
+    async def aclose(self) -> None:
+        await self._inner.aclose()
+
+
+class _ProtocolCheckingAsyncClient(httpx2.AsyncClient):
+    """Validate terminal markers on streamed Chat Completions responses."""
+
+    async def send(self, request, *, stream=False, auth=httpx2.USE_CLIENT_DEFAULT,
+                   follow_redirects=httpx2.USE_CLIENT_DEFAULT):
+        response = await super().send(
+            request, stream=stream, auth=auth, follow_redirects=follow_redirects
+        )
+        path = request.url.path.rstrip("/")
+        content_type = response.headers.get("content-type", "").lower()
+        if (stream and path.endswith("/chat/completions")
+                and "text/event-stream" in content_type):
+            response.stream = _DoneCheckedSSEStream(response.stream)
+        return response
+
+
 def _shared_no_proxy_client() -> "httpx2.AsyncClient":
     """返回（必要时创建）进程级共享的 trust_env=False 连接池。"""
     global _SHARED_NO_PROXY_CLIENT
     if _SHARED_NO_PROXY_CLIENT is None:
-        _SHARED_NO_PROXY_CLIENT = httpx2.AsyncClient(trust_env=False)
+        _SHARED_NO_PROXY_CLIENT = _ProtocolCheckingAsyncClient(trust_env=False)
     return _SHARED_NO_PROXY_CLIENT
 
 
@@ -131,8 +185,9 @@ def _persist_path(run_id: str) -> Path | None:
     global _BASDIR
     with _LOCK:
         if _BASDIR is None:
-            base = Path(os.getenv("FORGE_DATA_DIR") or (Path(__file__).resolve().parent.parent / "data"))
-            _BASDIR = base / "provider_attempts"
+            legacy_data = (os.getenv("FORGE_DATA_DIR") or "").strip()
+            _BASDIR = (Path(legacy_data).expanduser() / "provider_attempts"
+                       if legacy_data else LOG_DIR / "provider_attempts")
         p = _BASDIR
         p.mkdir(parents=True, exist_ok=True)
         safe = "".join(c if c.isalnum() or c in "-_." else "_" for c in run_id)[:80]
@@ -148,8 +203,13 @@ def _persist_append(run_id: str, meta: dict[str, Any]) -> None:
             return
         with _LOCK:
             # 行数上限：超限时追加到 200 行即停写（记录本身仍保留内存态）。
-            if path.exists() and sum(1 for _ in path.open(encoding="utf-8")) >= _PERSIST_MAX_LINES:
-                return
+            if path.exists():
+                # Count under the same lock as append; close the descriptor
+                # deterministically (the previous generator over path.open()
+                # leaked it until GC on every provider attempt).
+                with path.open(encoding="utf-8") as existing:
+                    if sum(1 for _ in existing) >= _PERSIST_MAX_LINES:
+                        return
             with path.open("a", encoding="utf-8") as fh:
                 fh.write(json.dumps(meta, ensure_ascii=False, default=str) + "\n")
     except Exception:
@@ -199,6 +259,7 @@ def _persist_reset(run_id: str) -> None:
 def record_attempt(run_id: str, meta: dict[str, Any]) -> None:
     if not run_id:
         return
+    meta.setdefault("attempt_id", uuid.uuid4().hex)
     # B7：只有「成功返回」的模型响应才构成一轮（重试/限流没有产出，也就不会产生
     # 工具调用）。工具调用的 turn_number 由此得到，避免用「尝试次数」冒充轮次。
     if str(meta.get("kind") or "").strip().lower() in _SUCCESS_ATTEMPT_KINDS:
@@ -208,6 +269,9 @@ def record_attempt(run_id: str, meta: dict[str, Any]) -> None:
             _ctx_turn = _rc_turn()
             if _ctx_turn is not None:
                 _ctx_turn.note_model_turn()
+                latency = meta.get("latency_ms")
+                if latency is not None:
+                    _ctx_turn.model_latency_ms.append(float(latency))
         except Exception:
             pass
     # P0-8：把"这一层乘了多少倍"随每条记录一起留证。修复前 SDK 的 max_retries=2
@@ -219,11 +283,11 @@ def record_attempt(run_id: str, meta: dict[str, Any]) -> None:
     _persist_append(run_id, meta)
 
 
-def take_attempts(run_id: str) -> list[dict[str, Any]]:
-    mem = _ATTEMPTS.pop(run_id, [])
+def read_attempts(run_id: str) -> list[dict[str, Any]]:
+    """Read attempt ledger without deleting the durable source."""
+    mem = list(_ATTEMPTS.get(run_id, []))
     # P1-4：先合并本进程曾持久化但内存已失的记录（崩溃前写入、重启后恢复）。
     on_disk = _persist_load(run_id)
-    _persist_reset(run_id)
     if not mem and on_disk:
         return on_disk
     # 内存优先（含本轮新追加），磁盘兜底补缺（去重按 kind+latency_ms+model）。
@@ -235,6 +299,19 @@ def take_attempts(run_id: str) -> list[dict[str, Any]]:
             merged.append(m)
             seen.add(key)
     return merged
+
+
+def ack_attempts(run_id: str) -> None:
+    """Acknowledge attempts only after their durable database handoff succeeds."""
+    _ATTEMPTS.pop(run_id, None)
+    _persist_reset(run_id)
+
+
+def take_attempts(run_id: str) -> list[dict[str, Any]]:
+    """Compatibility read-and-clear API for callers that do not need a DB handoff."""
+    records = read_attempts(run_id)
+    ack_attempts(run_id)
+    return records
 
 
 def _current_run_id() -> str | None:
@@ -777,7 +854,7 @@ class ResilientProvider(OpenAIProvider):
                              use_responses=use_responses, **kwargs)
             return
         if is_loopback:
-            self._owned_http_client = httpx2.AsyncClient(trust_env=False)
+            self._owned_http_client = _ProtocolCheckingAsyncClient(trust_env=False)
             http_client: httpx2.AsyncClient | None = self._owned_http_client
         else:
             # P5-修复：远程网关也不能走 SDK 的 shared_http_client()（trust_env=True

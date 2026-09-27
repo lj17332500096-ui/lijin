@@ -12,46 +12,47 @@
 my_creative_agent/
 ├── agent.py          # Agent 定义：人设、工作流程、注册哪些工具
 ├── tools.py          # 自定义工具：保存/读取/列出文件产出（备忘/文章等）
-├── guardrails.py     # 输入/输出安全校验
 ├── rag.py            # 本地文档问答（RAG）：BM25+本地向量混合，支持 PDF 文本层
-├── multimodal.py     # 图片问答工具（ask_image，走网关多模态模型）
-├── research.py       # 深度调研工具（deep_research：多轮检索综合成报告）
-├── mcp_bridge.py     # MCP 外部服务器接入（可选，按 .env 配置动态挂载工具）
-├── github_fetch.py   # 抓取 GitHub 仓库到工作区（Chat with GitHub，供 RAG 问答）
+├── integrations/     # 外部服务与能力适配器（GitHub、MCP、调研、Office、视觉模型）
+│   ├── github_fetch.py
+│   ├── mcp_bridge.py
+│   ├── multimodal.py
+│   ├── office_docs.py
+│   └── research.py
 ├── code_exec.py      # 代码执行沙箱：写/读/运行 Python（需 .env 开启 ALLOW_CODE_EXEC）
-├── skills_loader.py  # 技能加载器：把 skills/<名>/ 的 SKILL.md 拼进人设、tools.py 工具自动注册
+├── skills_loader.py  # Skill 清单/按需读取；启用工具进入 Runtime 注册链
 ├── skills/           # 技能包目录（skills/<名>/SKILL.md + 可选 tools.py）
 ├── config/           # 运行时配置：tasks.json（定时任务清单，自动创建）、skills-lock.json（技能资产锁定）、runtime_acceptance_suite.json
 ├── runtime/          # Agent Runtime 生产运行时（见下文 Agent Runtime 一节）
-├── office_docs.py    # Office 文档：读 docx/xlsx/pptx、生成 Word/Excel/PPT、结构化读表格
+├── benchmark/        # 可复算评测用例、运行器与分类基准
+├── var/              # 运行时数据库、日志、trace、评测输出和临时文件（gitignored）
+├── docs/             # 架构、审计、验收、运维与历史文档，按类别分子目录
 ├── project_edit.py   # 项目文件写/改工具（需 .env 开启 ALLOW_PROJECT_EDIT，自动备份）
-├── compact.py        # 长会话自动摘要
 ├── scheduler.py      # 定时任务：计划解析、config/tasks.json 读写、下次运行计算
 ├── voice.py          # 语音对话：Windows 本机语音识别 + 语音合成
-├── webapp.py         # 本地网页聊天界面（Starlette + SSE）
-├── web/              # 网页界面静态资源（index.html）
+├── webapp.py         # 冻结的网页宿主（默认拒绝启动，需显式 opt-in）
+├── web/              # 共享 Markdown helper；旧页面在迁移后保留为 legacy archive
 ├── evaluate.py       # 端到端场景评估（真实调用模型）
 ├── main.py           # 终端聊天入口（含多轮记忆）
-├── tests/            # 离线回归测试与评估报告
-├── docs/             # 架构 / 审计 / 验收报告文档（只读，含 PROVIDER_PAYLOAD_TRUTH.json）
+├── tests/            # 离线回归测试（报告写入 var/test-reports/）
 ├── laya/             # Laya route-head：训练数据构建、评测脚本、XPU 训练环境说明
 ├── annotation/       # 标注集构建与校验脚本
-├── scratch/          # 一次性小脚本（不计入生产链路）
-├── archive/          # 评测运行产物（已 gitignore，不入库）
+├── archive/          # 已结束的历史运行与交付快照（非活动代码）
 ├── requirements.txt
 ├── .env.example      # 环境变量样例
-├── notes/            # Agent 保存文件产出（备忘/文章/方案）的地方（自动创建）
+├── notes/            # Agent 的工作区内容（备忘/文章/方案），与源码分开
 ├── models/           # （可选）本地向量模型目录：放 bge-small-zh-v1.5/ 后 RAG 自动升级为语义检索
-├── summaries/        # 长会话自动摘要记录（自动创建）
-├── logs/             # 定时任务执行日志（自动创建）
+├── summaries/        # 长会话摘要；数据库、日志与临时文件统一写入 var/
 ├── sources/          # Project 资料库（Sources）上传的文件（自动创建）
 ├── exports/          # Office/PPT 等生成文件（word|excel|ppt，自动创建）
-├── data/             # RAG 索引等本地运行数据（自动创建）
-├── traces/           # --trace 本地追踪 JSONL（自动创建）
+├── data/             # 用户/模型数据和向后兼容数据；新运行状态写入 var/
+├── var/              # 数据库、日志、trace、缓存、测试报告和临时文件
 ├── code_sandbox/     # 代码沙箱项目目录（ALLOW_CODE_EXEC 开启后使用）
 ├── github_repos/     # fetch_github_repo 抓取的仓库（自动创建）
-└── sessions.sqlite   # 对话记忆库（自动创建）
+└── runtime_paths.py  # 统一运行时数据路径解析
 ```
+
+`var/` 的内部布局和 `FORGE_RUNTIME_DIR` 覆盖方式见 [var/README.md](var/README.md)。旧版根目录数据库在完成迁移前仍会被兼容读取。
 
 > 本仓库原为「创意落地助手」原型，已整体重新设计为通用个人「全能助手」：
 > 草稿工具 `save_draft/read_draft/list_drafts` 与 `drafts/` 目录改名为
@@ -61,7 +62,7 @@ my_creative_agent/
 ## 快速开始
 
 ```powershell
-cd H:\Byong-hermes\my_creative_agent
+# 在项目根目录打开 PowerShell 后执行以下命令
 
 # 1) 首次使用：把样例配置复制成 .env 并填入你的 API Key
 Copy-Item .env.example .env
@@ -204,12 +205,12 @@ python -m venv .venv
 两种观察方式，可以叠加使用：
 
 - `--debug`：实时在控制台打印本轮内部循环（模型推理、工具调用、工具结果、最终消息）；
-- `--trace`：把 SDK 追踪到的每个 trace/span 写入本地 `traces/traces.jsonl`，
+- `--trace`：把 SDK 追踪到的每个 trace/span 写入本地 `var/traces/traces.jsonl`，
   每一行是一个事件（trace_start / span_start / span_end / trace_end），
   包含 agent、LLM generation、工具调用、turn 循环等每一步的摘要、耗时和归属关系。
 
 ```powershell
-.\.venv\Scripts\python main.py --trace          # 记录到 traces/traces.jsonl
+.\.venv\Scripts\python main.py --trace          # 记录到 var/traces/traces.jsonl
 .\.venv\Scripts\python main.py --trace --debug  # 边看控制台边落盘
 ```
 
@@ -217,18 +218,18 @@ python -m venv .venv
 `group_id`（会话名），便于把一整段对话串起来看。
 
 实现说明：官方 SDK 默认把 trace 上传到 OpenAI Traces 后台，但咱们的第三方网关没有
-对应凭据，所以 [observability.py](observability.py) 用官方提供的
+对应凭据，所以 [runtime/observability.py](runtime/observability.py) 用官方提供的
 `set_trace_processors()` 扩展点把默认导出器替换成**本地 OTel 语义约定 JSONL 写入器**——
 每一行都是可移植结构（`trace_id/span_id/parent_span_id/name/start_time_unix_nano/
 attributes`，attributes 用 `gen_ai.*`、`agent.*`、`gen_ai.tool.name` 等 OTel 约定），
 可直接被 OTLP/collector 的 filelog 转换器消费，不再是小众格式。
 `.env` 里 `OPENAI_AGENTS_DISABLE_TRACING=true` 是默认关闭，
-加 `--trace` 时会自动解除并切换到本地记录；`observability.add_exporter(fn)` 可为将来
-接入 opentelemetry SDK 导出器预留钩子。
+加 `--trace` 时会自动解除并切换到本地记录；`runtime.observability.add_exporter(fn)` 可为将来
+接入 opentelemetry SDK 导出器预留钩子（`runtime.observability.add_exporter(fn)`）。
 
 ## 输入输出安全校验
 
-Agent 默认挂着两道闸（[guardrails.py](guardrails.py)，本地规则、零额外模型调用）：
+Agent 默认挂着两道闸（[runtime/guardrails.py](runtime/guardrails.py)，本地规则、零额外模型调用）：
 
 **输入闸**（`safety_input_guardrail`，`run_in_parallel=False`，模型启动前拦截）：
 
@@ -274,7 +275,7 @@ Agent 可以“读懂”你工作区里的文档再回答问题。新增两个�
 - 向量路：本地 ONNX embedding 模型跑余弦相似度，同义改写（“锻炼”→“健身”）也能命中；
   两条路各自召回 top-N 后用 RRF 融合排序。
 
-索引缓存在 `data/rag_index.json`（检测到文件改动会自动要求刷新）。
+索引缓存在 `var/cache/rag_index.json`（检测到文件改动会自动要求刷新）。
 首次对小目录提问会自动建索引；目录很大时会提示先对具体子目录 `index_workspace`。
 
 ### 向量模型：格式与手动下载
@@ -477,8 +478,8 @@ ALLOW_PROJECT_EDIT=true
 
 - 只能写**项目目录内**、后缀白名单（.py/.md/.json/.html/.js/.ts/.css/.bat…）文件；
 - **拒绝**：`.env*`、apikey、memory.json、sessions.sqlite、tasks.json、rag_index.json，
-  `.venv/__git__/logs/traces/data/models` 目录；二进制与含密钥格式的内容；
-- **每次覆盖/改写前自动备份**原文件到 `logs/backups/`，可手动回滚；
+  `.venv/__git__/logs/traces/data/models/var` 目录；二进制与含密钥格式的内容；
+- **每次覆盖/改写前自动备份**原文件到 `var/logs/backups/`，可手动回滚；
 - 指令要求：先读再改、最小改动、改后回读确认、并在回复里给验证命令（测试由你本机跑）。
 
 ```text
@@ -493,13 +494,16 @@ ALLOW_PROJECT_EDIT=true
 
 ```text
 skills/<技能名>/
-├── SKILL.md     # 指令片段：何时触发 + 执行步骤 + 输出约束 + 何时不该用（会被拼进人设尾部）
+├── SKILL.md     # 指引：何时触发 + 执行步骤 + 输出约束 + 何时不该用（按需加载）
 └── tools.py     # 可选：新动作工具（@function_tool 修饰，启动时自动收集注册）
 ```
 
 启用：`.env` 里 `SKILLS=weekly_report,dep_doctor,gpt-taste,redesign-existing-projects,gorden-ppt`
 （逗号分隔；以上 5 个为当前默认启用集，不填 = 不启用；`skills/` 下其余目录为备选，把名字加进去即启用）。
 诊断：`python -c "import skills_loader; print(skills_loader.status_text())"`。
+运行中的 Agent 可调用 `extension_manager(action="list")` 查看 Skill/MCP 清单与状态；
+匹配任务时通过 `extension_manager(action="load_skill", name="技能目录名")` 读取已启用 Skill 的完整指引。
+该入口不安装插件、不执行新代码；Skill 工具仍由 Runtime 统一路由和执行。
 
 当前默认启用的技能：
 
@@ -531,6 +535,11 @@ skills/<技能名>/
 ```text
 runtime/
 ├── errors.py           # 统一异常层级（TaskCancelled/PolicyDenied/ApprovalRequired…）
+├── guardrails.py       # 本地输入/输出安全校验与回复结构检查
+├── compact.py         # 长会话摘要（写入 var/summaries/）
+├── observability.py    # OTel 语义 trace 采集，输出到 var/traces/
+├── trace_export.py     # 按 Run id 汇总 trace、事件、工具和 Provider 账本
+├── resilience.py       # 幂等、并发限流与受控重试 helper
 ├── spec.py             # ToolSpec 元数据 + 工具目录（41 工具已标注 risk/副作用/幂等）
 ├── registry.py         # ToolRegistry：从主 Agent 自动发现登记
 ├── broker.py           # ToolBroker：统一工具执行入口（Policy/审批钩子）
@@ -620,6 +629,8 @@ python -m runtime --tasks --state waiting_approval   # 查看挂着审批的任�
 
 配置（`.env`）：`APPROVAL=off` 关闭；`APPROVAL_GATED_TOOLS=run_python,forget_memory` 自定义名单
 （`all`/`*` 表示把真实文件编辑类也纳入审批）。
+
+写入 `工作区/code_sandbox/` 的 `write_code_file` 受用户意图检查和沙箱路径围栏保护，默认不单独弹审批；运行生成的代码仍由 `run_python` / `code_loop` 审批。
 
 ### 审计明细（model_calls / tool_calls）
 
@@ -830,6 +841,7 @@ MCP_SERVERS=[{
 
 每项字段：`name` 标识、`command`/`args` 启动命令（支持 npx / 本地 python 等）、`env` 额外环境变量、
 `tool_policy`（按服务器工具原始名映射策略）、`default_tool_policy`（该服务器未点名工具的默认策略）。
+可选 `idempotent_tools` 是远端工具原始名数组；只有明确列出的工具会在网络错误后重试。授权策略 `allow` / `approval` 不等于幂等声明，未列出的 MCP 工具只调用一次。
 配置后启动任意入口（`main.py` / `webapp.py`），进程会连接一次并把工具合并进来，启动横幅会打印接入状态。
 
 要点：
@@ -919,7 +931,7 @@ MCP_SERVERS=[{
 `FORGE_HISTORY_HARD_MESSAGES`，默认 26 万字符 ≈ 粗略 token / 500 条），保证历史始终有界，
 本轮对话不受影响。阈值可用 .env 覆盖：`AUTO_SUMMARY_MIN_TURNS` / `AUTO_SUMMARY_TRIGGER_TURNS` /
 `AUTO_SUMMARY_TRIGGER_CHARS` / `AUTO_SUMMARY_KEEP_TURNS` / `AUTO_SUMMARY_TRANSCRIPT_CAP`。
-实现见 [compact.py](compact.py)，走 chat/completions，不依赖官方
+实现见 [runtime/compact.py](runtime/compact.py)，走 chat/completions，不依赖官方
 `responses.compact`（第三方网关用不了那个）。可加 `--no-auto-summary` 关闭 CLI/语音链路。
 
 ## 常见问题（FAQ）
@@ -982,7 +994,7 @@ Sources / 记忆 / 定时 / 搜索 / 通知等）已删除。依据是生产 bun
 ## 生成式 UI 交互卡片
 
 > **存续状态（2026-09-22）**：`ui` 数组是**仍在生效的后端契约**——由 `schemas.py`
-> 定义、`agent.py` 注入提示、`runtime/reply_parser.py` 解析、`guardrails.py` 校验
+> 定义、`agent.py` 注入提示、`runtime/reply_parser.py` 解析、`runtime/guardrails.py` 校验
 > （单回复 ≤8 块、图表 series 长度等于 labels、表格行宽等于列数等）。
 > 但**网页渲染器已随 UI 层归档**（仅存于 `web/index.html.legacy.archive`）：
 > 终端模式仍会在文字后显示「📊 附 N 张交互卡片」一行，卡片本身不再有可视化宿主。
@@ -1048,7 +1060,7 @@ Agent 会用 `schedule_add` 把任务登记到 `config/tasks.json` 并告诉你�
 ```
 
 常驻进程每分钟检查一次，到点就用同一个 Agent 执行任务（搜索/保存笔记/读文档等
-工具都能用），结果摘要写回 `config/tasks.json`，完整日志追加到 `logs/tasks.log`。
+工具都能用），结果摘要写回 `config/tasks.json`，完整日志追加到 `var/logs/tasks.log`。
 执行时会先把下次时间推进，避免任务跑太久导致重复触发。
 
 任务台账每分钟镜像进 agent.db 的 `schedules` / `schedule_runs`（以 schedule_id + 计划触发时间
@@ -1137,7 +1149,7 @@ READY/普通回答不继承（防止旧任务状态污染新请求）。
 - **Efficiency**：轮数/token/耗时是否克制（越省越高）；
 - `--repeat N` 额外给出 **Reliability**（重复跑通过率）。
 
-汇总输出中位数/P95 延迟与平均分，全部写入 `tests/reports/eval_report.json`
+汇总输出中位数/P95 延迟与平均分，全部写入 `var/test-reports/eval_report.json`
 （含 scoreboard/overall/results）。「审批策略」场景为**基础设施级直测**（零模型成本）：
 直接调用被门包装的 run_python，断言被拒且未执行代码。
 
@@ -1170,8 +1182,8 @@ Tavily Key 时优先走 Tavily），不需要再去别处安装额外“技能�
 | 给 Agent 增加自定义工具（上网搜索、读文件、算数等） | `3_tool_using_agent` | `tools.py` 里写函数并注册 |
 | 让回复格式更规范（固定字段、JSON） | `2_structured_output_agent` | `schemas.py` 定义 Pydantic 模型，`agent.py` 里 `output_type` 引用它 |
 | 换执行方式 / 理解运行原理 | `4_running_agents` | `main.py` 的 `--mode` / `--debug`，对应教程 4_1、4_4 |
-| 输入输出安全校验 | `6_guardrails_validation` | `guardrails.py` 定义规则，`agent.py` 挂 input/output guardrails |
-| 观察 Agent 每一步做了什么 | `10_tracing_observability` | `--trace` 写入 `traces/traces.jsonl`（observability.py），`--debug` 看控制台实时循环 |
+| 输入输出安全校验 | `6_guardrails_validation` | `runtime/guardrails.py` 定义规则，`agent.py` 挂 input/output guardrails |
+| 观察 Agent 每一步做了什么 | `10_tracing_observability` | `--trace` 写入 `var/traces/traces.jsonl`（runtime/observability.py）；用 `python -m runtime.trace_export <run_id>` 导出完整 Run 轨迹；`--debug` 查看控制台实时循环 |
 | 更高级的记忆、多会话 | `7_sessions` | `main.py` 的 `--session/--history/--list-sessions`，长期记忆看 `tools.py` 的 remember/recall_memory |
 | 本地文档问答（RAG） | `rag_tutorials/` | `rag.py` 的 index_workspace / search_documents；升级向量检索参考 rag_chain、local_rag_agent |
 | 评估与回归测试 | 自定义 | `tests/run_tests.py` 离线回归；`evaluate.py` 端到端场景评估 |

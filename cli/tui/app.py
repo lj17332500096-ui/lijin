@@ -572,7 +572,44 @@ class ForgeTuiApp(App):
         # Spinner 80ms 动画定时器（参照 dsh-TUI SpinnerAnimationRow）
         self._spinner_timer = self.set_interval(0.08, self._tick_spinner)
         self._banner()
+        self._start_laya_warmup()
         self._update_footer("idle")
+
+    def _start_laya_warmup(self) -> None:
+        """Start the paired GGUF server and warm its head before accepting chat input."""
+        import os
+
+        if os.getenv("PYTEST_CURRENT_TEST"):
+            return
+        from runtime.laya_tui_startup import tui_laya_autostart_enabled
+
+        if not tui_laya_autostart_enabled():
+            return
+        self._bar().input.disabled = True
+        self._msglog().add_meta("正在启动并预热 Laya GPU 模型，请稍候…")
+        self._run_async(self._prepare_laya_backend())
+
+    async def _prepare_laya_backend(self) -> None:
+        import asyncio
+
+        try:
+            from runtime.laya_tui_startup import prepare_laya_for_tui
+
+            _ready, message = await asyncio.to_thread(prepare_laya_for_tui)
+            if self._app_state is not None:
+                self._msglog().add_meta(message)
+        except Exception as exc:
+            if self._app_state is not None:
+                self._msglog().add_meta(
+                    f"Laya 预热失败：{type(exc).__name__}: {exc}；对话将继续走主 Agent。"
+                )
+        finally:
+            if self._app_state is not None:
+                try:
+                    self._bar().input.disabled = False
+                    self._bar().focus_input()
+                except (NoActiveAppError, NoScreen):
+                    pass
 
     def _tick_spinner(self) -> None:
         """每 80ms 驱动 Spinner 动画帧推进。"""
@@ -1316,8 +1353,8 @@ class ForgeTuiApp(App):
                         self._exit_approval()
                     self._header().set_state("failed")
                     self._update_footer("idle")
-                    msg = str(meta.get("message") or payload.get("message") or "Run 失败")
-                    msglog.add_error(title=msg[:200])
+                    # 最终错误由 _render_result / _render_exception 统一显示；
+                    # 此处只更新状态，避免同一失败事件与 RunResult 各显示一遍。
                 elif etype == "run.waiting_approval":
                     # 事件流里也可能收到（Runtime 中途暂停）
                     if not self._in_approval:
@@ -1328,12 +1365,6 @@ class ForgeTuiApp(App):
                         self._update_footer("approval")
                         self._bar().set_placeholder("Approve? [y/N]")
                         self._bar().focus_input()
-                elif etype == "assistant.reply":
-                    content = str(meta.get("content") or "")
-                    kind = str(meta.get("kind") or "")
-                    # 若本轮已流式渲染过，跳过（_render_result 会处理）
-                    if content and self._stream_item is None and not self._streamed_this_turn:
-                        msglog.add_assistant(content, title=kind)
 
         except (NoScreen, NoActiveAppError, MountError):
             # 面板渲染失败不打断 Agent 执行；未知异常继续上抛
@@ -1391,7 +1422,16 @@ class ForgeTuiApp(App):
             msglog.add_artifact(artifact.get("name", "?"))
 
         task_id = getattr(getattr(result, "task", None), "id", "") or "?"
-        msglog.add_meta(f"✓ DONE · {elapsed:.1f}s · run {task_id[:8]}")
+        outcome = str(getattr(result, "outcome", "") or "")
+        status_label = {
+            "completed": "✓ COMPLETED",
+            "needs_user": "? NEEDS USER",
+            "partial": "! PARTIAL",
+            "blocked": "× BLOCKED",
+            "failed": "× FAILED",
+            "cancelled": "■ CANCELLED",
+        }.get(outcome, "✓ COMPLETED" if getattr(result, "ok", True) else "× FAILED")
+        msglog.add_meta(f"{status_label} · {elapsed:.1f}s · run {task_id[:8]}")
         msglog.add_meta("")
 
         if self.auto_summary:
@@ -1725,7 +1765,23 @@ def run_tui(
         auto_summary=auto_summary,
     )
     try:
-        app.run()
+        async def _run_with_mcp_lifecycle() -> None:
+            try:
+                await app.run_async()
+            finally:
+                try:
+                    import asyncio
+                    from runtime.laya_tui_startup import stop_tui_owned_laya_server
+
+                    await asyncio.to_thread(stop_tui_owned_laya_server)
+                finally:
+                    from integrations.mcp_bridge import close_servers
+
+                    await close_servers()
+
+        import asyncio
+
+        asyncio.run(_run_with_mcp_lifecycle())
         return 0
     except KeyboardInterrupt:
         print("\n已中断，退出。")

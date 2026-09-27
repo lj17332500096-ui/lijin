@@ -8,22 +8,29 @@
 
 本模块是纯函数 + 静态关键词表：无模型调用、无网络，测试友好。
 
-C1 可观测：select_tool_names 每次调用都会写一行 JSON 到 logs/tool_router.jsonl
+C1 可观测：select_tool_names 每次调用都会写一行 JSON 到 var/logs/tool_router.jsonl
 （TOOL_ROUTER_LOG=off 可关；默认 on）。线上出问题时一眼定位是哪条查询被误裁。
 """
 
 import json
+import math
 import os
 import re
 import time
 from datetime import datetime
 from pathlib import Path
+from runtime_paths import LOG_DIR
 
-# C1：可观测日志路径（项目根 logs/tool_router.jsonl）
-_PROJECT_ROOT = Path(__file__).resolve().parents[1]
-_TOOL_ROUTER_LOG_PATH = _PROJECT_ROOT / "logs" / "tool_router.jsonl"
-# C1 指标：router 指标快照（logs/router_metrics.jsonl，每 60s 写一次，可被 dashboard 拉取）
-_ROUTER_METRICS_PATH = _PROJECT_ROOT / "logs" / "router_metrics.jsonl"
+def infer_capability_plan(query: str, available: list[str] | None = None) -> dict:
+    """Deprecated compatibility shim; task-plan inference lives in Runtime."""
+    from runtime.task_plan import infer_task_plan
+
+    return infer_task_plan(query, available)
+
+# C1：可观测日志路径（var/logs/tool_router.jsonl）
+_TOOL_ROUTER_LOG_PATH = LOG_DIR / "tool_router.jsonl"
+# C1 指标：router 指标快照（var/logs/router_metrics.jsonl，每 60s 写一次，可被 dashboard 拉取）
+_ROUTER_METRICS_PATH = LOG_DIR / "router_metrics.jsonl"
 
 # 指标累加器（进程内，按时间窗口聚合）
 _metrics_state: dict = {
@@ -37,12 +44,22 @@ _metrics_state: dict = {
     "last_flush": time.time(),
 }
 
+
+def _nearest_rank_percentile(values: list[float], percentile: float) -> float:
+    """Return a nearest-rank percentile (p95 index = ceil(.95 * N) - 1)."""
+    if not values:
+        return 0.0
+    ordered = sorted(float(value) for value in values)
+    p = min(100.0, max(0.0, float(percentile)))
+    index = max(0, math.ceil((p / 100.0) * len(ordered)) - 1)
+    return ordered[index]
+
 def _tool_router_log_enabled() -> bool:
     return os.getenv("TOOL_ROUTER_LOG", "on").strip().lower() not in ("off", "false", "0")
 
 
 def _maybe_flush_metrics() -> None:
-    """每 60s 把指标累加器写到 logs/router_metrics.jsonl（失败不阻塞）。"""
+    """每 60s 把指标累加器写到 var/logs/router_metrics.jsonl（失败不阻塞）。"""
     now = time.time()
     if now - _metrics_state["last_flush"] < 60.0:
         return
@@ -62,7 +79,7 @@ def _maybe_flush_metrics() -> None:
             "escalated_total": _metrics_state["escalated"],
             "fast_mode_total": _metrics_state["fast_mode"],
             "empty_rate": round(_metrics_state["empty"] / max(_metrics_state["total"], 1), 4),
-            "p95_latency_ms": sorted(lat)[-1] if lat else 0.0,  # P95 ≈ 最近 1000 次最大值
+            "p95_latency_ms": round(_nearest_rank_percentile(lat, 95), 2),
             "avg_latency_ms": round(sum(lat) / len(lat), 2) if lat else 0.0,
             "window_samples": len(lat),
         }
@@ -126,11 +143,10 @@ def _write_tool_router_log(
     reasons: list[str] | None = None,
     intent_class: str = "",
 ) -> None:
-    """C1：把 router 决策写一行 JSON 到 logs/tool_router.jsonl（失败不阻塞）。"""
+    """C1：把 router 决策写一行 JSON 到 var/logs/tool_router.jsonl（失败不阻塞）。"""
     if not _tool_router_log_enabled():
         return
     try:
-        _TOOL_ROUTER_LOG_PATH.parent.mkdir(parents=True, exist_ok=True)
         entry = {
             "ts": datetime.now().isoformat(timespec="seconds"),
             "schema_version": 2,  # 修复 C：hit_zero 口径收敛后的 schema 版本
@@ -142,8 +158,9 @@ def _write_tool_router_log(
             "intent_class": intent_class or "unclassified",
             "reasons": reasons or [],
         }
-        with _TOOL_ROUTER_LOG_PATH.open("a", encoding="utf-8") as f:
-            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+        from runtime.rotating_jsonl import append_jsonl
+
+        append_jsonl(_TOOL_ROUTER_LOG_PATH, entry, env_prefix="FORGE_ROUTER_LOG")
     except Exception:
         # 日志失败不阻塞 router 主流程
         pass
@@ -160,6 +177,12 @@ _GORDEN_PPT_INTENT = re.compile(
 
 # 工具名 → 中文/英文别名关键词（不区分大小写；name 本身不必写，规则 1 已覆盖）
 TOOL_TERMS: dict[str, tuple[str, ...]] = {
+    "extension_manager": ("插件清单", "插件状态", "扩展状态", "可用技能", "已安装技能",
+                          "加载技能", "启用技能", "extension manager", "load skill",
+                          "品牌规范", "品牌风格", "品牌色", "小说创作", "小说",
+                          "短篇拆解", "长篇拆解", "周报", "周总结", "依赖体检",
+                          "依赖检查", "requirements", "文章", "文案", "创作",
+                          "网页设计", "网页改版", "日计划"),
     "web_search": ("搜索", "查一下", "查询", "联网", "网页", "最新", "新闻", "资讯", "天气", "是什么", "what", "news"),
     "deep_research": ("调研", "研究报告", "全面了解", "对比", "报告", "深度", "研究", "综述", "research"),
     "get_current_datetime": ("今天", "明天", "日期", "几点", "现在时间", "星期", "时间", "date"),
@@ -300,7 +323,7 @@ _WEB_INTENT = re.compile(
 #: 且 `source_chunks` 当前为 0 行（库空，调用必然返回空）。
 #: 用户明确提"参考资料/查资料/资料里"时仍由 TOOL_TERMS 词条派发，功能不丢。
 _WEB_SUPPORT = {
-    "web_search", "get_current_datetime", "get_weather", "deep_research",
+    "web_search", "get_current_datetime", "deep_research",
     "search_documents",
 }
 
@@ -480,6 +503,7 @@ def build_tool_catalog(tools: list) -> dict[str, dict]:
             "domain": _MCP_SERVER_DOMAIN.get(server, "") if source == "MCP" else spec.category,
             "capability": capability_of(name),
             "side_effect": spec.side_effect,
+            "idempotent": bool(spec.idempotent or getattr(t, "_mcp_idempotent", False)),
             "risk": spec.risk,
             "description": (getattr(t, "description", "") or "")[:200],
         }
@@ -710,6 +734,14 @@ _DIRECT_TEXT_INTENT = re.compile(
     r"polish|rephrase|rewrite|translate",
     re.IGNORECASE,
 )
+_SKILL_ACTION_INTENT = re.compile(
+    r"加载.{0,12}(?:技能|skill)|使用.{0,12}(?:技能|skill)|"
+    r"(?:技能|skill).{0,16}(?:完成|处理|撰写|生成|制作|翻译)|"
+    r"(?:品牌规范|品牌风格|品牌色|小说创作|小说|短篇拆解|长篇拆解|"
+    r"周报|周总结|依赖体检|依赖检查|requirements|文章|文案|创作|"
+    r"网页设计|网页改版|日计划)",
+    re.IGNORECASE,
+)
 # 需要工具的强信号词：命中则不进入纯文本直答路径。
 # B4 修复：原表把"查"单独当成强信号（"帮我翻译这段话"里"查"被误命中 → 误判需工具），
 # 改成"查一下/查查/查询"等动词短语；同时"文件/项目/代码/仓库/目录/文档/表格"等
@@ -783,18 +815,15 @@ def _classify_intent(text: str, raw_query: str) -> str:
 
 
 def laya_screen_skip(query: str) -> bool:
-    """Laya 快筛跳过护栏：True = 不走 Laya 的 direct_text 短路，回落关键词路由。
+    """跳过 Laya 提示推理的性能护栏：True = 直接走关键词 Router。
 
     背景（2026-09-26）：训练侧做过 arith→text 口径翻转（"帮我算 12*34" 判纯文本、
     不需要工具，这是对的），但模型把该口径**外推**到了混合句 ——
-    "帮我算 123*456 然后保存成备忘录" 只看到"算"就被判 text，快筛直接短路 0 工具，
-    把 calculate 与 save_note 一起裁掉（test_route_agent_filters_tools 因此长期红灯）。
+    "帮我算 123*456 然后保存成备忘录" 只看到"算"就被判 text，导致 Layer 提示
+    与实际工具需求不一致。
 
-    护栏语义：只要命中「联网/读文件」族或「需要工具的强信号词」族，就认为用户
-    明确要动外部世界，**不信 Laya 的 direct_text**，交回 select_tool_names 裁决。
-
-    这是护栏不是替代：未命中这里的查询（含纯算术、打招呼、概念问答）仍优先信 Laya，
-    Laya 路线不放弃。
+    护栏语义：明确工具意图时跳过不必要的本地分类调用。即使不跳过，Laya 结果也
+    只是 trace 中的 hint，工具筛选仍由 select_tool_names 决定。
     """
     if not query:
         return False
@@ -824,9 +853,12 @@ def select_tool_names(
     max_tools: int = DEFAULT_MAX_TOOLS,
     external: list[str] | None = None,
     catalog: dict[str, dict] | None = None,
+    plan_required_tools: list[str] | None = None,
 ) -> list[str]:
     """按查询从可用工具里选出子集；顺序稳定（基础集优先，其次按命中数降序）。
 
+    ``plan_required_tools`` 由 Runtime Plan Controller 提供。Router 只负责验证
+    候选是否已注册、是否符合当前意图策略，并在数量上限内保留它们；不识别任务阶段。
     逃生门：TOOL_ROUTER_FAST=on 时直接返回全量（不裁剪），日志里标 fast_mode。
     """
     _t0 = time.time()
@@ -843,10 +875,30 @@ def select_tool_names(
     available_set = set(available)
     base = [name for name in available if name in BASE_TOOLS]
     text = (query or "").lower()
-    # 纯文本改写/翻译/润色：不暴露任何工具，走直接回答路径。
-    if is_direct_text_task(query):
-        record_router_call((time.time() - _t0) * 1000.0, hit_zero=True, empty=True)
-        return []
+    skill_manager_ready = False
+    if "extension_manager" in available_set:
+        try:
+            from skills_loader import enabled_names
+
+            skills_root = Path(__file__).resolve().parents[1] / "skills"
+            skill_manager_ready = any(
+                ((skills_root / name / "skill.md").is_file()
+                 and not (skills_root / name / "skill.md").is_symlink())
+                or ((skills_root / name / "SKILL.md").is_file()
+                    and not (skills_root / name / "SKILL.md").is_symlink())
+                for name in enabled_names()
+            )
+        except Exception:
+            skill_manager_ready = False
+    # 纯文本改写/翻译仍不带业务工具；启用了本地 Skill 时，只额外提供只读的
+    # Skill 按需加载入口，让模型在确有匹配技能时读取完整指引。
+    if is_direct_text_task(query) and not plan_required_tools:
+        selected = ["extension_manager"] if (
+            skill_manager_ready and _DIRECT_TEXT_INTENT.search(query or "")
+        ) else []
+        record_router_call((time.time() - _t0) * 1000.0,
+                           hit_zero=not selected, empty=not selected)
+        return selected
     capability = bool(_CAPABILITY_INTENT.search(text))
 
     # 能力盘点问题：每台外部（MCP）服务器取一个代表工具，让模型直接回答“接入哪些服务”。
@@ -880,6 +932,19 @@ def select_tool_names(
     available_set = {n for n in available_set if _allowed(n)}
     mentioned = {n for n in mentioned if _allowed(n)}
 
+    # Runtime Plan Controller supplies explicit stage requirements. Router owns
+    # only candidate exposure and applies its normal availability/intent policy.
+    required_action_tools = [
+        name for name in dict.fromkeys(plan_required_tools or [])
+        if name in available_set and _allowed(name)
+    ]
+    # Only route the loader for recognizable Skill domains or an explicit Skill
+    # request; routine web/math/file tasks should not pay for unrelated metadata.
+    skill_relevant_request = bool(_SKILL_ACTION_INTENT.search(text))
+    if (skill_manager_ready and not capability and skill_relevant_request
+            and "extension_manager" not in required_action_tools):
+        required_action_tools.insert(0, "extension_manager")
+
     scored: dict[str, int] = {}
     for name, terms in TOOL_TERMS.items():
         if name not in available_set:
@@ -887,6 +952,40 @@ def select_tool_names(
         hits = sum(1 for term in terms if term.lower() in text)
         if hits:
             scored[name] = hits
+
+    # Recall guard for tools added after the hand-written alias table was last
+    # updated. Match explicit tool IDs/display labels, then require multiple
+    # informative description overlaps before adding an otherwise unknown tool.
+    if catalog:
+        try:
+            from runtime.capability_introspection import display_for
+            _stops = {"请问", "帮我", "一下", "这个", "那个", "可以", "能够", "工具", "用于", "功能", "进行", "通过", "当前"}
+            _query_words = set(re.findall(r"[a-z][a-z0-9_+-]{2,}", text))
+            _query_words.update(
+                text[i:i + 2] for i in range(max(0, len(text) - 1))
+                if "\u4e00" <= text[i] <= "\u9fff" and "\u4e00" <= text[i + 1] <= "\u9fff"
+                and text[i:i + 2] not in _stops
+            )
+            for name in available_set:
+                if name in scored or not _allowed(name):
+                    continue
+                label = display_for(name).lower()
+                if re.search(r"(?<![a-z0-9_])" + re.escape(name.lower()) + r"(?![a-z0-9_])", text) or (label and label in text):
+                    scored[name] = 1
+                    continue
+                entry = catalog.get(name) or {}
+                desc = (str(entry.get("description", "")) + " " + str(entry.get("domain", ""))).lower()
+                _desc_words = set(re.findall(r"[a-z][a-z0-9_+-]{2,}", desc))
+                _desc_words.update(desc[i:i + 2] for i in range(max(0, len(desc) - 1))
+                                   if "\u4e00" <= desc[i] <= "\u9fff" and "\u4e00" <= desc[i + 1] <= "\u9fff"
+                                   and desc[i:i + 2] not in _stops)
+                overlap = len(_query_words & _desc_words)
+                # CJK descriptions need two distinct matches to avoid broad,
+                # generic tool summaries inflating unrelated routes.
+                if overlap >= 2:
+                    scored[name] = overlap
+        except Exception:
+            pass
 
     ordered = list(available)
     priority = {name: idx for idx, name in enumerate(ordered)}
@@ -901,7 +1000,7 @@ def select_tool_names(
     else:
         # 能力盘点：避免列目录/翻笔记/搜文档等探索工具诱导循环，只保留被点名/命中者
         base_pool = [n for n in base if n in mentioned or n in scored]
-    for name in base_pool + reps + matched:
+    for name in base_pool + required_action_tools + reps + matched:
         if name in available_set and name not in result:
             result.append(name)
     # 补充不在任何匹配里的工具名（点名过的已含）
@@ -932,14 +1031,16 @@ def select_tool_names(
     # 只读意图：从结果中剔除写入类工具（第二层由 intent gate / constraint 兜底）。
     if _READONLY_INTENT.search(text):
         result = [n for n in result if n not in _WRITE_TOOLS_SET]
-    limit = max(len(base), min(int(max_tools), len(available_set)))
+    # Required stages are atomic for routing: preserve a later write/reminder
+    # stage even when the normal relevance window is full.
+    limit = max(len(base), len(required_action_tools), min(int(max_tools), len(available_set)))
     result = result[:limit]
     # 修复 C：hit_zero 口径收敛 —— 仅当"有工具意图"（tool_needed / ambiguous）
     # 且 0 个非基础工具时才计 hit_zero；纯文本/概念/算式/问候不计（消除假阳性）。
     _intent_class = _classify_intent(text, query)
     _non_base_hits = [n for n in result if n not in BASE_TOOLS]
     _hit_zero = (_intent_class in ("tool_needed", "ambiguous")) and (len(_non_base_hits) == 0)
-    # C1 可观测：写一行 JSON 到 logs/tool_router.jsonl（含 intent_class 便于分桶）
+    # C1 可观测：写一行 JSON 到 var/logs/tool_router.jsonl（含 intent_class 便于分桶）
     _write_tool_router_log(
         query=query,
         selected=result,

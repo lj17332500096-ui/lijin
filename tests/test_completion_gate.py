@@ -257,9 +257,14 @@ class CompletionGateUnitTests(unittest.TestCase):
         self.assertIn("write_code_file", text)
         self.assertIn("run_python", text)
         self.assertIn("报告.md", text)
-        self.assertIn("最终说明生成失败", text)
+        self.assertIn("无法确认任务已完整完成", text)
         self.assertNotIn("Guardrail", text)
         self.assertNotIn("修复了登录问题", text)  # 禁止编造业务结论
+
+    def test_degraded_reply_with_no_execution_does_not_claim_work_was_done(self) -> None:
+        text = str(build_degraded_reply("连续无进展", _evidence())["content"])
+        self.assertIn("没有可确认的工具执行结果", text)
+        self.assertNotIn("已执行并记录", text)
 
 
 class _FakeHarness:
@@ -279,6 +284,7 @@ class _FakeHarness:
         self.runtime.artifact_dirs = (self.notes,)
         self.testcase = testcase
         self.calls: list[str] = []
+        self.agent_tool_counts: list[int] = []
         self._main = main_module
         self._orig_execute = main_module.execute_turn
         self._saved_router = os.environ.get("TOOL_ROUTER")
@@ -290,6 +296,7 @@ class _FakeHarness:
     async def _execute(self, mode, message, session=None, debug=False, max_turns=20,
                        history_limit=None, agent=None, audit=None, stream_events_cb=None):
         self.calls.append(message)
+        self.agent_tool_counts.append(len(getattr(agent, "tools", []) or []))
         return await self.fn(mode, message)
 
     def __enter__(self):
@@ -342,6 +349,34 @@ class RunTurnCompletionGateTests(unittest.TestCase):
             types = self._events(h, result.task.id)
             self.assertIn("completion.check.passed", types)
             self.assertNotIn("completion.check.rejected", types)
+
+    def test_capability_inventory_run_has_no_business_tools(self) -> None:
+        with _FakeHarness(self) as h:
+            h.install(_canned("当前已挂载的能力如下。"))
+            result = h.run("查询不了你有什么插件吗？")
+            self.assertTrue(result.ok)
+            self.assertEqual(result.task.state, TaskState.COMPLETED)
+            self.assertEqual(h.agent_tool_counts, [0])
+            route = next(
+                event for event in h.manager.list_events(result.task.id)
+                if event.event_type == "routing.decision"
+            )
+            self.assertEqual(route.payload["route_mode"],
+                             "capability_inventory_context_only")
+            self.assertEqual(route.payload["allowed_tools"], [])
+            self.assertEqual(route.payload["layer"]["authority"], "coarse_intent_only")
+            self.assertEqual(route.payload["router_authority"], "runtime_capability_inventory")
+
+    def test_compound_request_cannot_complete_before_planned_phases(self) -> None:
+        with _FakeHarness(self) as h:
+            h.install(_canned("好的。"))
+            result = h.run("查询霸州天气，然后把结果保存到备忘录。")
+            self.assertFalse(result.ok)
+            self.assertEqual(result.task.state, TaskState.FAILED)
+            self.assertEqual(len(h.calls), 2)  # 有界的一次 completion repair
+            types = self._events(h, result.task.id)
+            self.assertIn("capability.phase.incomplete", types)
+            self.assertNotIn("completion.check.passed", types)
 
     def test_fake_modify_claim_repaired_then_questions_completes(self) -> None:
         state = {"n": 0}

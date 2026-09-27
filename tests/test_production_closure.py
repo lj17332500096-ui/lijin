@@ -139,7 +139,7 @@ class CancelSemanticsTests(unittest.TestCase):
 
 
 class WriteAheadAndRecoverTests(unittest.TestCase):
-    """PHASE2：副作用执行前有 durable pending；恢复时标记 interrupted，绝不自动重放。"""
+    """PHASE2：副作用执行前有 durable pending；恢复时标记 unknown，绝不自动重放。"""
 
     def setUp(self) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="pcwa_"))
@@ -150,7 +150,7 @@ class WriteAheadAndRecoverTests(unittest.TestCase):
 
         shutil.rmtree(self.tmp, ignore_errors=True)
 
-    def test_pending_row_then_recover_marks_interrupted(self):
+    def test_pending_row_then_recover_marks_unknown(self):
         container = self.mgr.get_or_create_container("proj-wa")
         run = _mk_run(self.mgr, container["id"])
         self.mgr.transition(run.id, TaskState.RUNNING, reason="start")
@@ -160,14 +160,29 @@ class WriteAheadAndRecoverTests(unittest.TestCase):
             arguments={"path": "a.py", "old": "x", "new": "y"},
             status="pending", invocation_id="inv-1")
         self.assertTrue(self.mgr.find_tool_call_by_invocation(run.id, "inv-1"))
-        # crash → 下次启动 recover：pending 副作用被标记 interrupted（不自动重放）
+        # crash → 下次启动 recover：执行结果未知（不自动重放）
         recovered = self.mgr.recover_stale_tasks(max_age_seconds=-1)
         self.assertIn(run.id, recovered)
         row = self.mgr.find_tool_call_by_invocation(run.id, "inv-1")
-        self.assertEqual(row["status"], "interrupted")
+        self.assertEqual(row["status"], "unknown")
         self.assertEqual(self.mgr.get_task(run.id).state, TaskState.FAILED)
         evs = [e.event_type for e in self.mgr.list_events(run.id)]
         self.assertIn("tool.side_effect_unknown", evs)
+
+    def test_terminal_evidence_requires_matching_durable_state(self):
+        from runtime.task import TaskState
+
+        container = self.mgr.get_or_create_container("proj-terminal-evidence")
+        run = _mk_run(self.mgr, container["id"])
+        self.mgr.transition(run.id, TaskState.RUNNING, reason="start")
+        with self.assertRaisesRegex(AgentError, "state mismatch"):
+            self.mgr.add_terminal_event(run.id, TaskState.COMPLETED, {"state": "completed"})
+        events = self.mgr.list_events(run.id)
+        self.assertNotIn("run.terminal", [e.event_type for e in events])
+        self.mgr.transition(run.id, TaskState.COMPLETED, reason="done")
+        self.mgr.add_terminal_event(run.id, TaskState.COMPLETED, {"state": "completed"})
+        terminals = [e for e in self.mgr.list_events(run.id) if e.event_type == "run.terminal"]
+        self.assertEqual(len(terminals), 1)
 
     def test_durable_executed_then_update_no_duplicate_row(self):
         container = self.mgr.get_or_create_container("proj-wa2")

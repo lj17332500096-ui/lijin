@@ -76,6 +76,7 @@ def timeout_for(name: str) -> int:
 
 # 工具目录：name -> (category, risk, side_effect, destructive, idempotent)
 TOOL_CATALOG: dict[str, tuple[str, str, bool, bool, bool]] = {
+    "extension_manager": ("utility", "low", False, False, True),
     # 文件产出（notes）
     "save_note": ("filesystem", "low", True, False, False),
     "read_note": ("filesystem", "low", False, False, True),

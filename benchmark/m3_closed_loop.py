@@ -32,8 +32,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import main as main_module  # noqa: E402
 from agents import RunHooks  # noqa: E402
 
-M3_FIX = r"F:\Byong-hermes\Byong-hermes\code_sandbox\m3_fixture"
-M3_ORACLE = r"F:\Byong-hermes\Byong-hermes\my_creative_agent\m3_oracle\expected.json"
+REPO_ROOT = Path(__file__).resolve().parents[1]
+M3_FIX = str(REPO_ROOT / "code_sandbox" / "m3_fixture")
+M3_ORACLE = REPO_ROOT / "benchmark" / "fixtures" / "m3_oracle" / "expected.json"
 M3_PROMPT = (
     "修复 {fix}/calc.py 中的 bug，并运行 {fix} 项目下的全部测试；"
     "如果测试失败，继续修复直到全部通过。"

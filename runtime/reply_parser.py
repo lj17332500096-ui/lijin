@@ -245,7 +245,7 @@ def normalize(obj: dict) -> tuple[dict, list[str]]:
 
 def _ui_within_limits(ui: list) -> str | None:
     """ui 业务上限（宽恕语义：超限返回原因，由调用方丢弃 ui 并记警告）。"""
-    import guardrails  # 延迟导入避免循环；复用同一套上限常量
+    from runtime import guardrails  # 延迟导入避免循环；复用同一套上限常量
 
     if not ui:
         return None

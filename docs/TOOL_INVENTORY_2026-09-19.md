@@ -273,7 +273,7 @@ B−A 由 −3.0pp → **−1.0pp**，C−A 由 −1.0pp → **0.0pp**；Safety 
 把作用域扩到全项目模块级名册，并对类做负向验证（临时改回旧状态 → 4 条断言同时变红）。
 
 逐项定性（漏项 vs 有意收紧）与"未决引用"登记见
-`EPISODE_RECALL_EXPERIMENT_REPORT.md` §11。
+[`archive/2026-09/EPISODE_RECALL_EXPERIMENT_REPORT.md`](archive/2026-09/EPISODE_RECALL_EXPERIMENT_REPORT.md) §11。
 
 ---
 

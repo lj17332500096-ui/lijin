@@ -160,6 +160,7 @@ class RunContext:
     # ⚠️ 生产侧写的是 "success"（见 provider_gateway.record_attempt 的 kind 取值）；
     #    "ok" 只是历史/兜底写法，判据必须同时认这两个，否则本字段恒为 0（静默失效）。
     model_turns: int = 0
+    model_latency_ms: list[float] = field(default_factory=list, repr=False)
     # ---- D4：重复调用护栏状态（原 tools._last_repeat_calls 是**进程级全局**）----
     # 语义：tool_name -> {"key": 关键参数指纹, "ts": 时间戳, "count": 次数}
     # 为什么必须 Run 级：进程级全局会让 A 轮搜过的关键词把 B 轮的**第一次**调用判成重复
@@ -167,6 +168,99 @@ class RunContext:
     # 为什么**不落库**：它是纯过程状态——只在 10 秒窗口内有意义，Run 结束后无任何审计价值；
     # resume 会产生新 run_id，计数本就该重置。落库只会引入 schema 变更与无用的写放大。
     repeat_calls: dict[str, dict] = field(default_factory=dict, repr=False)
+    routing_decision_id: str | None = None  # route_agent 决策与本 Run 工具调用的关联键
+    # Explicit multi-action requests are enforced as Run-scoped ordered phases.
+    capability_plan: dict[str, Any] = field(default_factory=dict, repr=False)
+    capability_phase_index: int = 0
+    capability_phase_inflight: str | None = None
+    capability_plan_uncertain: bool = False
+
+    def configure_capability_plan(self, plan: dict[str, Any] | None) -> None:
+        plan = plan if isinstance(plan, dict) else {}
+        phases = plan.get("phases")
+        self.capability_plan = plan if isinstance(phases, list) and len(phases) > 1 else {}
+        self.capability_phase_index = 0
+        self.capability_phase_inflight = None
+        self.capability_plan_uncertain = False
+
+    def claim_capability_phase_tool(self, tool_name: str) -> tuple[bool, dict[str, Any]]:
+        """Atomically reserve the only tool allowed in the current plan phase."""
+        phases = self.capability_plan.get("phases") or []
+        if len(phases) < 2 or self.capability_phase_index >= len(phases):
+            return True, {}
+        phase = phases[self.capability_phase_index]
+        phase_name = str(phase.get("phase") or f"phase_{self.capability_phase_index + 1}")
+        details = {"phase_index": self.capability_phase_index,
+                   "phase": phase_name, "tools": list(phase.get("tools") or [])}
+        if self.capability_plan_uncertain:
+            return False, {**details, "reason": "previous_phase_outcome_unknown",
+                           "message": "前一阶段结果不确定，需先由用户核对后才能继续。"}
+        if tool_name not in details["tools"]:
+            expected = " / ".join(details["tools"]) or "当前阶段指定工具"
+            return False, {**details, "reason": "out_of_order_tool",
+                           "message": (f"多阶段任务当前处于第 {self.capability_phase_index + 1} 步“{phase_name}”，"
+                                       f"应先成功执行 {expected}；当前工具 {tool_name} 属于后续或无关步骤。")}
+        if self.capability_phase_inflight is not None:
+            return False, {**details, "reason": "phase_tool_already_inflight",
+                           "message": "当前阶段已有工具调用在执行，请等待其结果后再继续。"}
+        self.capability_phase_inflight = tool_name
+        return True, details
+
+    def finish_capability_phase_tool(self, tool_name: str, *, success: bool,
+                                     uncertain: bool = False) -> dict[str, Any] | None:
+        if self.capability_phase_inflight != tool_name:
+            return None
+        phases = self.capability_plan.get("phases") or []
+        index = self.capability_phase_index
+        phase = phases[index] if index < len(phases) else {}
+        details = {"phase_index": index,
+                   "phase": str(phase.get("phase") or f"phase_{index + 1}"),
+                   "tool": tool_name}
+        self.capability_phase_inflight = None
+        if success:
+            self.capability_phase_index += 1
+            details["status"] = "completed"
+        else:
+            self.capability_plan_uncertain = bool(uncertain)
+            details["status"] = "unknown" if uncertain else "failed"
+            details["uncertain"] = bool(uncertain)
+        return details
+
+    def mark_capability_phase_uncertain(self, phase_index: int) -> None:
+        """Fail closed when durable phase evidence could not be written."""
+        self.capability_phase_index = min(
+            self.capability_phase_index, max(0, int(phase_index))
+        )
+        self.capability_phase_inflight = None
+        self.capability_plan_uncertain = True
+
+    def restore_capability_phase_events(self, events: list[Any]) -> None:
+        """Restore ordered phase progress; an unmatched start is treated as unknown."""
+        if not self.capability_plan:
+            return
+        latest: dict[int, str] = {}
+        for event in events:
+            kind = getattr(event, "event_type", None)
+            payload = getattr(event, "payload", None) or {}
+            if not isinstance(payload, dict):
+                continue
+            try:
+                index = int(payload.get("phase_index"))
+            except (TypeError, ValueError):
+                continue
+            if kind == "capability.phase.started":
+                latest[index] = "started"
+            elif kind == "capability.phase.completed":
+                latest[index] = "completed"
+            elif kind == "capability.phase.failed":
+                latest[index] = "unknown" if payload.get("uncertain") else "failed"
+        self.capability_phase_index = 0
+        while latest.get(self.capability_phase_index) == "completed":
+            self.capability_phase_index += 1
+        self.capability_plan_uncertain = any(
+            state in ("started", "unknown") for state in latest.values()
+        )
+        self.capability_phase_inflight = None
 
     def note_model_turn(self) -> int:
         """记一次成功返回的模型响应，返回递增后的轮次。"""
@@ -651,6 +745,11 @@ def current() -> RunContext | None:
     return _current.get()
 
 
-def bind(ctx: RunContext | None) -> None:
-    """为当前 Task 设置 RunContext（每次 run_turn 开始调用一次即覆盖旧值）。"""
-    _current.set(ctx)
+def bind(ctx: RunContext | None) -> contextvars.Token:
+    """为当前 Task 设置 RunContext，并返回可用于精确恢复的 Token。"""
+    return _current.set(ctx)
+
+
+def reset(token: contextvars.Token) -> None:
+    """恢复 bind 前的上下文，支持嵌套 Run 与异常收尾。"""
+    _current.reset(token)

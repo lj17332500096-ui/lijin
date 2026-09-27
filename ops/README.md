@@ -5,7 +5,7 @@
 ## 架构
 
 ```
-logs/tool_router.jsonl  ←  C1 日志（每次 router 调用追加一行）
+var/logs/tool_router.jsonl  ←  C1 日志（每次 router 调用追加一行）
            │
            ▼
 scripts/router_metrics_server.py  ←  常驻 HTTP 服务（/metrics 端点）
@@ -123,14 +123,14 @@ schtasks /create /tn "ForgeRouterMetrics" /tr "F:\Byong-hermes\Byong-hermes\my_c
 | `forge_router_hit_zero_total` | counter | 命中 0 目标工具次数 |
 | `forge_router_hit_zero_rate` | gauge | 命中率（0-1） |
 | `forge_router_avg_selected_tools` | gauge | 平均选中工具数 |
-| `forge_router_p95_query_len_bytes` | gauge | P95 查询长度 |
+| `forge_router_p95_query_len_bytes` | gauge | P95 查询长度（UTF-8 字节，nearest-rank） |
 | `forge_router_last_observed_timestamp` | gauge | 最近观测时间（Unix ts） |
 
 ## 故障排查
 
 | 症状 | 原因 | 修复 |
 |------|------|------|
-| `/metrics` 返回空 | `logs/tool_router.jsonl` 不存在或为空 | 确认 C1 日志开启（`TOOL_ROUTER_LOG=on`） |
+| `/metrics` 返回空 | `var/logs/tool_router.jsonl` 不存在或为空 | 确认 C1 日志开启（`TOOL_ROUTER_LOG=on`） |
 | Prometheus 抓不到 | 端口 9095 被防火墙拦 | 检查 `netstat -ano | findstr 9095`，放行端口 |
 | dashboard 无数据 | Grafana 数据源没配 Prometheus | 检查 Grafana → Data sources |
 | 告警没触发 | 告警规则没加载 | `curl :9090/api/v1/rules` 看规则是否注册 |

@@ -80,6 +80,8 @@ git 记录 840 个项目沙箱，磁盘只余 99 —— 同一批文件被反复
 `ARCHITECTURE_REVIEW_2026-09-19.md`、`TOOL_INVENTORY_2026-09-19.md`、`EPISODE_RECALL_EXPERIMENT_REPORT.md`、`FORGE-RUNTIME-TRUTH-AUDIT*.md` 等平铺在根。
 **建议**：归入 `docs/reports/`。低风险，但影响可读性。
 
+> 路径追踪（2026-09-26）：`EPISODE_RECALL_EXPERIMENT_REPORT.md` 已移至 [`archive/2026-09/EPISODE_RECALL_EXPERIMENT_REPORT.md`](archive/2026-09/EPISODE_RECALL_EXPERIMENT_REPORT.md)；本次只整理已结束的实验与验收报告，其他文档仍按当时记录保留。
+
 ---
 
 ### P2 — 代码层挂账

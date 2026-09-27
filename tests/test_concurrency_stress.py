@@ -104,6 +104,12 @@ class ConcurrentRunStressTests(unittest.TestCase):
                                  "@projout" if "@projout" in message else
                                  "@sleep" if "@sleep" in message else "@plain")
         marker = self.markers[rid]
+        # On approval resume, AgentRuntime has already executed the approved
+        # invocation before re-entering execute_turn with an empty user message.
+        # This driver has no SDK session replay, so return the continuation
+        # response instead of inventing a second forget_memory tool call.
+        if not message and marker == "@forget":
+            return _canonical("删除记忆调用结束", "批准的 forget_memory 调用已完成。")
         try:
             if marker == "@calc":
                 res = await _invoke_async(self.tools["calculate"], "calculate", rid + "-calc",
@@ -219,7 +225,8 @@ class ConcurrentRunStressTests(unittest.TestCase):
             # forget_memory 不在 mutation 工具集，无法置位），此处只验证审批隔离与收口。
             tm.decide_approval(pa["id"], "approved", actor="stress", reason="A")
             rA = await self.rt.run_turn("", task_id=wA.task.id, mode="async", max_turns=3)
-            self.assertTrue(rA.ok and rA.task.id == wA.task.id)
+            self.assertTrue(rA.ok and rA.task.id == wA.task.id,
+                            f"resume A failed: ok={rA.ok}, state={rA.task.state}, error={rA.task.error_message}")
             self.assertEqual(rA.task.state.value, "completed")
             left = tm.list_approvals(state="pending")
             self.assertEqual([p["task_id"] for p in left], [wB.task.id])
@@ -293,7 +300,7 @@ class CompactLockStressTests(unittest.TestCase):
             return "并发压力摘要"
 
         async def run():
-            import compact
+            from runtime import compact
 
             with env_patch, mock.patch.object(compact, "summarize_transcript",
                                               side_effect=slow_summarize):
@@ -328,7 +335,7 @@ class CompactLockStressTests(unittest.TestCase):
             return "并行摘要"
 
         async def run():
-            import compact
+            from runtime import compact
 
             with env_patch, mock.patch.object(compact, "summarize_transcript",
                                               side_effect=slow_summarize):

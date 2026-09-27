@@ -12,7 +12,7 @@
 
 用法
 ----
-    import resilience
+    from runtime import resilience
 
     # 重试：对幂等的网络类调用包装（attempt_factory 每次重新执行）
     result = await resilience.run_with_retries(

@@ -9,7 +9,7 @@ if str(BASE) not in sys.path:
 
 from pydantic import ValidationError
 
-import guardrails
+from runtime import guardrails
 from schemas import AgentReply
 
 

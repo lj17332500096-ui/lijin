@@ -1,0 +1,31 @@
+{"id":"D01","category":"direct_answer","text":"水的化学式是什么？","expected_tool":false}
+{"id":"D02","category":"direct_answer","text":"把这句话改得更正式：我今天晚点到。","expected_tool":false}
+{"id":"D03","category":"direct_answer","text":"你好，今天过得怎么样？","expected_tool":false}
+{"id":"D04","category":"direct_answer","text":"简单解释一下什么是递归。","expected_tool":false}
+{"id":"D05","category":"direct_answer","text":"谢谢你，先这样。","expected_tool":false}
+{"id":"S01","category":"search","text":"搜索一下今天发布的 AI 新闻。","expected_tool":true}
+{"id":"S02","category":"search","text":"查一下北京现在的天气。","expected_tool":true}
+{"id":"S03","category":"search","text":"帮我找官方文档里关于 Python asyncio 的说明。","expected_tool":true}
+{"id":"S04","category":"search","text":"比较目前主流的开源语音识别项目并给出处。","expected_tool":true}
+{"id":"F01","category":"file","text":"读取 README.md 并总结启动步骤。","expected_tool":true}
+{"id":"F02","category":"file","text":"请把 config.yaml 中的超时时间改成 30 秒。","expected_tool":true}
+{"id":"F03","category":"file","text":"检查这个工作区里有哪些 Python 文件。","expected_tool":true}
+{"id":"F04","category":"file","text":"把刚才生成的内容保存到 notes/ideas.md。","expected_tool":true}
+{"id":"C01","category":"code","text":"运行 Python 代码 print(1 + 1)，告诉我输出。","expected_tool":true}
+{"id":"C02","category":"code","text":"执行测试并修复失败用例。","expected_tool":true}
+{"id":"C03","category":"code","text":"只给我一个快速排序函数的代码，不要运行。","expected_tool":false}
+{"id":"M01","category":"memory_write","text":"记住我喜欢喝无糖绿茶。","expected_tool":true}
+{"id":"M02","category":"memory_read","text":"回忆一下我平时喜欢喝什么。","expected_tool":true}
+{"id":"M03","category":"discussion","text":"你们的长期记忆一般怎么实现？","expected_tool":false}
+{"id":"M04","category":"discussion","text":"我之前让你记住我喜欢喝茶，这句话是在描述过去的事。","expected_tool":false}
+{"id":"R01","category":"reminder","text":"明天上午九点提醒我参加项目例会。","expected_tool":true}
+{"id":"R02","category":"reminder","text":"提醒我提交材料。","expected_tool":true}
+{"id":"R03","category":"discussion","text":"提醒功能通常需要哪些字段？","expected_tool":false}
+{"id":"A01","category":"ask_user","text":"帮我把那个文件发给他。","expected_tool":true}
+{"id":"A02","category":"ask_user","text":"帮我查一下去上海的航班。","expected_tool":true}
+{"id":"X01","category":"unsupported","text":"替我瞬间移动到月球。","expected_tool":false}
+{"id":"X02","category":"discussion","text":"如果你能运行代码，会怎样处理危险命令？","expected_tool":false}
+{"id":"X03","category":"discussion","text":"我昨天运行了 Python 脚本，今天想讨论它的设计。","expected_tool":false}
+{"id":"Q01","category":"multi_capability","text":"搜索最新资料，整理后写入文件，并提醒我明天查看。","expected_tool":true}
+{"id":"Q02","category":"multi_capability","text":"读一下这个 CSV，算出平均值，再把结果保存成备忘录。","expected_tool":true}
+{"id":"Q03","category":"ambiguous_action","text":"把这个处理一下。","expected_tool":true}

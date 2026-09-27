@@ -161,9 +161,13 @@ class ApprovalDerivationTests(unittest.TestCase):
             "豁免表不能等于全部副作用工具（那就等于没管）",
         )
 
-    def test_network_and_code_persistence_tools_are_gated(self) -> None:
-        for name in ("deep_research", "fetch_github_repo", "write_code_file"):
+    def test_network_and_code_execution_tools_are_gated(self) -> None:
+        for name in ("deep_research", "fetch_github_repo", "run_python", "code_loop"):
             self.assertIn(name, GATED_DEFAULT, "%s 是联网/落盘副作用，必须默认审批" % name)
+        self.assertIn(
+            "write_code_file", SIDE_EFFECT_EXEMPT,
+            "受路径围栏的代码沙箱写入由用户意图门控制；执行仍需审批",
+        )
 
     def test_read_only_tools_are_not_gated(self) -> None:
         for name in ("calculate", "read_workspace_file", "list_notes", "think", "search_sources"):

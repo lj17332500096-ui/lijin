@@ -13,13 +13,12 @@ import json
 import os
 import re
 import time
-from pathlib import Path
 
 from agents import function_tool
 from dotenv import load_dotenv
+from runtime_paths import PROJECT_ROOT
 
-BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
+load_dotenv(PROJECT_ROOT / ".env")
 
 MAX_TOPIC_CHARS = 300
 PLAN_QUERIES = 6          # 第一轮生成的检索词数量

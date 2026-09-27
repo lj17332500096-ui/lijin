@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Router 指标实时查询脚本。
 
-从 logs/tool_router.jsonl 实时聚合 hit_zero_rate / 平均工具数 / P95 查询长度，
+从 var/logs/tool_router.jsonl 实时聚合 hit_zero_rate / 平均工具数 / P95 查询长度，
 输出 JSON 报告，可被外部 dashboard 轮询拉取（cron / systemd timer / 手动）。
 
 用法：
@@ -13,13 +13,19 @@
 """
 import argparse
 import json
+import math
 import re
 import statistics
 import sys
 from datetime import datetime, timedelta
 from pathlib import Path
 
-_LOG_PATH = Path(__file__).resolve().parents[1] / "logs" / "tool_router.jsonl"
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+from runtime_paths import LOG_DIR
+
+_LOG_PATH = LOG_DIR / "tool_router.jsonl"
 _WINDOW_RE = re.compile(r"^(\d+)([smhd])$")
 
 def _parse_window(spec: str) -> timedelta:
@@ -33,26 +39,28 @@ def _parse_window(spec: str) -> timedelta:
 def _read_entries_since(cutoff: datetime):
     """从 jsonl 文件尾部读，取 ts >= cutoff 的条目。"""
     entries = []
-    if not _LOG_PATH.exists():
-        return entries
-    with _LOG_PATH.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                rec = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-            ts = rec.get("ts")
-            if not ts:
-                continue
-            try:
-                t = datetime.fromisoformat(ts)
-            except ValueError:
-                continue
-            if t >= cutoff:
-                entries.append(rec)
+    paths = [_LOG_PATH.with_name(_LOG_PATH.name + f".{i}") for i in range(1, 4)] + [_LOG_PATH]
+    for path in paths:
+        if not path.exists():
+            continue
+        with path.open("r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    rec = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                ts = rec.get("ts")
+                if not ts:
+                    continue
+                try:
+                    t = datetime.fromisoformat(ts)
+                except ValueError:
+                    continue
+                if t >= cutoff:
+                    entries.append(rec)
     return entries
 
 def build_report(window: str = "24h") -> dict:
@@ -70,8 +78,8 @@ def build_report(window: str = "24h") -> dict:
         }
     hit_zero = sum(1 for e in entries if e.get("hit_zero"))
     selected_counts = [e.get("selected_count", 0) for e in entries]
-    query_lens = sorted(len(e.get("query", "")) for e in entries)
-    p95_idx = min(total - 1, int(0.95 * total))
+    query_lens = sorted(len(str(e.get("query", "")).encode("utf-8")) for e in entries)
+    p95_idx = max(0, math.ceil(0.95 * total) - 1)
     return {
         "window": window,
         "total": total,
@@ -81,6 +89,7 @@ def build_report(window: str = "24h") -> dict:
         "max_selected_count": max(selected_counts),
         "min_selected_count": min(selected_counts),
         "p95_query_len": query_lens[p95_idx] if query_lens else 0,
+        "query_length_unit": "bytes",
         "generated_at": datetime.now().isoformat(timespec="seconds"),
     }
 

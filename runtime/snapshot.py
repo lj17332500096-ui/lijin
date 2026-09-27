@@ -220,18 +220,34 @@ def restore_snapshot(
         result["error"] = f"快照校验失败：{reason}"
         return result
 
-    current_agent_v = schema_version(agent_db)
-    snap_agent_v = (snapshot.manifest.get("schema_version") or {}).get("agent_db")
-    if current_agent_v is None:
-        result["error"] = "当前 agent.db 不可读"
-        return result
-    if snap_agent_v is not None and snap_agent_v != current_agent_v:
-        result["error"] = f"schema 不兼容：当前 agent_db v{current_agent_v} vs 快照 v{snap_agent_v}"
-        return result
+    current_versions = {
+        "agent_db": schema_version(agent_db),
+        "sessions_db": schema_version(sessions_db),
+    }
+    snapshot_versions = snapshot.manifest.get("schema_version") or {}
+    unreadable = [name for name, version in current_versions.items() if version is None]
+    for name, current_version in current_versions.items():
+        snapshot_version = snapshot_versions.get(name)
+        if (current_version is not None and snapshot_version is not None
+                and snapshot_version != current_version):
+            result["error"] = (
+                f"schema 不兼容：当前 {name} v{current_version} "
+                f"vs 快照 v{snapshot_version}"
+            )
+            return result
 
-    # 1) pre-restore 备份
-    pre = create_snapshot(agent_db, sessions_db, snapshots_dir, app_version=app_version)
-    result["pre_restore"] = pre.snapshot_id
+    # 1) 健康库用 SQLite backup API 创建一致 pre-restore 快照。若当前库损坏，
+    #    SQLite backup 无法读取它；后续改为逐库保存原始字节，仍可在替换失败时回滚。
+    raw_backup = bool(unreadable)
+    if not raw_backup:
+        try:
+            pre = create_snapshot(agent_db, sessions_db, snapshots_dir, app_version=app_version)
+            result["pre_restore"] = pre.snapshot_id
+        except Exception as exc:
+            result["error"] = f"无法创建恢复前快照：{type(exc).__name__}: {str(exc)[:200]}"
+            return result
+    else:
+        result["pre_restore_raw"] = unreadable
 
     # 2) 成组替换（先 temp 后 rename；失败即用 pre 回滚）
     backups = []
@@ -256,5 +272,13 @@ def restore_snapshot(
 
     # 3) 一致性检查
     result["consistency"] = verify_consistency(agent_db, sessions_db)
+    if not result["consistency"].get("ok", False):
+        for cur, bak in backups:
+            try:
+                shutil.copy2(bak, cur)
+            except Exception:
+                pass
+        result["error"] = "恢复后的数据库一致性检查失败，已尝试回滚原始文件"
+        return result
     result["ok"] = True
     return result

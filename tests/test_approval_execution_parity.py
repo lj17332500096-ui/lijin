@@ -84,21 +84,12 @@ class ApprovalExecutionParityTests(unittest.TestCase):
                                 "approved execution must produce tool.invocation event")
 
     def test_mark_executed_after_approval_execution(self):
-        """After approved execution, mark_approval_executed returns False (already done)."""
+        """The execution commit is one-shot and requires a durable claim."""
         ap = _run_test_approval_flow(self.rt, "run_tests", {"project": "m3_fixture"}, self.task.id)
         self.rt.tasks.decide_approval(ap["id"], "approved")
-
-        approved = self.rt.tasks.get_approved_unexecuted(self.task.id)
-        asyncio.run(self.rt._execute_approved_invocation(
-            approved[0]["tool_name"], approved[0]["arguments"],
-            approved[0]["id"], run_rid=self.task.id
-        ))
-
-        # Second mark call should return False
-        result = self.rt.tasks.mark_approval_executed(approved[0]["id"])
-        self.assertFalse(result, "second mark_approval_executed must return False")
-
-        # Should not appear in unexecuted list
+        self.assertTrue(self.rt.tasks.claim_approval_execution(ap["id"]))
+        self.assertTrue(self.rt.tasks.mark_approval_executed(ap["id"]))
+        self.assertFalse(self.rt.tasks.mark_approval_executed(ap["id"]))
         remaining = self.rt.tasks.get_approved_unexecuted(self.task.id)
         self.assertEqual(len(remaining), 0)
 
@@ -162,14 +153,7 @@ class SideEffectDuplicateTest(unittest.TestCase):
 
 
 class CrashWindowTest(unittest.TestCase):
-    """Phase 39: crash-after-effect-before-marker window.
-
-    Scenario: approval approved, tool executes successfully, but crash happens
-    BEFORE mark_approval_executed() is called. On resume, the approval is still
-    'approved' and 'executed=0', so it will be re-executed.
-
-    This is a KNOWN ACCEPTED LIMITATION.
-    """
+    """A claimed approval interrupted by a crash is quarantined from replay."""
 
     def setUp(self):
         self._tmp = Path(tempfile.mkdtemp(prefix="a39crash_"))
@@ -178,32 +162,16 @@ class CrashWindowTest(unittest.TestCase):
         self.task = self.rt.tasks.create_task(session_id="a39crash", goal="test crash window")
         self.rt.tasks.transition(self.task.id, TaskState.RUNNING, reason="start")
 
-    def test_crash_before_marker_allows_rerun(self):
-        """If approved but not marked executed, resume will re-execute (known limitation)."""
+    def test_crash_after_claim_is_not_silently_replayed(self):
         ap = _run_test_approval_flow(self.rt, "run_tests", {"project": "m3_fixture"}, self.task.id)
         self.rt.tasks.decide_approval(ap["id"], "approved")
-
-        # Manually set executed=0 to simulate crash before marker
-        with self.rt.tasks._connect() as conn:
-            conn.execute(
-                "UPDATE approvals SET executed = 0 WHERE id = ? AND status = 'approved'",
-                (ap["id"],)
-            )
-
-        # On resume: approved but not executed → will be found and re-executed
+        self.assertTrue(self.rt.tasks.claim_approval_execution(ap["id"]))
+        # Crash before the post-execution commit: claim persists, so recovery must
+        # surface it for reconciliation instead of automatically repeating the call.
         approved = self.rt.tasks.get_approved_unexecuted(self.task.id)
-        self.assertEqual(len(approved), 1,
-                         "crash-before-marker: approval still shows as unexecuted")
-
-        # Execute once
-        asyncio.run(self.rt._execute_approved_invocation(
-            approved[0]["tool_name"], approved[0]["arguments"],
-            approved[0]["id"], run_rid=self.task.id
-        ))
-
-        # After execution, should be clean
-        remaining = self.rt.tasks.get_approved_unexecuted(self.task.id)
-        self.assertEqual(len(remaining), 0)
+        self.assertEqual(approved, [])
+        events = [e.event_type for e in self.rt.tasks.list_events(self.task.id)]
+        self.assertIn("task.approval.execution_claimed", events)
 
 
 class FileScopeParityTest(unittest.TestCase):
@@ -384,6 +352,68 @@ class VerificationEvidenceTest(unittest.TestCase):
         )
         self.assertTrue(has_invocation,
                         "approved run_tests must produce tool.invocation evidence")
+
+
+class ApprovedExecutionContextTest(unittest.TestCase):
+    """Approved code execution must run with the Agents SDK ToolContext."""
+
+    def setUp(self):
+        self._tmp = Path(tempfile.mkdtemp(prefix="approved_tool_context_"))
+        self.rt = AgentRuntime(db_path=str(self._tmp / "agent.db"))
+        self.rt._ensure()
+        self.task = self.rt.tasks.create_task(
+            session_id="approved-tool-context", goal="运行本地计算器示例"
+        )
+        self.rt.tasks.transition(self.task.id, TaskState.RUNNING, reason="start")
+
+    def test_approved_run_python_executes_after_resume(self):
+        import os
+        import code_exec
+        from unittest.mock import patch
+        from runtime.runctx import RunContext, bind as bind_run_context, current
+
+        temp_root = self._tmp / "code_sandbox"
+        original_sandbox_root = code_exec.SANDBOX_ROOT
+        code_exec.SANDBOX_ROOT = temp_root
+        previous_context = current()
+        try:
+            bind_run_context(RunContext(
+                run_id=self.task.id,
+                request_text="运行我写好的简单计算器代码",
+            ))
+            gate = self.rt.approval
+            gate.begin(self.task.id, "chat")
+            arguments = {
+                "project": "simple_calc",
+                "code": "print(2 + 3)",
+            }
+            with self.assertRaises(ApprovalRequired):
+                asyncio.run(gate.check("run_python", arguments, run_id=self.task.id))
+
+            approval = self.rt.tasks.list_pending_approvals(self.task.id)[0]
+            self.rt.tasks.decide_approval(approval["id"], "approved")
+            with patch.dict(os.environ, {"ALLOW_CODE_EXEC": "true"}):
+                asyncio.run(self.rt._execute_approved_invocation(
+                    approval["tool_name"], approval["arguments"], approval["id"],
+                    run_rid=self.task.id,
+                ))
+
+            ledger = self.rt._ledgers.get(self.task.id, [])
+            invocation = next(
+                row for row in reversed(ledger)
+                if row.get("name") == "run_python"
+            )
+            self.assertEqual(invocation.get("status"), "executed")
+            self.assertIn("5", invocation.get("output_head", ""))
+            events = self.rt.tasks.list_events(self.task.id)
+            self.assertTrue(any(
+                event.event_type == "task.approval.execution_committed"
+                and (event.payload or {}).get("approval_id") == approval["id"]
+                for event in events
+            ))
+        finally:
+            code_exec.SANDBOX_ROOT = original_sandbox_root
+            bind_run_context(previous_context)
 
 
 if __name__ == "__main__":

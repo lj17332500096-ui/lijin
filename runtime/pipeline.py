@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Optional
 
 from runtime.laya_router import LayaDecision, laya_fast_screen, laya_router
@@ -58,8 +59,9 @@ def run_pipeline(
 
     while True:
         # ② Laya 判别
-        fast = laya_fast_screen(query)
-        decision = laya_router().classify(query) if orchestrator_enabled() else LayaDecision.fallback()
+        enabled = orchestrator_enabled()
+        fast = laya_fast_screen(query) if enabled else None
+        decision = laya_router().classify(query) if enabled else LayaDecision.fallback()
 
         # ③ 编排决策
         step = decide(
@@ -74,9 +76,14 @@ def run_pipeline(
             step = Step("direct_text")
 
         # 记录过程记忆
+        # This prototype must never write its step history into FORGE's shared
+        # runtime memory database. The pipeline currently has no resume path;
+        # keep this bookkeeping strictly ephemeral until the prototype owns an
+        # explicit isolated persistence contract.
         memory_layers.record_step(
             run_id, loop_count + 1, step.kind,
             tool=step.tool, result_summary=None, loop_count=loop_count,
+            db=Path(":memory:"),
         )
 
         # ④/⑤ 执行

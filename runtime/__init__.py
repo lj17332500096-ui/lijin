@@ -37,6 +37,7 @@ from runtime.task import (
     utcnow_iso,
 )
 from runtime.task_manager import DEFAULT_DB_PATH, TaskManager
+from runtime.terminalization import RunNextAction, RunOutcome
 
 __all__ = [
     "ALLOWED_TRANSITIONS",
@@ -50,6 +51,8 @@ __all__ = [
     "RESUMABLE_FROM",
     "RESUMABLE_FROM_STR",
     "RunBudget",
+    "RunNextAction",
+    "RunOutcome",
     "RunResult",
     "RuntimeError",
     "TERMINAL_STATES",

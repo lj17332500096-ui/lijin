@@ -79,6 +79,14 @@ def _mutation_result_ok(name: str, result_text: str) -> str:
     3. 两者都未命中 → UNKNOWN（不再保守默认 COMMITTED）
     """
     t = str(result_text or "")
+    if name == "save_note":
+        # save_note returns the created path rather than a prose success marker.
+        # Confirm the artifact exists before allowing a dependent phase to run.
+        try:
+            if Path(t.strip().strip('"')).is_file():
+                return "COMMITTED"
+        except (OSError, ValueError):
+            pass
     if any(m in t for m in _MUTATION_FAILURE_MARKERS):
         return "FAILED"
     if any(m in t for m in _MUTATION_SUCCESS_MARKERS):
@@ -106,6 +114,13 @@ def _sdk_tool_failure_text(result: object) -> str:
         return ""
     head = result[:200]
     if any(marker in head for marker in _SDK_TOOL_FAILURE_MARKERS):
+        return result
+    return ""
+
+
+def _mcp_outcome_unknown_text(result: object) -> str:
+    """MCP transport failure is not proof that the remote side effect did not run."""
+    if isinstance(result, str) and result.startswith("MCP_OUTCOME_UNKNOWN:"):
         return result
     return ""
 
@@ -208,6 +223,9 @@ from runtime.terminalization import (
     KIND_REFUSED,
     KIND_TIMEOUT,
     KIND_TOKEN_BUDGET,
+    RunNextAction,
+    RunOutcome,
+    classify_run_outcome,
     classify_exception,
     consistency_errors,
 )
@@ -218,7 +236,8 @@ from runtime.public_activity import RunActivityProjector, current_activity, publ
 _PROJECT_BASE = Path(__file__).resolve().parent.parent
 DEFAULT_ARTIFACT_DIRS = (_PROJECT_BASE / "notes", _PROJECT_BASE / "exports")
 
-#: Write-Ahead 副作用工具（执行前先落 pending 事实；P0 crash 一致性）
+#: Legacy inventory retained for callers; execution coverage is derived from
+#: ToolSpec.side_effect via _has_persistent_side_effect below.
 SIDE_EFFECT_TOOLS = {
     "write_project_file", "edit_project_file",
     "write_code_file", "save_note",
@@ -230,6 +249,30 @@ SIDE_EFFECT_TOOLS = {
     "run_python", "code_loop",
     "gorden_ppt_build", "gorden_ppt_apply_custom",
 }
+
+
+def _has_persistent_side_effect(tool_name: str) -> bool:
+    """Use the ToolSpec registry as the single source for Write-Ahead coverage.
+
+    Unknown tools are deliberately treated as side-effecting by spec_for, so
+    newly added MCP/plugin tools cannot bypass the durable invocation journal.
+    """
+    try:
+        from runtime.spec import spec_for
+        return bool(spec_for(tool_name).side_effect)
+    except Exception:
+        return True
+
+
+def _requires_same_run_replay_guard(tool_name: str) -> bool:
+    if tool_name in DUP_GUARD_TOOLS:
+        return True
+    try:
+        from runtime.spec import spec_for
+        spec = spec_for(tool_name)
+        return bool(spec.side_effect and not spec.idempotent)
+    except Exception:
+        return True
 
 #: 重放保护（resume/repair 时不得静默重复执行的破坏性操作）
 DUP_GUARD_TOOLS = {"sandbox_rollback", "forget_memory", "schedule_remove"}
@@ -247,6 +290,19 @@ class RunResult:
     artifacts: list[dict] = field(default_factory=list)
     container_id: str | None = None
     message_ids: list[int] = field(default_factory=list)
+    outcome: RunOutcome | None = None
+    next_action: RunNextAction | None = None
+
+    def __post_init__(self) -> None:
+        # Preserve compatibility for callers that construct RunResult directly.
+        # Production terminal paths pass an evidence-aware outcome explicitly.
+        if self.outcome is None:
+            kind = KIND_NEEDS_APPROVAL if self.waiting_approval else ""
+            self.outcome, inferred_action = classify_run_outcome(
+                self.task.state, kind=kind,
+            )
+            if self.next_action is None:
+                self.next_action = inferred_action
 
 
 def _assistant_parts(final_output: object | None) -> tuple[str, str]:
@@ -300,6 +356,9 @@ class AgentRuntime:
     #: B8：本地追踪是否已按需安装（幂等标记，避免重复替换 SDK 的 trace processors）
     _tracing_ready: bool = False
     _agent_cache: dict = field(default_factory=dict)
+    # Run-scoped routing decision correlation (consumed when its RunContext is bound).
+    _route_decisions: dict[str, str] = field(default_factory=dict)
+    _route_plans: dict[str, dict[str, Any]] = field(default_factory=dict)
 
     # 真实工具执行账本：按 run_id 隔离（P1-C 并发安全；Completion Gate 证据源）。
     # 旧字段名 _run_ledger 保留为“当前 run 账本”的只读属性，兼容既有测试与调用方。
@@ -368,7 +427,7 @@ class AgentRuntime:
         if os.getenv("FORGE_TRACE", "").strip().lower() not in ("1", "true", "on", "yes"):
             return
         try:
-            from observability import install_local_tracing
+            from runtime.observability import install_local_tracing
 
             install_local_tracing(True)
         except Exception:
@@ -946,45 +1005,46 @@ class AgentRuntime:
                         pass  # 策略模块异常不阻塞（默认放行并走既有 Approval 门）
 
                 # ---- P1：破坏性工具“同 Run 同参数已执行”拒绝静默重放 ----
-                if run_rid and name in DUP_GUARD_TOOLS:
+                if run_rid and _requires_same_run_replay_guard(name):
                     try:
                         from runtime.approval import _args_key as _dup_key
 
                         dup_key = _dup_key(dict(effective_args))
-                        # 查 in-memory 账本 + 持久化 tool_calls 表（P0-3：跨 run/进程续跑
-                        # 时内存账本缺失，durability 层才是事实源）
                         already = [
                             c for c in self._ledgers.get(run_rid, [])
-                            if c.get("name") == name and c.get("status") == TOOL_EXECUTED
+                            if c.get("name") == name and c.get("status") in (
+                                TOOL_EXECUTED, "pending", "unknown", "interrupted", "cancelled", "succeeded"
+                            )
                             and c.get("args_key") == dup_key
                         ]
                         if not already and self.tasks is not None:
-                            try:
-                                for _tc in self.tasks.list_tool_calls(run_rid, limit=500):
-                                    _tc_key = None
-                                    try:
-                                        _tc_args = _tc.get("arguments")
-                                        if not isinstance(_tc_args, dict):
-                                            _tc_args = json.loads(_tc_args or "{}")
-                                        _tc_key = _dup_key(_tc_args)
-                                    except Exception:
-                                        _tc_key = None
-                                    if (_tc.get("tool_name") == name
-                                            and _tc.get("status") == TOOL_EXECUTED
-                                            and _tc_key is not None
-                                            and _tc_key == dup_key):
-                                        already.append(_tc)
-                            except Exception:
-                                pass
-                        if already:
-                            _dup_msg = (
-                                "这一步前面已经做过了，为避免重复执行，这次先不运行。"
-                                "如果你确实还需要再做一次，请明确告诉我。"
-                            )
-                            self._record_tool(name, arguments, TOOL_BLOCKED, _dup_msg)
-                            return _dup_msg
-                    except Exception:
-                        pass
+                            for _tc in self.tasks.list_tool_calls(run_rid, limit=2000):
+                                _tc_args = _tc.get("arguments")
+                                if not isinstance(_tc_args, dict):
+                                    _tc_args = json.loads(_tc_args or "{}")
+                                if (_tc.get("tool_name") == name
+                                        and _tc.get("status") in (
+                                            TOOL_EXECUTED, "pending", "unknown", "interrupted",
+                                            "cancelled", "succeeded")
+                                        and _dup_key(_tc_args) == dup_key):
+                                    already.append(_tc)
+                                    break
+                        elif not already:
+                            raise RuntimeError("TaskManager unavailable for replay check")
+                    except Exception as _dup_exc:
+                        _dup_msg = (
+                            f"无法读取 {name} 的副作用执行历史（{type(_dup_exc).__name__}），"
+                            "为避免重复产生外部影响，本次已阻止执行。"
+                        )
+                        self._record_tool(name, arguments, TOOL_BLOCKED, _dup_msg)
+                        return _dup_msg
+                    if already:
+                        _dup_msg = (
+                            "这一步前面已经执行或结果未确定。为避免重复产生副作用，本次先不重放；"
+                            "如需再次执行，请明确提出新的操作。"
+                        )
+                        self._record_tool(name, arguments, TOOL_BLOCKED, _dup_msg)
+                        return _dup_msg
 
                 # ---- P0 Write-Ahead：副作用工具执行前先落 durable pending 行 ----
                 invocation_id = None
@@ -992,15 +1052,125 @@ class AgentRuntime:
                     invocation_id = str(getattr(ctx, "tool_call_id", "") or "") or None
                 except Exception:
                     invocation_id = None
-                wa_applied = bool(run_rid and invocation_id and name in SIDE_EFFECT_TOOLS)
-                if wa_applied and self.tasks is not None:
+                _phase_details: dict[str, Any] = {}
+                _phase_claimed = False
+                if rctx is not None:
+                    _phase_allowed, _phase_details = rctx.claim_capability_phase_tool(name)
+                    if not _phase_allowed:
+                        _phase_reason = str(_phase_details.get("reason") or "phase_blocked")
+                        _phase_message = str(_phase_details.get("message") or "当前阶段不允许执行此工具。")
+                        self._record_tool(name, arguments, TOOL_BLOCKED, _phase_message)
+                        if _phase_reason == "previous_phase_outcome_unknown":
+                            rctx.enter_needs_user_input([
+                                "前一多阶段步骤的执行结果不确定。请先核对该操作是否生效，再说明是否继续。"
+                            ])
+                        if self.tasks is not None and run_rid:
+                            try:
+                                self.tasks.add_event(run_rid, "capability.phase.blocked", {
+                                    **_phase_details, "tool": name, "reason": _phase_reason,
+                                })
+                            except Exception:
+                                pass
+                        return _phase_message
+                    _phase_claimed = bool(_phase_details)
+                    if _phase_claimed and self.tasks is not None and run_rid:
+                        try:
+                            self.tasks.add_event(run_rid, "capability.phase.started", {
+                                **_phase_details, "tool": name,
+                                "invocation_id": invocation_id,
+                            })
+                        except Exception:
+                            rctx.finish_capability_phase_tool(name, success=False)
+                            self._record_tool(
+                                name, arguments, TOOL_BLOCKED,
+                                "无法持久记录多阶段步骤状态，本次未执行工具。",
+                            )
+                            return "无法记录当前阶段状态，本次未执行；请稍后再试。"
+
+                def _finish_capability_phase(*, success: bool,
+                                             uncertain: bool = False) -> None:
+                    if not _phase_claimed or rctx is None:
+                        return
+                    _finished = rctx.finish_capability_phase_tool(
+                        name, success=success, uncertain=uncertain,
+                    )
+                    if _finished and self.tasks is not None and run_rid:
+                        try:
+                            event = ("capability.phase.completed" if success
+                                     else "capability.phase.failed")
+                            self.tasks.add_event(run_rid, event, {
+                                **_finished, "invocation_id": invocation_id,
+                            })
+                        except Exception:
+                            _logger.warning(
+                                "多阶段状态事件写入失败 run=%s phase=%s",
+                                run_rid, _finished.get("phase"), exc_info=True,
+                            )
+                            rctx.mark_capability_phase_uncertain(
+                                int(_finished.get("phase_index", 0))
+                            )
+                            rctx.enter_needs_user_input([
+                                f"多阶段任务的“{_finished['phase']}”已执行，但阶段证据未能持久保存。"
+                                "请先核对操作是否生效，再说明是否继续。"
+                            ])
+                    if uncertain and _finished:
+                        rctx.enter_needs_user_input([
+                            f"多阶段任务的“{_finished['phase']}”步骤执行结果不确定。"
+                            "请先核对该操作是否已经生效，再告诉我是否继续。"
+                        ])
+
+                wa_applied = False
+                if run_rid and _has_persistent_side_effect(name):
+                    _wa_reason = ""
+                    if not invocation_id:
+                        _wa_reason = "SDK 未提供 invocation_id，无法安全执行副作用。"
+                    elif self.tasks is None:
+                        _wa_reason = "TaskManager 不可用，无法持久记录副作用。"
+                    else:
+                        try:
+                            _wa_applied = self.tasks.begin_side_effect_tool_call(
+                                task_id=run_rid, tool_name=name, arguments=effective_args,
+                                invocation_id=invocation_id,
+                                turn_number=(getattr(rctx, "model_turns", None) if rctx else None),
+                            )
+                            if not _wa_applied:
+                                _wa_reason = "该 invocation_id 已被认领，拒绝重复执行副作用。"
+                        except Exception as _wa_exc:
+                            _wa_reason = f"副作用写前记录失败（{type(_wa_exc).__name__}），本次未执行。"
+                    if _wa_reason:
+                        _msg = "WRITE_AHEAD_BLOCKED：" + _wa_reason
+                        _finish_capability_phase(success=False)
+                        self._record_tool(name, effective_args, TOOL_BLOCKED, _msg,
+                                          invocation_id=invocation_id)
+                        if self.tasks is not None:
+                            try:
+                                self.tasks.add_event(run_rid, "tool.side_effect_blocked",
+                                                     {"tool": name, "invocation_id": invocation_id,
+                                                      "reason": _wa_reason})
+                            except Exception:
+                                _logger.warning("副作用阻止事件写入失败 run=%s tool=%s",
+                                                run_rid, name, exc_info=True)
+                        return _msg
+
+                def _finalize_write_ahead(status: str, excerpt: str) -> bool:
+                    if not wa_applied or self.tasks is None:
+                        return True
                     try:
-                        self.tasks.insert_tool_call(
-                            task_id=run_rid, tool_name=name, arguments=effective_args,
-                            status="pending", invocation_id=invocation_id,
+                        changed = self.tasks.update_tool_call_status(
+                            run_rid, invocation_id, status=status, result_excerpt=excerpt
                         )
+                        if not changed:
+                            raise RuntimeError("Write-Ahead row was no longer pending")
+                        return True
                     except Exception:
-                        pass
+                        # Keep the operation outcome conservative. The durable
+                        # row remains pending/unknown and CompletionGate will not
+                        # count it as executed without a terminal evidence row.
+                        _logger.error(
+                            "副作用 Write-Ahead 状态收口失败 run=%s tool=%s invocation=%s target=%s",
+                            run_rid, name, invocation_id, status, exc_info=True,
+                        )
+                        return False
 
                 activity = current_activity()
                 activity_call = activity.tool_started(name, effective_args, invocation_id) if activity else None
@@ -1018,7 +1188,7 @@ class AgentRuntime:
                     # 等待超时 → asyncio.TimeoutError，由下方 except 收口。
                     _is_mcp = getattr(original, "_mcp_source", None) == "mcp"
                     if _is_mcp:
-                        import resilience
+                        from runtime import resilience
                         import os as _os_res
                         _cap = int(_os_res.getenv("FORGE_TOOL_MAX_CONCURRENT", "3") or 3)
                         _wait_timeout = float(_os_res.getenv("FORGE_MCP_SLOT_WAIT_TIMEOUT", "30") or 30)
@@ -1042,9 +1212,12 @@ class AgentRuntime:
                     # wait_for 无法打断它（那需要进程级取消，见 B5）。
                     if activity:
                         activity.tool_finished(activity_call, error=True)
-                    _to_msg = (f"工具 {name} 执行超过 {_tool_timeout} 秒上限，已中止。"
-                               f"请缩小本次调用的范围，或改用更小的输入重试。")
-                    self._record_tool(name, effective_args, TOOL_ERROR, _to_msg,
+                    _to_msg = (f"工具 {name} 执行超过 {_tool_timeout} 秒上限，未能确认外部操作是否提交。"
+                               "本次结果按未知处理，Runtime 会阻止相同非幂等操作自动重放。"
+                               "请先核对实际状态，再决定是否重新发起。")
+                    _tool_outcome = "unknown" if wa_applied else TOOL_ERROR
+                    _finish_capability_phase(success=False, uncertain=True)
+                    self._record_tool(name, effective_args, _tool_outcome, _to_msg,
                                       invocation_id=invocation_id, latency_ms=_elapsed_ms())
                     if rctx is not None:
                         try:
@@ -1052,13 +1225,7 @@ class AgentRuntime:
                                                status="error", error_class="ToolTimeout")
                         except Exception:
                             pass
-                    if wa_applied and self.tasks is not None:
-                        try:
-                            self.tasks.update_tool_call_status(
-                                run_rid, invocation_id, status="error",
-                                result_excerpt=_to_msg)
-                        except Exception:
-                            pass
+                    _finalize_write_ahead("unknown" if wa_applied else "error", _to_msg)
                     # 返回给模型（而不是抛）：与参数校验失败的处理一致 —— 让模型知道
                     # 发生了什么并自行调整，而不是拿到一个笼统的 tool error。
                     return _to_msg
@@ -1070,18 +1237,17 @@ class AgentRuntime:
                     # 写文件、跑测试的副作用照样落盘，取消语义对用户就是谎言。
                     # kill_run 幂等（命中的登记项调用前即摘除），重复调用安全。
                     _kill_cancelled_side_effects(run_rid)
-                    if wa_applied and self.tasks is not None:
-                        try:
-                            self.tasks.update_tool_call_status(
-                                run_rid, invocation_id, status="cancelled",
-                                result_excerpt="task cancelled during tool execution")
-                        except Exception:
-                            pass
+                    _finish_capability_phase(success=False, uncertain=True)
+                    _finalize_write_ahead("unknown", "task cancelled during tool execution")
                     raise
                 except Exception as exc:  # noqa: BLE001 - 记录后原样上抛，交给 Runner
                     if activity:
                         activity.tool_finished(activity_call, error=True)
-                    self._record_tool(name, effective_args, TOOL_ERROR, str(exc)[:400],
+                    _tool_outcome = "unknown" if wa_applied else TOOL_ERROR
+                    _finish_capability_phase(
+                        success=False, uncertain=_has_persistent_side_effect(name),
+                    )
+                    self._record_tool(name, effective_args, _tool_outcome, str(exc)[:400],
                                       invocation_id=invocation_id, latency_ms=_elapsed_ms())
                     if rctx is not None:
                         try:
@@ -1090,16 +1256,26 @@ class AgentRuntime:
                                                error_class=type(exc).__name__)
                         except Exception:
                             pass
-                    if wa_applied and self.tasks is not None:
-                        try:
-                            self.tasks.update_tool_call_status(
-                                run_rid, invocation_id, status="error",
-                                result_excerpt=str(exc)[:400])
-                        except Exception:
-                            pass
+                    _finalize_write_ahead("unknown" if wa_applied else "error", str(exc)[:400])
                     raise
                 if activity:
                     activity.tool_finished(activity_call, result)
+                _mcp_unknown = _mcp_outcome_unknown_text(result)
+                if _mcp_unknown:
+                    _finish_capability_phase(success=False, uncertain=True)
+                    self._record_tool(name, effective_args, "unknown", _mcp_unknown[:400],
+                                      invocation_id=invocation_id, latency_ms=_elapsed_ms())
+                    if rctx is not None:
+                        rctx.enter_needs_user_input([
+                            "MCP 工具网络中断，无法确认远端操作是否生效。请先检查对应服务状态，再决定是否继续。"
+                        ])
+                        try:
+                            rctx.note_progress(name, effective_args, None,
+                                               status="error", error_class="McpOutcomeUnknown")
+                        except Exception:
+                            pass
+                    _finalize_write_ahead("unknown", _mcp_unknown[:400])
+                    return _mcp_unknown
                 # P0-1：SDK 把参数校验失败 / ModelBehaviorError 吞成普通字符串返回。
                 # 若按普通结果记账，会同时污染 Completion Gate 证据、预算与 benchmark
                 # （模型可在零次成功执行下被判完成）。这里按「未执行成功」收口：
@@ -1108,6 +1284,7 @@ class AgentRuntime:
                 # 保持「模型能看到错误并自行纠正」的既有行为不变。
                 _fail_text = _sdk_tool_failure_text(result)
                 if _fail_text:
+                    _finish_capability_phase(success=False)
                     self._record_tool(name, effective_args, TOOL_ERROR, _fail_text[:400],
                                       invocation_id=invocation_id, latency_ms=_elapsed_ms())
                     if rctx is not None:
@@ -1117,13 +1294,7 @@ class AgentRuntime:
                                                error_class="ToolArgumentOrBehaviorError")
                         except Exception:
                             pass
-                    if wa_applied and self.tasks is not None:
-                        try:
-                            self.tasks.update_tool_call_status(
-                                run_rid, invocation_id, status="error",
-                                result_excerpt=_fail_text[:400])
-                        except Exception:
-                            pass
+                    _finalize_write_ahead("error", _fail_text[:400])
                     return result
                 # Phase 23/24/26：mutation 成功后才推进 epoch / mutation_seen。
                 # 失败/未知 mutation 不得创建 verification_due。
@@ -1152,6 +1323,7 @@ class AgentRuntime:
 
                 self._record_tool(name, effective_args, TOOL_EXECUTED, str(result)[:400],
                 invocation_id=invocation_id, latency_ms=_elapsed_ms())
+                _wa_durable = _finalize_write_ahead("executed", str(result)[:400])
                 if rctx is not None:
                     try:
                         rctx.note_executed(name)
@@ -1163,6 +1335,15 @@ class AgentRuntime:
                                         if (name in _P9_MUTATION_TOOLS
                                             and _mut_outcome in ("FAILED", "UNKNOWN"))
                                         else "executed")
+                        _phase_success = _prog_status == "executed" and _wa_durable
+                        if name == "get_weather" and str(result).startswith("天气查询失败"):
+                            _phase_success = False
+                        elif name == "web_search" and str(result).startswith("三个搜索源都失败了"):
+                            _phase_success = False
+                        _finish_capability_phase(
+                            success=_phase_success,
+                            uncertain=_mut_outcome == "UNKNOWN" or not _wa_durable,
+                        )
                         _prog_error = ("mutation_failed"
                                        if (_prog_status == "error") else None)
                         rctx.note_progress(name, effective_args, result,
@@ -1199,6 +1380,8 @@ class AgentRuntime:
                             rctx.mark_persistence_done(name)
                     except Exception:
                         pass
+                elif _phase_claimed:
+                    _finish_capability_phase(success=True)
                 # ---- 搜索两级预算：web_search 放行后叠加 soft/hard 提示文本 ----
                 # 达到 soft 线（默认 3）：不拒绝，返回 policy feedback 让模型自判
                 # 是否值得继续搜索（要求新证据 + 不同目的，禁止换词重复）。
@@ -1209,13 +1392,6 @@ class AgentRuntime:
                         _fb = rctx.search_budget_feedback()
                         if _fb:
                             result = result + "\n\n" + _fb
-                    except Exception:
-                        pass
-                if wa_applied and self.tasks is not None:
-                    try:
-                        self.tasks.update_tool_call_status(
-                            run_rid, invocation_id, status="succeeded",
-                            result_excerpt=str(result)[:400])
                     except Exception:
                         pass
                 # ---- Phase 9：Evidence-Driven Decision Hint（短结构化事实反馈）----
@@ -1387,6 +1563,7 @@ class AgentRuntime:
             if self.tasks is not None and rid and rid != "?":
                 self.tasks.add_event(rid, "tool.invocation", {
                     "run_id": rid,
+                    "routing_decision_id": getattr(rctx, "routing_decision_id", None),
                     "invocation_id": invocation_id,
                     "tool_name": name,
                     "tool_capability": capability_of(name),
@@ -1439,7 +1616,6 @@ class AgentRuntime:
         Evidence exactly-once: the wrapper's internal _record_tool is the single
         authoritative record. We do NOT call _record_tool again here.
         """
-        from runtime.completion import TOOL_EXECUTED
         from runtime.runctx import RunContext, bind as _bind_ctx, current as _cur_ctx
         # Restore original RunContext if available; otherwise minimal fallback
         _prev_ctx = _cur_ctx()
@@ -1473,32 +1649,50 @@ class AgentRuntime:
             if wrapper is None:
                 return
 
+            # Claim before execution. This is at-most-once across crash/resume:
+            # exactly-once cannot be promised for a non-transactional external
+            # side effect, so an interrupted claim is surfaced as uncertain and
+            # is never silently replayed.
+            if not self.tasks.claim_approval_execution(approval_id):
+                return
+            stable_invocation_id = f"approval:{approval_id}"
+
             args_json = json.dumps(arguments, ensure_ascii=False)
             try:
-                result = wrapper.on_invoke_tool(None, args_json)
+                # FunctionTool.on_invoke_tool expects the Agents SDK ToolContext,
+                # not a tool-call-id stub. Passing SimpleNamespace used to fail
+                # inside the SDK with AttributeError ('run_config') after every
+                # approval, so the side effect never ran and the model kept
+                # proposing new payloads that generated more approvals.
+                from agents.tool_context import ToolContext
+
+                tool_context = ToolContext(
+                    context=None,
+                    tool_name=tool_name,
+                    tool_call_id=stable_invocation_id,
+                    tool_arguments=args_json,
+                )
+                result = wrapper.on_invoke_tool(
+                    tool_context, args_json
+                )
                 if asyncio.iscoroutine(result):
                     result = await result
-                result_text = str(result)[:1500]
-                # NOTE: wrapper's invoke() already calls _record_tool internally
-                # on both success and blocked paths (23 call sites). No duplicate
-                # recording needed here — the ledger and tool.invocation events
-                # are produced by the wrapper itself.
-                # Mark approval as executed (exactly-once)
-                self.tasks.mark_approval_executed(approval_id)
-                # Update run context
-                if run_rid and self.tasks is not None:
-                    try:
-                        self.tasks.add_event(run_rid, "approval.executed",
-                                             {"approval_id": approval_id, "tool": tool_name})
-                    except Exception:
-                        pass
-            except Exception:
-                # Execution failed — still mark approved to prevent retry.
-                # The wrapper's invoke() error handler calls _record_tool
-                # internally (line ~31791 in _patch_agent_tools), so the
-                # ledger already has an entry. No duplicate recording needed.
-                try:
+                invocation = next((row for row in reversed(self._ledgers.get(run_rid, []))
+                                   if row.get("invocation_id") == stable_invocation_id), None)
+                outcome = invocation.get("status", "unknown") if invocation else "unknown"
+                if outcome == TOOL_EXECUTED:
                     self.tasks.mark_approval_executed(approval_id)
+                self.tasks.add_event(run_rid, "approval.execution_finished", {
+                    "approval_id": approval_id, "tool": tool_name,
+                    "invocation_id": stable_invocation_id, "execution_status": outcome,
+                })
+            except Exception as exc:
+                try:
+                    self.tasks.add_event(run_rid, "approval.execution_uncertain", {
+                        "approval_id": approval_id, "tool": tool_name,
+                        "invocation_id": stable_invocation_id,
+                        "error_type": type(exc).__name__,
+                    })
                 except Exception:
                     pass
         finally:
@@ -1506,7 +1700,7 @@ class AgentRuntime:
 
     def _execution_evidence(self, tracker: ArtifactTracker | None = None,
                             *, run_id: str | None = None) -> ExecutionEvidence:
-        """组装 Completion Gate 证据：账本 + 产物目录新文件 + ApprovalStore pending。"""
+        """Assemble evidence from the Run ledger, durable events, and side-effect WAL."""
         new_files: list[str] = []
         if tracker is not None:
             try:
@@ -1528,8 +1722,85 @@ class AgentRuntime:
                 )
             except Exception:
                 pass
-        return ExecutionEvidence(
-            tool_calls=list(self._ledgers.get(rid, [])),
+        calls: list[dict[str, Any]] = []
+        approval_claims: dict[str, dict[str, Any]] = {}
+        approval_outcomes: set[str] = set()
+
+        def _append_call(call: dict[str, Any]) -> None:
+            calls.append(call)
+
+        if self.tasks is not None and rid:
+            # Event stream is the canonical execution history across resume.
+            try:
+                for event in self.tasks.list_events(rid, limit=5000):
+                    event_type = getattr(event, "event_type", None)
+                    payload = event.payload or {}
+                    if event_type == "tool.invocation":
+                        _append_call({
+                            "name": payload.get("tool_name", "?"),
+                            "status": payload.get("execution_status", "unknown"),
+                            "invocation_id": payload.get("invocation_id"),
+                            "args": payload.get("normalized_args", ""),
+                            "output_head": payload.get("result_summary", ""),
+                            "evidence_source": "task_event",
+                        })
+                    elif event_type == "task.approval.execution_claimed":
+                        approval_claims[str(payload.get("approval_id") or "")] = payload
+                    elif event_type in (
+                        "approval.execution_finished", "approval.execution_uncertain",
+                        "task.approval.execution_committed",
+                    ):
+                        approval_id = str(payload.get("approval_id") or "")
+                        if approval_id:
+                            approval_outcomes.add(approval_id)
+                        _append_call({
+                            "name": payload.get("tool", "?"),
+                            "status": (payload.get("execution_status", "unknown")
+                                       if event_type in ("approval.execution_finished",
+                                                         "task.approval.execution_committed")
+                                       else "unknown"),
+                            "invocation_id": payload.get("invocation_id") or f"approval:{approval_id}",
+                            "args": "",
+                            "output_head": "" if event_type in (
+                                "approval.execution_finished", "task.approval.execution_committed")
+                                           else "approval execution outcome uncertain",
+                            "evidence_source": "approval_event",
+                        })
+                for approval_id, payload in approval_claims.items():
+                    if approval_id and approval_id not in approval_outcomes:
+                        _append_call({
+                            "name": payload.get("tool", "?"),
+                            "status": "unknown",
+                            "invocation_id": f"approval:{approval_id}",
+                            "args": "",
+                            "output_head": "approval claimed; outcome not recorded",
+                            "evidence_source": "approval_claim",
+                        })
+            except Exception:
+                _logger.warning("ExecutionEvidence task event read failed run=%s", rid,
+                                exc_info=True)
+            # WAL is the fallback for a side effect whose result event failed
+            # to persist. Only terminal 'executed' rows count as execution facts.
+            try:
+                for row in self.tasks.list_tool_calls(rid, limit=2000):
+                    _db_status = row.get("status", "unknown")
+                    if _db_status in ("succeeded", "success"):
+                        _db_status = TOOL_EXECUTED  # legacy WAL vocabulary
+                    _append_call({
+                        "name": row.get("tool_name", "?"),
+                        "status": _db_status,
+                        "invocation_id": row.get("invocation_id"),
+                        "args": row.get("normalized_arguments") or row.get("arguments_json", ""),
+                        "output_head": row.get("result_excerpt", ""),
+                        "evidence_source": "tool_call_wal",
+                    })
+            except Exception:
+                _logger.warning("ExecutionEvidence tool WAL read failed run=%s", rid,
+                                exc_info=True)
+        for call in self._ledgers.get(rid, []):
+            _append_call(dict(call, evidence_source="run_ledger"))
+        return ExecutionEvidence.from_records(
+            calls,
             new_files=new_files,
             approvals_pending=approvals_pending,
             approvals_decided=approvals_decided,
@@ -1553,6 +1824,18 @@ class AgentRuntime:
             events = self.tasks.list_events(task_id, limit=5000)
         except Exception:
             return
+        try:
+            rctx.restore_capability_phase_events(events)
+            if rctx.capability_plan_uncertain:
+                phases = rctx.capability_plan.get("phases") or []
+                index = min(rctx.capability_phase_index, max(len(phases) - 1, 0))
+                phase_name = phases[index].get("phase") if phases else "当前阶段"
+                rctx.enter_needs_user_input([
+                    f"多阶段任务的“{phase_name}”步骤开始后没有可靠完成记录，操作结果可能不确定。"
+                    "请先核对该步骤是否已经生效，再告诉我是否继续。"
+                ])
+        except Exception:
+            _logger.warning("多阶段执行状态恢复失败 run=%s", task_id, exc_info=True)
         t = rctx._t()
         # 记录回放前的 epoch，确保只计数"新"的 mutation
         epoch_before = t.evidence_epoch
@@ -1596,10 +1879,71 @@ class AgentRuntime:
         channel: str = "chat",
         profile: str | None = None,
         base_agent: Any | None = None,
+        run_id: str | None = None,
     ) -> Any:
         """模型档位 + 动态工具子集的最终 Agent（Tool Router 默认开启）。"""
         self._ensure()
         from main import current_assistant_agent  # 延迟导入，避免循环
+
+        route_decision_id = str(__import__("uuid").uuid4())
+        message_hash = __import__("hashlib").sha256(
+            str(message or "").encode("utf-8", "replace")
+        ).hexdigest()
+        layer_trace: dict[str, Any] = {
+            "enabled": False, "decision": None, "confidence": None,
+            "threshold": None, "fallback": None, "skipped": False,
+            "authority": "coarse_intent_only",
+            "decision_power": "advisory_only",
+            "concrete_tool_routing": False,
+        }
+        capability_plan: dict[str, Any] = {"schema_version": 1, "required_tools": [], "required_capabilities": [], "phases": []}
+
+        def _finish(agent: Any, *, route_mode: str, names: list[str] | None = None) -> Any:
+            """Write a redacted route decision to the canonical Run event stream."""
+            selected_tools = list(names if names is not None else
+                                   [getattr(t, "name", "") for t in (getattr(agent, "tools", []) or [])])
+            schema = []
+            for tool in (getattr(agent, "tools", []) or []):
+                schema.append({
+                    "name": getattr(tool, "name", ""),
+                    "params": getattr(tool, "params_json_schema", {}) or {},
+                    "strict": bool(getattr(tool, "strict_json_schema", True)),
+                })
+            try:
+                schema_blob = json.dumps(schema, ensure_ascii=False, sort_keys=True, default=str)
+                schema_hash = __import__("hashlib").sha256(schema_blob.encode("utf-8")).hexdigest()
+            except Exception:
+                schema_hash = ""
+            if run_id:
+                self._route_decisions[run_id] = route_decision_id
+                self._route_plans[run_id] = json.loads(
+                    json.dumps(capability_plan, ensure_ascii=False)
+                )
+                try:
+                    if self.tasks is not None:
+                        router_authority = (
+                            "runtime_capability_inventory" if route_mode.startswith("capability_inventory")
+                            else "keyword_tool_router" if route_mode.startswith("keyword_router")
+                            else "runtime_fallback"
+                        )
+                        self.tasks.add_event(run_id, "routing.decision", {
+                            "schema_version": 1,
+                            "run_id": run_id,
+                            "decision_id": route_decision_id,
+                            "query_sha256": message_hash,
+                            "layer": dict(layer_trace),
+                            "router_authority": router_authority,
+                            "router_candidates": selected_tools,
+                            "route_mode": route_mode,
+                            "allowed_tools": selected_tools,
+                            "allowed_tool_count": len(selected_tools),
+                            "agent_tool_schema_sha256": schema_hash,
+                            "capability_plan": capability_plan,
+                        })
+                except Exception:
+                    _logger.warning("路由决策 trace 写入失败 run=%s decision=%s",
+                                    run_id, route_decision_id, exc_info=True)
+            return agent
 
         base = base_agent or current_assistant_agent()
         chosen = agent_for(base, profile or (channel if channel in ("cheap", "reasoning") else "default"))
@@ -1647,40 +1991,113 @@ class AgentRuntime:
         except Exception:
             pass  # 能力块失败不阻塞普通执行
         if _is_capability:
-            # 能力盘点给全量工具：历史上下文中的旧工具名若被误调，也不得出现
-            # "Tool not found"空转；是否调用由能力块约束（应直接按清单回答）。
-            return chosen
+            # 当前能力已由 Runtime 事实块完整注入。该类只读问答不需要业务工具；
+            # 禁用工具也可避免会话里的旧请求诱发天气/文件等错误调用。
+            layer_trace.update({"skipped": True, "fallback": "capability_inventory_bypass"})
+            return _finish(
+                chosen.clone(tools=[]),
+                route_mode="capability_inventory_context_only",
+                names=[],
+            )
         if not router_enabled():
-            return chosen
+            from runtime.task_plan import infer_task_plan
+            capability_plan = infer_task_plan(
+                message, [getattr(t, "name", "") for t in (getattr(chosen, "tools", []) or [])]
+            )
+            layer_trace.update({"skipped": True, "fallback": "router_disabled_full_tools"})
+            return _finish(chosen, route_mode="router_disabled_full_tools")
         tools = getattr(chosen, "tools", []) or []
         external = [
             t.name for t in tools
             if getattr(t, "_mcp_source", None) == "mcp"
         ]
         from runtime.tool_router import build_tool_catalog, BASE_TOOLS
+        from runtime.task_plan import infer_task_plan, plan_required_tools
 
         catalog = build_tool_catalog(tools)
+        capability_plan = infer_task_plan(message, [t.name for t in tools])
+        if len(capability_plan.get("phases", [])) > 1:
+            _phase_lines = [
+                f"{i + 1}. {phase['phase']} (tools: {', '.join(phase['tools'])})"
+                for i, phase in enumerate(capability_plan["phases"])
+            ]
+            chosen = chosen.clone(instructions=(chosen.instructions or "") +
+                "\n\n本轮检测到多阶段能力需求，请按下列依赖顺序处理；前一阶段产出应作为后一阶段输入。"
+                "每个写入/提醒仍须核对用户明确意图及工具约束：\n" + "\n".join(_phase_lines))
 
-        # L1 Laya 前置二分类快筛（叠加在 select_tool_names 之前，不改现有路由）：
-        # 高置信度判 direct_text → 短路 0 工具（纯文本回答）；其余（tool_needed /
-        # 未装 laya / 置信度不足）一律回落现有 select_tool_names。C2 熔断不受影响。
-        # F1/F2 修复：用模块级函数（非类调用），返回 Agent（非 list）只清空工具面。
-        # Laya 快筛**跳过**已知需要工具的查询模式（天气/联网/搜索/保存/读写文件等）：
-        # 这类查询 Laya 高概率误判为 direct_text（"今天上海天气"→text、
-        # "算 123*456 然后保存成备忘录"→text），导致 get_weather/web_search/save_note
-        # 等工具被裁掉。护栏命中时直接走 select_tool_names（判据见 laya_screen_skip）。
+        # Laya 只提供意图提示，不拥有工具集合的裁决权。
+        # 即使高置信判为 direct_text，也继续走 select_tool_names；纯文本请求由
+        # Tool Router 自己决定是否返回空工具，Laya 的误判不能裁掉所需能力。
+        # 强工具信号仍可跳过 Laya 推理以节省一次本地分类调用。
         from runtime.tool_router import laya_screen_skip
         if not laya_screen_skip(message):
             from runtime import laya_router
             if laya_router.laya_router_enabled():
                 _laya_res = laya_router.laya_fast_screen(message)
-                if _laya_res == "direct_text":
-                    slog.info("Laya 快筛短路 direct_text")
-                    return chosen.clone(tools=[])  # 纯文本路径：0 工具，跳过 LLM 选工具
+                try:
+                    _lr = laya_router.laya_router()
+                    layer_trace.update({
+                        "enabled": True,
+                        **(getattr(_lr, "last_screen_details", {}) or {}),
+                        "backend": getattr(_lr, "backend", None),
+                    })
+                except Exception:
+                    layer_trace.update({"enabled": True, "fallback": "decision_unavailable"})
+                if _laya_res in ("direct_text", "tool_needed"):
+                    _laya_hint = "text_likely" if _laya_res == "direct_text" else "tool_likely"
+                    layer_trace["hint"] = _laya_hint
+                    slog.info("Laya route hint", hint=_laya_hint)
+            else:
+                layer_trace.update({"enabled": False, "fallback": "disabled_or_unavailable"})
+        else:
+            layer_trace.update({"skipped": True, "fallback": "strong_tool_signal_skip"})
 
         names = select_tool_names(
-            message, [t.name for t in tools], external=external or None, catalog=catalog
+            message,
+            [t.name for t in tools],
+            external=external or None,
+            catalog=catalog,
+            plan_required_tools=plan_required_tools(capability_plan),
         )
+        # An optional trained Laya head may suggest the ordering of an already
+        # authorized single-stage candidate. The suggestion never removes tools,
+        # introduces tools, bypasses gates, or collapses a multi-stage plan.
+        if (os.getenv("FORGE_LAYA_TOOL_ROUTE_CHECKPOINT", "").strip()
+                and len(capability_plan.get("phases", [])) <= 1
+                and len(capability_plan.get("required_tools", [])) <= 1):
+            try:
+                from runtime.laya_router import laya_router, laya_router_confidence_threshold
+                by_name = {t.name: t for t in tools}
+                route_candidates = {
+                    name: str(getattr(by_name[name], "description", "") or name)
+                    for name in names if name in by_name and name not in BASE_TOOLS
+                }
+                candidate, confidence = laya_router().route_candidate(message, route_candidates)
+                try:
+                    route_threshold = float(os.getenv("FORGE_LAYA_ROUTE_CONF", "0.90"))
+                except ValueError:
+                    route_threshold = 0.90
+                if candidate and confidence >= max(route_threshold, laya_router_confidence_threshold()):
+                    base_names = [name for name in names if name in BASE_TOOLS]
+                    other_names = [name for name in names if name not in BASE_TOOLS]
+                    names = base_names + [candidate] + [
+                        name for name in other_names if name != candidate
+                    ]
+                    layer_trace.update({
+                        "authority": "coarse_intent_only",
+                        "decision_power": "advisory_only",
+                        "concrete_tool_routing": False,
+                        "route_candidates": list(route_candidates),
+                        "route_hint_candidate": candidate,
+                        "route_confidence": float(confidence),
+                        "route_threshold": max(route_threshold, laya_router_confidence_threshold()),
+                        "route_checkpoint_configured": True,
+                        "route_hint_effect": "candidate_order_only",
+                    })
+                else:
+                    layer_trace.update({"route_fallback": "below_threshold_or_unavailable"})
+            except Exception:
+                layer_trace.update({"route_fallback": "route_head_error"})
         # C2 熔断升级：会话级连续"命中 0 目标工具"≥3 次 → 升级全量工具重试
         session_key = self._router_session_key(channel, base_agent)
         hit_zero = all(n in BASE_TOOLS for n in names)
@@ -1695,23 +2112,35 @@ class AgentRuntime:
                     session_key, streak,
                 )
                 slog.info("C2 熔断升级全量工具", session=session_key, streak=streak)
-                return chosen  # 全量工具
+                return _finish(chosen, route_mode="c2_escalation_full_tools")
         else:
             # 命中目标工具 → 重置该会话的连续计数
             if self._router_zero_streak.get(session_key, 0) > 0:
                 self._router_zero_streak[session_key] = 0
         if len(names) >= len(tools):
-            return chosen
+            return _finish(chosen, route_mode="keyword_router_full_tools", names=names)
         by_name = {t.name: t for t in tools}
         subset = [by_name[name] for name in names if name in by_name]
-        key = (id(chosen), tuple(names))
+        # The selected Agent can be cloned per request to attach a capability
+        # plan or reasoning settings. Key the cache by stable base/profile and
+        # those clone inputs so identical multi-phase requests reuse one clone.
+        instruction_key = __import__("hashlib").sha256(
+            str(getattr(chosen, "instructions", "") or "").encode("utf-8", "replace")
+        ).hexdigest()
+        key = (id(base), profile or channel, str(getattr(chosen, "model", "")),
+               repr(getattr(chosen, "model_settings", None)), instruction_key,
+               tuple(names))
         clone = self._agent_cache.get(key)
         if clone is None:
             clone = chosen.clone(tools=subset)
             self._agent_cache[key] = clone
             if len(self._agent_cache) > 64:
                 self._agent_cache.clear()
-        return clone
+        return _finish(
+            clone,
+            route_mode="keyword_router_subset",
+            names=names,
+        )
 
     def _router_session_key(self, channel: str, base_agent: Any) -> str:
         """C2：会话级熔断 key（同一 channel + 同一 base_agent 共享同一计数）。"""
@@ -1872,7 +2301,7 @@ class AgentRuntime:
     def finalize_cancelled(self, task_id: str, *, reason: str = "user cancel") -> bool:
         """把 Run 收口为 CANCELLED（幂等：已终态则不重复转换）。
 
-        崩溃/取消一致性：未决 Write-Ahead 副作用行 → interrupted（执行结果 UNKNOWN，
+        崩溃/取消一致性：未决 Write-Ahead 副作用行 → unknown（执行结果 UNKNOWN，
         恢复时绝不自动重放）；终止事件与 assistant 消息只写一次。
         """
         if self.tasks is None:
@@ -1888,9 +2317,29 @@ class AgentRuntime:
             self.tasks.interrupt_pending_side_effects(task_id, reason="cancelled")
             cancelled = self.tasks.transition(task_id, _TS.CANCELLED, reason=reason)
             try:
+                evidence = self._execution_evidence(run_id=task_id)
+                outcome, next_action = classify_run_outcome(
+                    cancelled.state,
+                    kind=KIND_CANCELLED,
+                    side_effect_count=sum(
+                        _has_persistent_side_effect(str(call.get("name") or ""))
+                        and call.get("status") in (TOOL_EXECUTED, "succeeded", "success")
+                        for call in evidence.tool_calls
+                    ) + len(evidence.new_files) + int(bool(evidence.persistence_evidence())),
+                    unknown_side_effect_count=sum(
+                        _has_persistent_side_effect(str(call.get("name") or ""))
+                        and call.get("status") in ("pending", "unknown", "interrupted")
+                        for call in evidence.tool_calls
+                    ),
+                )
                 self.tasks.add_event(task_id, "run.terminal", {
-                    "run_id": task_id, "kind": KIND_CANCELLED, "state": "cancelled",
+                    "contract_version": 1,
+                    "run_id": task_id,
+                    "routing_decision_id": self._route_decisions.get(task_id),
+                    "outcome": outcome.value, "next_action": next_action,
+                    "kind": KIND_CANCELLED, "state": "cancelled",
                     "reason": reason,
+                    "execution_evidence": evidence.snapshot(include_calls=False),
                 })
             except Exception:
                 pass
@@ -1910,20 +2359,18 @@ class AgentRuntime:
             except Exception:
                 pass
             try:
-                from runtime.provider_gateway import take_attempts
+                from runtime.provider_gateway import ack_attempts, read_attempts
 
-                attempts = take_attempts(task_id)
+                attempts = read_attempts(task_id)
                 if attempts:
                     self.tasks.add_event(task_id, "provider.model_attempts",
                                          {"run_id": task_id, "count": len(attempts),
                                           "attempts": attempts[-10:]})
                     # P1-4：同步落库（跨进程审计兜底）
                     for _a in attempts:
-                        try:
-                            self.tasks.record_provider_attempt(
-                                task_id, _a.get("kind", "ok"), _a)
-                        except Exception:
-                            pass
+                        self.tasks.record_provider_attempt(
+                            task_id, _a.get("kind", "ok"), _a)
+                    ack_attempts(task_id)
             except Exception:
                 pass
             try:
@@ -1963,8 +2410,26 @@ class AgentRuntime:
         - task_id=Run id：恢复该 Run（审批通过/暂停后 resume），不新建 Run、不新建容器；
         - 每个结束分支都会写一条 assistant Message 与容器更新时间。
         """
+        _run_started_perf = time.perf_counter()
         self._ensure()
         assert self.tasks is not None and self.broker is not None
+
+        # Capability inventory is self-contained in the Runtime fact block. Keep
+        # unrelated session history (for example, a prior weather answer) from
+        # contaminating a direct plugin/tool inventory question.
+        _capability_query = False
+        try:
+            from runtime.capability_introspection import (
+                looks_like_capability_query,
+                looks_like_history_query,
+            )
+
+            _capability_query = (
+                looks_like_capability_query(message)
+                or looks_like_history_query(message)
+            )
+        except Exception:
+            pass
 
         container_id: str | None = None
         message_ids: list[int] = []
@@ -2165,16 +2630,17 @@ class AgentRuntime:
             else:
                 # 网关路径：动态获取 Provider（env 变化时自动重建）
                 run_provider = _gw_provider()
-            selected_agent = self.route_agent(message, channel=channel, profile=profile,
-                                              base_agent=base_agent)
+            selected_agent = self.route_agent(message or task.goal, channel=channel, profile=profile,
+                                              base_agent=base_agent, run_id=task.id)
         except Exception:
             try:
                 from main import current_assistant_agent as _current_agent
 
-                selected_agent = self.route_agent(message, channel=channel, profile=profile,
-                                                  base_agent=_current_agent())
+                selected_agent = self.route_agent(message or task.goal, channel=channel, profile=profile,
+                                                  base_agent=_current_agent(), run_id=task.id)
             except Exception:
-                selected_agent = self.route_agent(message, channel=channel, profile=profile)
+                selected_agent = self.route_agent(message or task.goal, channel=channel, profile=profile,
+                                                  run_id=task.id)
         # TUI 是本地可信消费者：允许把中间文本以 assistant_delta 实时转发给它渲染
         # （main._run_attempt 只在 agent._public_stream=True 时才这么做）。
         # 其余通道（Web SSE 等外部消费者）保持私有，中间推理文本不进公开事件流。
@@ -2203,6 +2669,7 @@ class AgentRuntime:
 
             collector.on_token_note = _tg_note
 
+        _runctx_token = None
         # ---- P1-B/P1-C：绑定 RunContext（内存/文件边界/审批的 run-scoped 事实源）----
         try:
             from runtime.filescope import build_file_scope
@@ -2227,7 +2694,7 @@ class AgentRuntime:
             requested_model = getattr(selected_agent, "model", None)
             if not isinstance(requested_model, str):
                 requested_model = None
-            _bind_runctx(RunContext(
+            _runctx_token = _bind_runctx(RunContext(
                 run_id=task.id,
                 container_id=container_id,
                 session_id=base_session_id,
@@ -2235,6 +2702,8 @@ class AgentRuntime:
                 memory_scope=(proj or {}).get("memory_scope"),
                 profile=profile,
                 requested_model=requested_model,
+                routing_decision_id=self._route_decisions.pop(task.id, None),
+                capability_plan=self._route_plans.pop(task.id, {}),
                 # resume 时 message 可能为空：保留原始 goal 作为义务事实源
                 request_text=(message or task.goal),
                 file_scope=_file_scope,
@@ -2371,31 +2840,68 @@ class AgentRuntime:
         def _emit_terminal(kind: str, error_text: str = "", *,
                            assistant_text: str | None = None,
                            completion_verdict: str = "",
-                           has_evidence: bool = False) -> None:
+                           has_evidence: bool = False,
+                           ) -> tuple[RunOutcome, RunNextAction | None]:
             """集中记录结构化终态（不写状态；状态由 _succeed/_fail/transition 写入）。
 
             同时做「状态 / 文案 / 完成判定」一致性检查，不一致写入事件供审计。
             """
             if self.tasks is None:
-                return
+                return classify_run_outcome(task.state, kind=kind)
             try:
                 final = self.tasks.get_task(task.id)
                 state = final.state if final is not None else TaskState.FAILED
+                evidence = self._execution_evidence(tracker, run_id=task.id)
+                side_effect_calls = [
+                    call for call in evidence.tool_calls
+                    if _has_persistent_side_effect(str(call.get("name") or ""))
+                ]
+                outcome, next_action = classify_run_outcome(
+                    state,
+                    kind=kind,
+                    side_effect_count=sum(
+                        call.get("status") in (TOOL_EXECUTED, "succeeded", "success")
+                        for call in side_effect_calls
+                    ) + len(evidence.new_files) + int(bool(evidence.persistence_evidence())),
+                    unknown_side_effect_count=sum(
+                        call.get("status") in ("pending", "unknown", "interrupted")
+                        for call in side_effect_calls
+                    ),
+                )
+                actual_has_evidence = bool(
+                    evidence.executed_count() or evidence.new_files or evidence.persistence_evidence()
+                )
                 errs = consistency_errors(
                     state,
                     assistant_text=assistant_text or "",
                     completion_verdict=completion_verdict,
-                    has_evidence=has_evidence,
+                    has_evidence=actual_has_evidence,
                 )
-                self.tasks.add_event(task.id, "run.terminal", {
+                self.tasks.add_terminal_event(task.id, state, {
+                    "contract_version": 1,
                     "run_id": task.id,
+                    "routing_decision_id": getattr(
+                        __import__("runtime.runctx", fromlist=["current"]).current(),
+                        "routing_decision_id", None),
+                    "outcome": outcome.value,
+                    "next_action": next_action,
                     "kind": kind,
                     "state": state.value,
                     "error": str(error_text)[:300],
                     "consistency": errs,
+                    "execution_evidence": evidence.snapshot(include_calls=False),
                 })
+                return outcome, next_action
             except Exception:
-                pass
+                _logger.error(
+                    "Run terminal evidence could not be persisted run=%s state=%s",
+                    task.id, state.value if "state" in locals() else "unknown",
+                    exc_info=True,
+                )
+                if "outcome" in locals():
+                    return outcome, next_action
+                return classify_run_outcome(state if "state" in locals()
+                                             else TaskState.FAILED, kind=kind)
 
         def _fail(error_text: str, *, resp: object = None, assistant_text: str | None = None,
                   run_state: str = "failed", event_reason: str | None = None,
@@ -2445,7 +2951,9 @@ class AgentRuntime:
                                          {"reason": event_reason, "error": str(error_text)[:400]})
                 except Exception:
                     pass
-            _emit_terminal(terminal_kind, error_text, assistant_text=assistant_text)
+            outcome, next_action = _emit_terminal(
+                terminal_kind, error_text, assistant_text=assistant_text,
+            )
             _backfill_failure_audit()
             _close_run()
             result = RunResult(
@@ -2456,6 +2964,8 @@ class AgentRuntime:
                 elapsed_seconds=_elapsed(),
                 container_id=container_id,
                 message_ids=message_ids,
+                outcome=outcome,
+                next_action=next_action,
             )
             if raise_on_error:
                 if exc_orig is not None:
@@ -2480,8 +2990,9 @@ class AgentRuntime:
                     self.tasks.touch_container(container_id)
                 except Exception:
                     pass
-            _emit_terminal(KIND_NEEDS_USER_INPUT, "needs_user_input",
-                           assistant_text=content)
+            outcome, next_action = _emit_terminal(
+                KIND_NEEDS_USER_INPUT, "needs_user_input", assistant_text=content,
+            )
             _close_run()
             return RunResult(
                 task=waiting,
@@ -2490,6 +3001,8 @@ class AgentRuntime:
                 elapsed_seconds=_elapsed(),
                 container_id=container_id,
                 message_ids=message_ids,
+                outcome=outcome,
+                next_action=next_action,
             )
 
         def _succeed(canonical: dict, canonical_json: object, artifacts: list[dict]) -> RunResult:
@@ -2528,11 +3041,10 @@ class AgentRuntime:
             self.tasks.update_usage(task.id, turns=1)
             completed = self.tasks.mark_success(task.id, summary=summary)
             _note(content if content else (summary or "已完成。"), kind=kind, run_state="completed")
-            _emit_terminal(
+            outcome, next_action = _emit_terminal(
                 KIND_COMPLETED,
                 assistant_text=content,
                 completion_verdict="pass",
-                has_evidence=True,
             )
             if container_id:
                 try:
@@ -2552,6 +3064,8 @@ class AgentRuntime:
                 artifacts=artifacts,
                 container_id=container_id,
                 message_ids=message_ids,
+                outcome=outcome,
+                next_action=next_action,
             )
 
         def _backfill_failure_audit() -> None:
@@ -2560,20 +3074,29 @@ class AgentRuntime:
             if self.tasks is None:
                 return
             try:
-                if not self.tasks.list_tool_calls(task.id):
-                    for call in self._ledgers.get(task.id, []):
-                        self.tasks.insert_tool_call(
-                            task_id=task.id,
-                            tool_name=call.get("name", "?"),
-                            arguments={"ledger": call.get("args", "")[:600]},
-                            status=call.get("status", "executed"),
-                            result_excerpt=call.get("output_head", "")[:400],
-                            invocation_id=call.get("invocation_id") or None,
-                            # B7：失败路径同样要留下耗时与轮次（这张表此前只有名字和状态）
-                            latency_ms=call.get("latency_ms"),
-                            turn_number=call.get("turn_number"),
-                            normalized_arguments=call.get("args"),
-                        )
+                persisted = self.tasks.list_tool_calls(task.id, limit=2000)
+                persisted_ids = {row.get("invocation_id") for row in persisted
+                                 if row.get("invocation_id")}
+                for call in self._ledgers.get(task.id, []):
+                    invocation_id = call.get("invocation_id") or None
+                    # A pending write-ahead row is already durable; leave its
+                    # status untouched. Every other invocation is backfilled
+                    # independently, even when an earlier side effect exists.
+                    if invocation_id and invocation_id in persisted_ids:
+                        continue
+                    self.tasks.insert_tool_call(
+                        task_id=task.id,
+                        tool_name=call.get("name", "?"),
+                        arguments={"ledger": call.get("args", "")[:600]},
+                        status=call.get("status", "executed"),
+                        result_excerpt=call.get("output_head", "")[:400],
+                        invocation_id=invocation_id,
+                        latency_ms=call.get("latency_ms"),
+                        turn_number=call.get("turn_number"),
+                        normalized_arguments=call.get("args"),
+                    )
+                    if invocation_id:
+                        persisted_ids.add(invocation_id)
             except Exception:
                 pass
             try:
@@ -2588,6 +3111,7 @@ class AgentRuntime:
                 pass
 
         def _close_run() -> None:
+            nonlocal _runctx_token
             """收尾清理（纯副作用）——**任何异常都不得冒泡**。
 
             清理路径会触碰文件系统（删除 provider 尝试记录等）。在部分运行环境
@@ -2596,6 +3120,15 @@ class AgentRuntime:
             （症状是“服务跑一段时间后突然退出”）。因此最外层统一兜底。
             """
             try:
+                try:
+                    final_task = self.tasks.get_task(task.id) if self.tasks is not None else None
+                    if final_task is not None:
+                        self.tasks.record_run_latency(
+                            task.id, container_id, final_task.state.value,
+                            int((time.perf_counter() - _run_started_perf) * 1000),
+                        )
+                except Exception:
+                    _logger.warning("Run latency persistence failed run=%s", task.id, exc_info=True)
                 activity = current_activity()
                 if activity and activity.run_id == task.id:
                     final_task = self.tasks.get_task(task.id)
@@ -2611,30 +3144,48 @@ class AgentRuntime:
                 except (Exception, SystemExit):
                     pass
                 try:
-                    from runtime.provider_gateway import take_attempts
+                    from runtime.provider_gateway import ack_attempts, read_attempts
 
-                    attempts = take_attempts(task.id)
+                    attempts = read_attempts(task.id)
+                    handed_off = False
                     if self.tasks is not None:
                         self.tasks.add_event(
-                            task.id, "provider.model_attempts",
-                            {"run_id": task.id, "count": len(attempts),
-                             "attempts": attempts[-10:]})
-                        # P1-4：同步落库（跨进程审计兜底）
+                            task.id, "provider.model_attempts", {
+                                "run_id": task.id, "count": len(attempts),
+                                "attempts": attempts[-10:],
+                            })
                         for _a in attempts:
-                            try:
-                                self.tasks.record_provider_attempt(
-                                    task.id, _a.get("kind", "ok"), _a)
-                            except Exception:
-                                pass
+                            self.tasks.record_provider_attempt(
+                                task.id, _a.get("kind", "ok"), _a)
+                        handed_off = True
+                    if handed_off:
+                        ack_attempts(task.id)
                 except (Exception, SystemExit):
                     # 审计清理失败不影响运行结果，也不影响后续状态复位。
                     pass
                 self._ledgers.pop(task.id, None)
+                self._route_decisions.pop(task.id, None)
+                self._route_plans.pop(task.id, None)
                 self._active_run_id = None
                 self.unregister_run_task(task.id)
             except (Exception, SystemExit):
                 # 兜底：即使上面的清理步骤出现漏网异常，也不能拖垮服务。
                 pass
+            finally:
+                try:
+                    from tools import clear_active_memory_binding
+
+                    clear_active_memory_binding()
+                except Exception:
+                    pass
+                if _runctx_token is not None:
+                    try:
+                        from runtime.runctx import reset as _reset_runctx
+
+                        _reset_runctx(_runctx_token)
+                    except Exception:
+                        pass
+                    _runctx_token = None
 
         # ------------------------------------------------------------------
         # 执行（含最多 1 次 Completion Repair）
@@ -2648,6 +3199,38 @@ class AgentRuntime:
         canonical: dict[str, Any] = {}
         canonical_json: object = None
         final_output: object | None = None
+
+        def _evaluate_completion(reply: dict[str, Any], evidence: ExecutionEvidence) -> GateVerdict:
+            verdict = completion_gate.evaluate(reply, evidence, request_text=message)
+            if verdict != GateVerdict.PASS:
+                return verdict
+            try:
+                from runtime.runctx import current as _current_runctx
+                _phase_ctx = _current_runctx()
+                phases = (_phase_ctx.capability_plan.get("phases") or []
+                          if _phase_ctx is not None else [])
+                if (len(phases) > 1
+                        and _phase_ctx.capability_phase_index < len(phases)
+                        and str(reply.get("kind") or "answer") in ("answer", "done")):
+                    _phase = phases[_phase_ctx.capability_phase_index]
+                    _detail = {
+                        "verdict": "no_progress",
+                        "reason": "capability_phase_incomplete",
+                        "next_phase_index": _phase_ctx.capability_phase_index,
+                        "next_phase": _phase.get("phase"),
+                        "required_tools": _phase.get("tools") or [],
+                    }
+                    try:
+                        self.tasks.add_event(task.id, "capability.phase.incomplete", _detail)
+                    except Exception:
+                        pass
+                    return GateVerdict.NO_PROGRESS
+            except Exception:
+                _logger.warning("多阶段完成约束判定失败 run=%s", task.id, exc_info=True)
+                # Fail closed: an active phase plan must not silently pass if
+                # its deterministic completion state cannot be inspected.
+                return GateVerdict.NO_PROGRESS
+            return verdict
 
         # ---- Session Preparation：compact + 硬窗口（Web/CLI/Voice/定时统一入口）----
         # 在 SDK 写入本轮 User Message 之前执行 → 当前消息永远不会被本次压缩。
@@ -2746,7 +3329,7 @@ class AgentRuntime:
                         "session": session,
                         "debug": debug,
                         "max_turns": effective_turns,
-                        "history_limit": history_limit,
+                        "history_limit": (2 if _capability_query else history_limit),
                         "agent": selected_agent,
                         "audit": collector,
                         "stream_events_cb": stream_events_cb,
@@ -2774,13 +3357,12 @@ class AgentRuntime:
                     )
                 finally:
                     gate.end()
-                    try:
-                        from tools import clear_active_memory_binding
+                try:
+                    from tools import clear_active_memory_binding
 
-                        clear_active_memory_binding()
-                    except Exception:
-                        pass
-
+                    clear_active_memory_binding()
+                except Exception:
+                    pass
                 # ④ 成本闸门：终态前把累计 token 回灌事件（审计用途）
                 try:
                     if _tg_usage:
@@ -2807,7 +3389,9 @@ class AgentRuntime:
                     _note(content or "本轮请求的高风险操作被拒绝，任务已停止。",
                           kind=kind, run_state="denied")
                     _touch()
-                    _emit_terminal(KIND_REFUSED, "审批拒绝", assistant_text=content)
+                    outcome, next_action = _emit_terminal(
+                        KIND_REFUSED, "审批拒绝", assistant_text=content,
+                    )
                     _backfill_failure_audit()
                     _close_run()
                     return RunResult(
@@ -2818,6 +3402,8 @@ class AgentRuntime:
                         elapsed_seconds=_elapsed(),
                         container_id=container_id,
                         message_ids=message_ids,
+                        outcome=outcome,
+                        next_action=next_action,
                     )
 
                 db_pending: list[dict] = []
@@ -2833,8 +3419,9 @@ class AgentRuntime:
                     _note(content or "本轮执行需要你审批高风险操作后才能继续。",
                           kind=kind, run_state="waiting_approval")
                     _touch()
-                    _emit_terminal(KIND_NEEDS_APPROVAL, "approval required",
-                                   assistant_text=content)
+                    outcome, next_action = _emit_terminal(
+                        KIND_NEEDS_APPROVAL, "approval required", assistant_text=content,
+                    )
                     _close_run()
                     return RunResult(
                         task=waiting,
@@ -2845,6 +3432,8 @@ class AgentRuntime:
                         elapsed_seconds=_elapsed(),
                         container_id=container_id,
                         message_ids=message_ids,
+                        outcome=outcome,
+                        next_action=next_action,
                     )
 
                 # 回复解析（ReplyParser 只负责解析容错，不负责完成判定）
@@ -2915,8 +3504,7 @@ class AgentRuntime:
 
                 # ---- Completion Gate：声明必须有执行证据 / 口头审批必须有真实 pending ----
                 evidence = self._execution_evidence(tracker, run_id=task.id)
-                gate_verdict = completion_gate.evaluate(canonical, evidence,
-                                                        request_text=message)
+                gate_verdict = _evaluate_completion(canonical, evidence)
                 reject_detail = completion_gate.describe(canonical, evidence, gate_verdict)
                 try:
                     self.tasks.add_event(
@@ -2997,7 +3585,7 @@ class AgentRuntime:
                             # 拿到空正文（流式模式下表现为回答内容丢失）。
                             canonical_json = json.dumps(canonical, ensure_ascii=False)
                             # Recheck the final expression against the same evidence, not a second verifier.
-                            if completion_gate.evaluate(canonical, evidence, request_text=message) != GateVerdict.PASS:
+                            if _evaluate_completion(canonical, evidence) != GateVerdict.PASS:
                                 # P0-2 修复：stream 最终表达重评未过 → 不再 _fail 丢弃执行证据，
                                 # 改走与 FinalResponseFailed 一致的降级路径（保守表述保留真实事实）。
                                 degrade_ok = evidence.executed_count() > 0 or evidence.new_files
@@ -3134,7 +3722,9 @@ class AgentRuntime:
             _note("本轮执行需要你的审批才能继续。请批准后让我继续。",
                   kind="answer", run_state="waiting_approval")
             _touch()
-            _emit_terminal(KIND_NEEDS_APPROVAL, "approval required")
+            outcome, next_action = _emit_terminal(
+                KIND_NEEDS_APPROVAL, "approval required",
+            )
             _close_run()
             approvals = self.tasks.list_pending_approvals(task.id)
             return RunResult(
@@ -3146,6 +3736,8 @@ class AgentRuntime:
                 elapsed_seconds=_elapsed(),
                 container_id=container_id,
                 message_ids=message_ids,
+                outcome=outcome,
+                next_action=next_action,
             )
         except CompletionReadyTerminated as exc:
             # ---- Completion-Ready 收口：任务已完成（mutation + verification 通过）----
@@ -3288,7 +3880,9 @@ class AgentRuntime:
                 _note("本轮执行需要你的审批才能继续。请批准后让我继续。",
                       kind="answer", run_state="waiting_approval")
                 _touch()
-                _emit_terminal(KIND_NEEDS_APPROVAL, "approval required (wrapped)")
+                outcome, next_action = _emit_terminal(
+                    KIND_NEEDS_APPROVAL, "approval required (wrapped)",
+                )
                 _close_run()
                 _approvals = self.tasks.list_pending_approvals(task.id)
                 return RunResult(
@@ -3300,6 +3894,8 @@ class AgentRuntime:
                     elapsed_seconds=_elapsed(),
                     container_id=container_id,
                     message_ids=message_ids,
+                    outcome=outcome,
+                    next_action=next_action,
                 )
             # ---- Provider/网关错误：分类、0/有限重试已由 provider_gateway 处理；
             # 这里负责把 401/503 等转换成友好文案 + provider.failure 审计，绝不进入 stalled 语义 ----
@@ -3379,9 +3975,33 @@ class AgentRuntime:
                             reason="abnormal exit (BaseException in run_turn)",
                         )
                         try:
+                            _final_evidence = self._execution_evidence(tracker, run_id=task.id)
+                            _final_outcome, _final_next_action = classify_run_outcome(
+                                TaskState.FAILED,
+                                kind=KIND_BOUNDED_FAILURE,
+                                side_effect_count=sum(
+                                    _has_persistent_side_effect(str(call.get("name") or ""))
+                                    and call.get("status") in (TOOL_EXECUTED, "succeeded", "success")
+                                    for call in _final_evidence.tool_calls
+                                ) + len(_final_evidence.new_files)
+                                    + int(bool(_final_evidence.persistence_evidence())),
+                                unknown_side_effect_count=sum(
+                                    _has_persistent_side_effect(str(call.get("name") or ""))
+                                    and call.get("status") in ("pending", "unknown", "interrupted")
+                                    for call in _final_evidence.tool_calls
+                                ),
+                            )
                             self.tasks.add_event(task.id, "run.terminal", {
-                                "run_id": task.id, "kind": KIND_BOUNDED_FAILURE,
+                                "contract_version": 1,
+                                "run_id": task.id,
+                                "routing_decision_id": getattr(
+                                    __import__("runtime.runctx", fromlist=["current"]).current(),
+                                    "routing_decision_id", None),
+                                "outcome": _final_outcome.value,
+                                "next_action": _final_next_action,
+                                "kind": KIND_BOUNDED_FAILURE,
                                 "state": "failed", "reason": "abnormal_exit",
+                                "execution_evidence": _final_evidence.snapshot(include_calls=False),
                             })
                         except Exception:
                             pass

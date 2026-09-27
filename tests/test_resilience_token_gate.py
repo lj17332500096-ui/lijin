@@ -21,7 +21,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from resilience import (  # noqa: E402
+from runtime.resilience import (  # noqa: E402
     idempotency_key,
     run_with_retries,
     stable_args_json,
@@ -239,9 +239,9 @@ def test_mcp_invoke_retries_on_network_error():
 
     server.call_tool = fake_call_tool
 
-    from mcp_bridge import _make_mcp_invoke
+    from integrations.mcp_bridge import _make_mcp_invoke
 
-    invoke = _make_mcp_invoke(server, "some_tool", "fake_server_some_tool")
+    invoke = _make_mcp_invoke(server, "some_tool", "fake_server_some_tool", idempotent=True)
 
     old_attempts = os.environ.get("FORGE_MCP_ATTEMPTS")
     old_base = os.environ.get("FORGE_MCP_BASE_DELAY")
@@ -280,7 +280,7 @@ def test_mcp_invoke_non_retryable_no_retry():
 
     server.call_tool = fake_call_tool
 
-    from mcp_bridge import _make_mcp_invoke
+    from integrations.mcp_bridge import _make_mcp_invoke
 
     invoke = _make_mcp_invoke(server, "tool2", "fake_server_tool2")
 

@@ -29,6 +29,10 @@ from collections import Counter, defaultdict
 
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if REPO not in sys.path:
+    sys.path.insert(0, REPO)
+
+from runtime_paths import state_db_path
 
 
 def normalize(s: str) -> str:
@@ -121,7 +125,13 @@ def _stub(*a, **kw):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description="生成独立 test 预标注清单")
-    ap.add_argument("--db", default=os.path.join(REPO, "sessions.sqlite"))
+    ap.add_argument(
+        "--db",
+        default=str(state_db_path(
+            "sessions.sqlite", env_vars=("FORGE_SESSIONS_DB",),
+            legacy_path=os.path.join(REPO, "sessions.sqlite"),
+        )),
+    )
     ap.add_argument("--count", type=int, default=200)
     ap.add_argument("--out-dir", default=os.path.join(REPO, "data", "laya_tool_intent"))
     ap.add_argument("--seed", type=int, default=42)

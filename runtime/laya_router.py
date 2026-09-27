@@ -77,9 +77,10 @@ def laya_router_confidence_threshold() -> float:
 
 def laya_router_backend() -> str:
     """当前 Laya 推理后端：'torch'（默认，进程内 laya.agent.Agent）或
-    'llama'（HTTP 调 llama.cpp 8099，Arc A770 GPU）。
+    'gguf'（配套 encoder/head GGUF；编码器经 llama.cpp，判别头经 PyTorch）、
+    'llama'（兼容旧版 embedding/关键词桥接）。
 
-    env: FORGE_LAYA_BACKEND ∈ {torch, llama}，默认 torch。
+    env: FORGE_LAYA_BACKEND ∈ {torch, llama, gguf}，默认 torch。
     llama 后端不可用（8099 未起）时 LayaRouter 自动回落 torch（绝不阻塞）。
     """
     return os.getenv("FORGE_LAYA_BACKEND", "torch").strip().lower() or "torch"
@@ -161,9 +162,12 @@ class LayaRouter:
         self._router = None
         self.last_result: Optional[str] = None
         self.last_decision: Optional[LayaDecision] = None
+        self.last_screen_details: dict[str, Any] = {}
         self._preload = preload or _env_flag("FORGE_LAYA_PRELOAD")
         self._device = device
         self._backend: Optional[str] = None
+        self._backend_error: Optional[str] = None
+        self._route_agent = None
         # F3 修复：只有真正启用时才加载模型（此前不看开关就构造）。
         if self._preload and laya_available():
             self._init_router()
@@ -173,6 +177,18 @@ class LayaRouter:
         if self._router is not None:
             return
         backend = laya_router_backend()
+        # Paired GGUF mode is fail-closed: a missing server or asset must not silently
+        # switch back to the unrelated fine-tuned Torch checkpoint.
+        if backend == "gguf":
+            try:
+                from runtime.laya_gguf_backend import LayaGGUFBackend
+                self._agent = LayaGGUFBackend()
+                self._router = self._agent
+                self._backend = "gguf"
+            except Exception as exc:
+                self._backend = "gguf_unavailable"
+                self._backend_error = f"{type(exc).__name__}: {exc}"
+            return
         # llama 后端优先（若指定且可用），失败回落 torch
         if backend == "llama":
             try:
@@ -253,6 +269,12 @@ class LayaRouter:
         """
         self._ensure()
         if self._router is None:
+            self.last_result = None
+            self.last_screen_details = {
+                "decision": None, "confidence": None,
+                "threshold": laya_router_confidence_threshold(),
+                "fallback": "router_unavailable",
+            }
             return None
         thr = laya_router_confidence_threshold()
         try:
@@ -272,23 +294,46 @@ class LayaRouter:
             if choice is not None and conf is not None:
                 if choice == "text" and conf >= thr:
                     self.last_result = "direct_text"
+                    self.last_screen_details = {"decision": "direct_text", "confidence": float(conf),
+                                                "threshold": thr, "fallback": None}
                     return "direct_text"
                 if choice == "tool" and conf >= thr:
                     self.last_result = "tool_needed"
+                    self.last_screen_details = {"decision": "tool_needed", "confidence": float(conf),
+                                                "threshold": thr, "fallback": None}
                     return "tool_needed"
+                self.last_result = None
+                self.last_screen_details = {"decision": choice, "confidence": float(conf),
+                                            "threshold": thr, "fallback": "below_threshold"}
                 return None
             # 回落到旧逻辑（mock 的顶层 probabilities 结构）
             text_conf = self._extract_confidence(decision, "text")
             if text_conf is None:
+                self.last_result = None
+                self.last_screen_details = {"decision": None, "confidence": None,
+                                            "threshold": thr, "fallback": "malformed_output"}
                 return None
             if text_conf >= thr:
                 self.last_result = "direct_text"
+                self.last_screen_details = {"decision": "direct_text", "confidence": float(text_conf),
+                                            "threshold": thr, "fallback": None}
                 return "direct_text"
             if (1.0 - text_conf) >= thr:
+                confidence = float(1.0 - text_conf)
                 self.last_result = "tool_needed"
+                self.last_screen_details = {"decision": "tool_needed", "confidence": confidence,
+                                            "threshold": thr, "fallback": None}
                 return "tool_needed"
+            self.last_result = None
+            self.last_screen_details = {"decision": None, "confidence": float(max(text_conf, 1-text_conf)),
+                                        "threshold": thr, "fallback": "below_threshold"}
             return None
-        except Exception:
+        except Exception as exc:
+            self.last_result = None
+            self.last_screen_details = {"decision": None, "confidence": None,
+                                        "threshold": thr,
+                                        "fallback": "model_exception",
+                                        "error": type(exc).__name__}
             return None
 
     @staticmethod
@@ -324,7 +369,6 @@ class LayaRouter:
         if self._router is None:
             self.last_decision = LayaDecision.fallback()
             return self.last_decision
-
         try:
             questions = {
                 "intent": {
@@ -366,6 +410,37 @@ class LayaRouter:
         except Exception:
             self.last_decision = LayaDecision.fallback()
             return self.last_decision
+
+    def route_candidate(self, query: str, candidates: dict[str, str]) -> tuple[str | None, float]:
+        """Choose one already-eligible tool using a separately trained route checkpoint.
+
+        This head is deliberately opt-in and never reuses the binary intent model.
+        Returned names must come from ``candidates``; caller retains all hard gates.
+        """
+        checkpoint = os.getenv("FORGE_LAYA_TOOL_ROUTE_CHECKPOINT", "").strip()
+        if not checkpoint or not candidates or laya_router_backend() != "torch":
+            return None, 0.0
+        try:
+            if self._route_agent is None:
+                from pathlib import Path
+                from laya.agent import Agent
+                path = Path(checkpoint).expanduser()
+                if not path.exists():
+                    return None, 0.0
+                self._route_agent = Agent(str(path), device=self._device)
+            opts = {name: (desc or name)[:240] for name, desc in candidates.items()}
+            result = self._route_agent.predict(query, questions={
+                "tool_route": {"type": "choice", "instructions": query, "criteria": opts},
+            })
+            answers = result.get("answers", {}) if isinstance(result, dict) else {}
+            block = answers.get("tool_route", {}) if isinstance(answers, dict) else {}
+            name = (block.get("choice") or block.get("label")) if isinstance(block, dict) else None
+            conf = block.get("confidence", 0.0) if isinstance(block, dict) else 0.0
+            if name not in candidates or not isinstance(conf, (int, float)):
+                return None, 0.0
+            return str(name), float(conf)
+        except Exception:
+            return None, 0.0
 
     @staticmethod
     def _choice(answers: dict, qid: str) -> Optional[str]:

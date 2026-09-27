@@ -24,7 +24,7 @@ if str(BASE) not in sys.path:
 
 from agents.tool_context import ToolContext
 
-import mcp_bridge
+from integrations import mcp_bridge
 from runtime import approval as approval_mod
 from runtime import filescope as filescope_mod
 from runtime import runner as runner_mod
@@ -90,8 +90,39 @@ class ParseAndAllowlistTests(unittest.TestCase):
         self.assertEqual(len(kept), 1)
         self.assertEqual(reasons, [])
 
+    def test_status_explains_approval_bypass_when_global_gate_is_off(self):
+        with mock.patch.object(mcp_bridge, "_policy_summary",
+                               {"allow": 2, "approval": 3, "deny": 1}), \
+             mock.patch.dict("os.environ", {"APPROVAL": "off"}):
+            status = mcp_bridge.status_text()
+        self.assertIn("allow=2 / approval=3 / deny=1", status)
+        self.assertIn("当前有效：allow=5 / approval=0 / deny=1", status)
+        self.assertIn("3 个配置为 approval 的工具当前按 allow 执行", status)
+
 
 class MountAndPolicyTests(unittest.TestCase):
+    def test_explicit_idempotency_flows_into_tool_contract(self):
+        from runtime.registry import binding_from_function_tool
+        from runtime.tool_router import build_tool_catalog
+
+        spec = {
+            "name": "fs", "command": "python",
+            "tool_policy": {"read_file": "allow", "write_file": "allow"},
+            "default_tool_policy": "deny",
+            "idempotent_tools": ["read_file"],
+        }
+        mounted, _ = asyncio.run(
+            mcp_bridge.attach_server_tools(FakeServer(["read_file", "write_file"]), spec)
+        )
+        by_name = {tool.name: tool for tool in mounted}
+        read = binding_from_function_tool(by_name["fs_read_file"], source="mcp")
+        write = binding_from_function_tool(by_name["fs_write_file"], source="mcp")
+        self.assertTrue(read.spec.idempotent)
+        self.assertFalse(write.spec.idempotent)
+        catalog = build_tool_catalog(mounted)
+        self.assertTrue(catalog["fs_read_file"]["idempotent"])
+        self.assertFalse(catalog["fs_write_file"]["idempotent"])
+
     def test_default_deny_mounts_nothing(self):
         spec = {"name": "fs", "command": "python", "tool_policy": {},
                 "default_tool_policy": "deny"}
@@ -118,6 +149,7 @@ class MountAndPolicyTests(unittest.TestCase):
         with mock.patch.object(mcp_bridge, "_policy_summary",
                                {"allow": 0, "approval": 0, "deny": 0}), \
              mock.patch.object(approval_mod, "_EXTRA_GATED", set()), \
+             mock.patch.dict("os.environ", {"APPROVAL": "on"}), \
              mock.patch.object(filescope_mod, "NON_FILE_TOOLS",
                                set(filescope_mod.NON_FILE_TOOLS)), \
              mock.patch.object(runner_mod, "SIDE_EFFECT_TOOLS",
