@@ -148,7 +148,9 @@ def export(run_id: str, *, db_path: str | Path = DEFAULT_DB_PATH,
         "tool_calls": [
             {"name": (e["payload"] or {}).get("tool_name")
                      or (e["payload"] or {}).get("name"),
-             "status": (e["payload"] or {}).get("status", "executed"),
+             # tool.invocation records use execution_status. Missing status is
+             # unknown evidence, never proof that the tool executed.
+             "status": (e["payload"] or {}).get("execution_status", "unknown"),
              "invocation_id": (e["payload"] or {}).get("invocation_id")}
             for e in _load_events(run_id, db_path)
             if e["event_type"] == "tool.invocation"

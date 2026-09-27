@@ -32,6 +32,14 @@ layer count, then preloads the Python tokenizer and decision head. Chat input is
 disabled only during this startup warm-up. The TUI closes a server it started
 when the TUI exits, and leaves a server that was already running alone.
 
+Automatic startup only binds to a loopback address by default. If the configured
+`FORGE_LAYA_LLM_URL` uses a non-loopback host, startup is refused unless
+`FORGE_LAYA_TUI_ALLOW_REMOTE_BIND=on` is explicitly set. llama.cpp's server has
+no authentication configured here, so enabling remote binding exposes its
+inference endpoints to clients that can reach that interface. Restrict access
+with the host firewall and use a trusted network; do not bind `0.0.0.0` on an
+untrusted network.
+
 You can also start the encoder server manually in PowerShell:
 
 ```powershell

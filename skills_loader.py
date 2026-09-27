@@ -209,7 +209,24 @@ def collect_skill_tools() -> list[FunctionTool]:
     if not _last_loaded:
         skill_definitions()  # 确保 _last_loaded 与错误已刷新
     for name in list(_last_loaded):
-        py_path = SKILLS_DIR / name / "tools.py"
+        skill_dir_entry = SKILLS_DIR / name
+        skill_dir = skill_dir_entry.resolve()
+        skills_root = SKILLS_DIR.resolve()
+        if (skill_dir_entry.is_symlink() or skill_dir.parent != skills_root
+                or not skill_dir.is_dir()):
+            _last_errors.append(f"技能 {name} 的目录无效，已跳过 tools.py")
+            continue
+        candidate = SKILLS_DIR / name / "tools.py"
+        if candidate.is_symlink():
+            _last_errors.append(f"技能 {name} 的 tools.py 是符号链接，已跳过")
+            continue
+        try:
+            py_path = candidate.resolve(strict=True)
+        except OSError:
+            continue
+        if py_path.parent != skill_dir:
+            _last_errors.append(f"技能 {name} 的 tools.py 路径越界，已跳过")
+            continue
         if not py_path.is_file():
             continue
         try:

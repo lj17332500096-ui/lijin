@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import ipaddress
 import os
 import subprocess
 import threading
@@ -47,6 +48,27 @@ def _service_url() -> str:
     return os.getenv("FORGE_LAYA_LLM_URL", "http://127.0.0.1:8099").strip().rstrip("/")
 
 
+def _server_bind_host(hostname: str) -> str:
+    """Keep auto-start local unless remote, unauthenticated binding is explicit."""
+    normalized = hostname.strip().rstrip(".").lower()
+    if normalized == "localhost":
+        # Avoid relying on hosts-file or DNS resolution for the local-only default.
+        return "127.0.0.1"
+    try:
+        is_loopback = ipaddress.ip_address(normalized).is_loopback
+    except ValueError:
+        is_loopback = False
+    if is_loopback:
+        return hostname
+    if not _flag("FORGE_LAYA_TUI_ALLOW_REMOTE_BIND"):
+        raise RuntimeError(
+            "Laya TUI 自动启动默认只允许 loopback 监听；远程绑定请显式设置 "
+            "FORGE_LAYA_TUI_ALLOW_REMOTE_BIND=on。llama.cpp 服务没有认证，"
+            "远程绑定会向该地址可达的网络开放接口。"
+        )
+    return hostname
+
+
 def _server_matches(encoder: Path) -> bool:
     try:
         request = Request(_service_url() + "/props", method="GET")
@@ -74,6 +96,7 @@ def _start_server(encoder: Path) -> None:
     parsed = urlsplit(_service_url())
     if parsed.scheme != "http" or not parsed.hostname:
         raise RuntimeError("FORGE_LAYA_LLM_URL must be an http:// URL")
+    bind_host = _server_bind_host(parsed.hostname)
     port = parsed.port or 80
     backend = os.getenv("FORGE_LAYA_LLAMA_BACKEND", "sycl").strip().lower()
     gpu_layers = os.getenv("FORGE_LAYA_LLAMA_GPU_LAYERS", "99").strip() or "99"
@@ -104,7 +127,7 @@ def _start_server(encoder: Path) -> None:
             [
                 str(exe), "-m", str(encoder), "--embeddings", "--pooling", "none",
                 "--ctx-size", "1024", "--n-gpu-layers", gpu_layers,
-                "--host", parsed.hostname, "--port", str(port),
+                "--host", bind_host, "--port", str(port),
             ],
             **kwargs,
         )

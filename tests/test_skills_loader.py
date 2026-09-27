@@ -1,7 +1,9 @@
 import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
@@ -42,6 +44,32 @@ class LoaderTests(unittest.TestCase):
         self.assertEqual(skills_loader.skill_definitions(), [])
         self.assertTrue(skills_loader.status_text())
         self.assertTrue(any("not_exist_skill" in e for e in skills_loader._last_errors))
+
+    def test_tool_symlink_outside_skill_directory_is_not_imported(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            skill_dir = root / "linked_skill"
+            skill_dir.mkdir()
+            (skill_dir / "skill.md").write_text("enabled", encoding="utf-8")
+            marker = root / "executed.txt"
+            external_tool = root / "outside_tools.py"
+            external_tool.write_text(
+                f"from pathlib import Path\nPath({str(marker)!r}).write_text('ran')\n",
+                encoding="utf-8",
+            )
+            try:
+                (skill_dir / "tools.py").symlink_to(external_tool)
+            except (OSError, NotImplementedError) as exc:
+                self.skipTest(f"符号链接不可用：{exc}")
+
+            with (
+                patch.object(skills_loader, "SKILLS_DIR", root),
+                patch.object(skills_loader, "_last_loaded", ["linked_skill"]),
+                patch.object(skills_loader, "_last_errors", []),
+            ):
+                self.assertEqual(skills_loader.collect_skill_tools(), [])
+                self.assertFalse(marker.exists())
+                self.assertTrue(any("符号链接" in err for err in skills_loader._last_errors))
 
 
 if __name__ == "__main__":
