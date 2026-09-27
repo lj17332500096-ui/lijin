@@ -521,6 +521,8 @@ class ForgeTuiApp(App):
 
         # Slash popup 状态
         self._popup_visible: bool = False
+        self._turn_active: bool = False
+        self._cancel_pending: bool = False
 
     # ── 依赖装配 ───────────────────────────────────────────────
     def _get_chat_app(self):
@@ -766,11 +768,12 @@ class ForgeTuiApp(App):
 
     def _persist_env_to_dotenv(self, values: dict[str, str]) -> None:
         """把 4 个键写进项目根 .env（存在则替换、缺失则追加；保持其余行不变）。"""
-        import os
         try:
-            env_path = os.path.join(os.getcwd(), ".env")
+            from runtime_paths import PROJECT_ROOT
+
+            env_path = PROJECT_ROOT / ".env"
             lines: list[str] = []
-            if os.path.exists(env_path):
+            if env_path.exists():
                 with open(env_path, encoding="utf-8") as fh:
                     lines = fh.read().splitlines()
             keys = list(values.keys())
@@ -993,6 +996,9 @@ class ForgeTuiApp(App):
 
     # ── 普通消息 ────────────────────────────────────────────────
     def _submit_text(self, text: str) -> None:
+        if self._turn_active:
+            self._msglog().add_meta("当前任务仍在运行；请等待完成或按 Esc 取消后再发送。")
+            return
         self._msglog().add_user(text)
         self._stream_buf = ""
         self._stream_item = None
@@ -1005,12 +1011,45 @@ class ForgeTuiApp(App):
         self._tool_row_idx.clear()
         self._header().set_state("running")
         self._update_footer("running")
+        self._set_turn_active(True)
         # 真实 spinner：braille 动画 80ms/帧 + LLM/工具状态文案
         spinner = self._app_state.spinner if self._app_state else None
         if spinner is not None:
             spinner.start("LLM 推理中…")
             spinner.display = True
         self._run_async(self._run_turn(text))
+
+    def _set_turn_active(self, active: bool) -> None:
+        self._turn_active = bool(active)
+        try:
+            bar = self._bar()
+            if bar.input is not None:
+                # 审批暂停时必须保留输入，以便用户提交 Y/N/D。
+                bar.input.disabled = self._turn_active and not self._in_approval
+        except (AttributeError, NoScreen, NoActiveAppError):
+            pass
+
+    async def _cancel_active_turn(self) -> None:
+        if self._cancel_pending:
+            return
+        self._cancel_pending = True
+        try:
+            runtime = self._get_chat_app().runtime
+            run_id = getattr(runtime, "_active_run_id", None)
+            if not run_id:
+                self._msglog().add_meta("当前 Run 尚未登记或已经结束；未发送取消请求。")
+                return
+            import asyncio
+
+            cancelled = await asyncio.to_thread(runtime.cancel_run, run_id)
+            if cancelled:
+                self._msglog().add_meta(f"已请求 Runtime 取消 Run {run_id}；等待取消终态…")
+            else:
+                self._msglog().add_meta(f"Run {run_id} 已不在执行，取消请求未生效。")
+        except Exception as exc:
+            self._msglog().add_error(title="取消失败", detail=f"{type(exc).__name__}: {exc}")
+        finally:
+            self._cancel_pending = False
 
     def _run_async(self, coro) -> None:
         try:
@@ -1056,12 +1095,14 @@ class ForgeTuiApp(App):
             self._stop_spinner()
             self._msglog().add_error(title="已中断", detail="本地等待已中断，后端 Run 可能仍在执行。")
             self._update_footer("idle")
+            self._set_turn_active(False)
             return
         except Exception as exc:
             self._header().set_state("failed")
             self._stop_spinner()
             self._render_exception(exc)
             self._update_footer("idle")
+            self._set_turn_active(False)
             return
 
         # 审批：Runtime 明确返回 waiting_approval=True 才进入审批态
@@ -1072,6 +1113,7 @@ class ForgeTuiApp(App):
 
         self._stop_spinner()
         self._render_result(result, started)
+        self._set_turn_active(False)
 
     async def _resolve_approvals(self, chat, result):
         """TUI 专用：用户已通过 Y/N 键做出决定，直接调 decide_approval 后续跑，
@@ -1133,6 +1175,7 @@ class ForgeTuiApp(App):
 
     def _enter_approval(self, result) -> None:
         self._in_approval = True
+        self._set_turn_active(False)
         approvals = getattr(result, "approvals", []) or []
         self._pending_approvals = list(approvals)
         self._waiting_result = result  # 保存 RunResult，供批准后 resume
@@ -1151,6 +1194,7 @@ class ForgeTuiApp(App):
     def _exit_approval(self) -> None:
         """仅在 Runtime 明确结束审批时调用（waiting_approval=False）。"""
         self._in_approval = False
+        self._set_turn_active(False)
         self._pending_approvals = []
         self._bar().set_placeholder("Enter 发送；/ 看命令；Ctrl+Q 退出")
         self._update_footer("idle")
@@ -1168,6 +1212,7 @@ class ForgeTuiApp(App):
         if lower in ("y", "yes"):
             # 批准：标记为 running，等待 Runtime 继续
             self._in_approval = False  # 本地标记解除（Runtime 会继续返回新状态）
+            self._set_turn_active(True)
             self._header().set_state("running")
             self._update_footer("running")
             self._bar().set_placeholder("执行中…")
@@ -1177,6 +1222,7 @@ class ForgeTuiApp(App):
         elif lower in ("n", "no"):
             # 拒绝：Runtime 标记 cancelled
             self._in_approval = False
+            self._set_turn_active(False)
             self._pending_approvals = []
             self._header().set_state("idle")
             self._update_footer("idle")
@@ -1631,8 +1677,8 @@ class ForgeTuiApp(App):
                 # 审批态 Esc：显示提示，不解除 pending
                 self._msglog().add_meta("（审批未处理，Esc 不生效；请输入 Y / N / D）")
             elif self._header()._run_state == "running":
-                # 运行中：发中断信号
-                self._msglog().add_meta("⚠ 已发送中断请求…")
+                # 运行中：请求 Runtime 取消真实 Run，并等待取消终态收口。
+                self._run_async(self._cancel_active_turn())
 
     # ── Slash popup ─────────────────────────────────────────────
     def _show_slash_popup(self, text: str) -> None:

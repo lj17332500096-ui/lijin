@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """Provider 故障分类 / 有限重试 / 有界 fallback / stalled 语义测试。
 
 覆盖任务书 Test 1-8 的代码层：401 不重试、503 分类与 fallback、
@@ -16,6 +16,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 import main as main_module
 from runtime.approval import ApprovalGate
@@ -210,12 +211,12 @@ class RunnerProviderFailureTests(unittest.TestCase):
         self.runtime.tasks = self.manager
         self.runtime.approval = ApprovalGate(self.manager)
         self.runtime.broker = object()
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         self._router = os.environ.get("TOOL_ROUTER")
         os.environ["TOOL_ROUTER"] = "off"
 
     def tearDown(self):
-        main_module.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
         if self._router is None:
             os.environ.pop("TOOL_ROUTER", None)
         else:
@@ -226,7 +227,7 @@ class RunnerProviderFailureTests(unittest.TestCase):
                        history_limit=None, agent=None, audit=None, stream_events_cb=None,
                        provider=None):
             raise exc
-        main_module.execute_turn = fake
+        runtime_execution.execute_turn = fake
 
     def _events(self, rid):
         return [getattr(e, "event_type") for e in self.manager.list_events(rid)]

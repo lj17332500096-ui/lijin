@@ -21,6 +21,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 import main as main_module
 from runtime.approval import ApprovalGate
@@ -143,12 +144,12 @@ class VerificationRunTurnTests(unittest.TestCase):
         self.runtime.tasks = self.manager
         self.runtime.approval = ApprovalGate(self.manager)
         self.runtime.broker = object()
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         self._router = os.environ.get("TOOL_ROUTER")
         os.environ["TOOL_ROUTER"] = "off"
 
     def tearDown(self):
-        main_module.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
         if self._router is None:
             os.environ.pop("TOOL_ROUTER", None)
         else:
@@ -161,7 +162,7 @@ class VerificationRunTurnTests(unittest.TestCase):
             self.runtime._run_ledger.append(run_call(EVID_FAIL))
             return json.dumps(reply(content=content), ensure_ascii=False)
 
-        main_module.execute_turn = fake
+        runtime_execution.execute_turn = fake
 
     def test_verify_intent_with_failing_run_never_completes(self):
         self._install("修改已经完成，但测试仍然失败。")

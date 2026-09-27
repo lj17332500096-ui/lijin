@@ -3,7 +3,6 @@
 运行：PYTHONPATH= .venv/Scripts/python.exe -m pytest tests/test_api_layer_phase_d.py -q
 默认不修改任何全局日志配置；install_structured_logging 只在显式开启的环境变量下挂 handler。
 """
-
 import contextlib
 import io
 import json
@@ -17,6 +16,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 from runtime import structured_log as sl
 from runtime.structured_log import (
@@ -146,7 +146,7 @@ class StructuredLogWiringTests(unittest.TestCase):
         sl._request_id.set(before)
 
     def test_main_turn_creates_request_id(self):
-        """main.execute_turn 入口会调 new_request_id（grep 确认）。"""
+        """runtime_execution.execute_turn 入口会调 new_request_id（grep 确认）。"""
         main_src = (BASE / "main.py").read_text(encoding="utf-8")
         self.assertIn("new_request_id", main_src)
         self.assertIn("install_structured_logging", main_src)

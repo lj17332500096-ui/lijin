@@ -3,7 +3,6 @@
 覆盖：obligation repair 与 completion repair 分离、deficit signature、bounded failure、
 verification fail 阻止 completed、新 mutation 产生新 deficit、verification PASS → completed。
 """
-
 import asyncio
 import json
 import os
@@ -13,6 +12,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import runtime.execution as runtime_execution
 
 import main as main_module  # noqa: E402
 from runtime.completion import TOOL_EXECUTED  # noqa: E402
@@ -30,7 +30,7 @@ class _Harness:
     def __init__(self, script):
         self._tmp = Path(tempfile.mkdtemp(prefix="p18_"))
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         self._saved_gate = os.environ.get("FORGE_OBLIGATION_GATE")
         self.script = script  # list of callables(runtime, rctx) -> str(final output)
         self.calls = 0
@@ -45,11 +45,11 @@ class _Harness:
             self.calls += 1
             return self.script[idx](rt, rc)
 
-        main_module.execute_turn = fake
+        runtime_execution.execute_turn = fake
         return self
 
     def __exit__(self, *exc):
-        main_module.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
         if self._saved_gate is None:
             os.environ.pop("FORGE_OBLIGATION_GATE", None)
         else:

@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import hashlib
 import sys
 import tempfile
@@ -8,6 +8,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 from runtime.artifacts import ArtifactTracker, kind_for, sha256_of
 from runtime.task import TaskState
@@ -73,16 +74,15 @@ class RuntimeArtifactIntegrationTests(unittest.TestCase):
         self.out_dir = self._tmp / "notes"
         self.out_dir.mkdir()
         import main as main_module
-
         self._main = main_module
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         from runtime.runner import AgentRuntime
 
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self.runtime.artifact_dirs = (self.out_dir,)
 
     def tearDown(self) -> None:
-        self._main.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
 
     def _install_fake(self, make_file: bool):
         async def fake_execute_turn(
@@ -93,7 +93,7 @@ class RuntimeArtifactIntegrationTests(unittest.TestCase):
                 (self.out_dir / "报告.md").write_text("# 报告", encoding="utf-8")
             return '{"kind":"note","summary":"ok","content":"x"}'
 
-        self._main.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
 
     def test_success_registers_artifacts_in_result(self) -> None:
         self._install_fake(make_file=True)
@@ -115,7 +115,7 @@ class RuntimeArtifactIntegrationTests(unittest.TestCase):
         async def fake_fail(mode, message, session=None, debug=False, max_turns=20, history_limit=None, agent=None, audit=None, stream_events_cb=None):
             raise RuntimeError("中途挂了")
 
-        self._main.execute_turn = fake_fail
+        runtime_execution.execute_turn = fake_fail
         (self.out_dir / "半成品.md").write_text("partial", encoding="utf-8")
         result = asyncio.run(self.runtime.run_turn("慢产出", session_id="unit"))
         self.assertFalse(result.ok)

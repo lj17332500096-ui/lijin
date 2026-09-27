@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import os
 import sys
 import tempfile
@@ -8,6 +8,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 from agent import assistant_agent
 from runtime import budget as budget_mod
@@ -202,13 +203,13 @@ class RuntimeBudgetIntegrationTests(unittest.TestCase):
         import main as main_module
 
         self._main = main_module
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         from runtime.runner import AgentRuntime
 
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
 
     def tearDown(self) -> None:
-        self._main.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
 
     def test_wall_budget_fails_task(self) -> None:
         async def fake_execute_turn(
@@ -218,7 +219,7 @@ class RuntimeBudgetIntegrationTests(unittest.TestCase):
             await asyncio.sleep(0.5)
             return "ok-ignored"
 
-        self._main.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
         result = asyncio.run(
             self.runtime.run_turn(
                 "慢任务",
@@ -237,7 +238,7 @@ class RuntimeBudgetIntegrationTests(unittest.TestCase):
         ):
             return "fast-ok"
 
-        self._main.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
         result = asyncio.run(self.runtime.run_turn("快任务", session_id="unit"))
         self.assertTrue(result.ok)
         # 新契约：纯文本输出被 canonical 化为 answer AgentReply JSON

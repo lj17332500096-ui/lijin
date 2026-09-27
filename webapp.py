@@ -24,6 +24,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import hmac
 import os
 import sys
 import webbrowser
@@ -33,7 +35,7 @@ import uvicorn
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import RedirectResponse
+from starlette.responses import JSONResponse, RedirectResponse
 from starlette.routing import Mount, Route
 from starlette.staticfiles import StaticFiles
 
@@ -105,6 +107,45 @@ class _SPAStaticFiles(StaticFiles):
             raise
 
 
+class UiAuthMiddleware:
+    """Protect the complete web/API surface when a non-loopback bind is enabled."""
+
+    def __init__(self, app):
+        self.app = app
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        app_obj = scope.get("app")
+        state = getattr(app_obj, "state", None)
+        if not state or not getattr(state, "require_ui_auth", False):
+            await self.app(scope, receive, send)
+            return
+        expected = getattr(state, "ui_api_token", "")
+        headers = {key.lower(): value for key, value in scope.get("headers", [])}
+        authorization = headers.get(b"authorization", b"").decode("latin-1").strip()
+        supplied = ""
+        if authorization.lower().startswith("bearer "):
+            supplied = authorization[7:].strip()
+        elif authorization.lower().startswith("basic "):
+            try:
+                credentials = base64.b64decode(authorization[6:].strip(), validate=True).decode("utf-8")
+                _username, separator, password = credentials.partition(":")
+                supplied = password if separator else ""
+            except (ValueError, UnicodeDecodeError):
+                supplied = ""
+        if not expected or not supplied or not hmac.compare_digest(supplied, expected):
+            response = JSONResponse(
+                {"error": {"message": "需要有效的 Bearer token", "code": "unauthorized"}},
+                status_code=401,
+                headers={"WWW-Authenticate": 'Bearer, Basic realm="FORGE"'},
+            )
+            await response(scope, receive, send)
+            return
+        await self.app(scope, receive, send)
+
+
 async def index_page(_request: Request) -> RedirectResponse:
     """根路径 → llama-ui 前端（OpenAI 协议，经 llama_bridge 接 AgentRuntime）。
 
@@ -140,9 +181,12 @@ app = Starlette(
             name="llama-ui-assets"),
     ]
 )
+app.add_middleware(UiAuthMiddleware)
 
 #: 非回环监听必须显式 opt-in：本进程暴露会执行工具 / 跑 agent turn 的端点。
 ALLOW_NONLOCAL_ENV = "FORGE_ALLOW_NONLOCAL_UI"
+UI_API_TOKEN_ENV = "FORGE_UI_API_TOKEN"
+_MIN_UI_API_TOKEN_LENGTH = 32
 _TRUTHY = {"1", "true", "yes", "on", "y"}
 
 
@@ -191,8 +235,19 @@ def main() -> None:
                 file=sys.stderr,
             )
             raise SystemExit(2)
-        print(f"[UI] 警告：已按 {ALLOW_NONLOCAL_ENV}=1 以非回环地址 {args.host} 启动，"
-              "请确认外层已有鉴权。", file=sys.stderr)
+        token = os.getenv(UI_API_TOKEN_ENV, "")
+        if len(token) < _MIN_UI_API_TOKEN_LENGTH:
+            print(
+                f"[UI] 拒绝非回环启动：必须设置至少 {_MIN_UI_API_TOKEN_LENGTH} 个字符的 "
+                f"{UI_API_TOKEN_ENV}；网页与 API 请求都需要 Bearer 认证。",
+                file=sys.stderr,
+            )
+            raise SystemExit(2)
+        app.state.require_ui_auth = True
+        app.state.ui_api_token = token
+    else:
+        app.state.require_ui_auth = False
+        app.state.ui_api_token = ""
 
     for stream in (sys.stdout, sys.stderr):
         try:

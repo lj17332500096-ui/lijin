@@ -6,7 +6,6 @@
 - run_turn 捕获 ConvergenceTerminated → bounded failure（有限、确定终态）；
 - Gate Order：Missing required / Readiness / Approval 优先于 Convergence。
 """
-
 import asyncio
 import json
 import sys
@@ -15,6 +14,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import runtime.execution as runtime_execution
 
 import main as main_module  # noqa: E402
 from runtime.errors import ConvergenceTerminated, NeedsUserInputTerminated  # noqa: E402
@@ -83,13 +83,13 @@ class NeedsUserInputBreaksLoopTests(unittest.TestCase):
 
         tmp = Path(tempfile.mkdtemp(prefix="p5_nui_"))
         runtime = AgentRuntime(db_path=str(tmp / "agent.db"))
-        orig = main_module.execute_turn
-        main_module.execute_turn = fake
+        orig = runtime_execution.execute_turn
+        runtime_execution.execute_turn = fake
         try:
             result = asyncio.run(runtime.run_turn("帮我查明天去上海的航班", session_id="unit",
                                                   mode="async"))
         finally:
-            main_module.execute_turn = orig
+            runtime_execution.execute_turn = orig
         self.assertTrue(result.ok)
         self.assertEqual(result.task.state, TaskState.WAITING_USER)
         terminal = next(e for e in runtime.tasks.list_events(result.task.id)
@@ -176,13 +176,13 @@ class RunTurnConvergenceTerminalizationTests(unittest.TestCase):
     def setUp(self):
         self._tmp = Path(tempfile.mkdtemp(prefix="p5_term_"))
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
 
     def tearDown(self):
-        main_module.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
 
     def _install(self, fn):
-        main_module.execute_turn = fn
+        runtime_execution.execute_turn = fn
 
     def test_convergence_terminated_becomes_bounded_failure(self):
         async def fake(mode, message, **kwargs):

@@ -26,6 +26,7 @@ from unittest import mock
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 import agent as agent_module
 import main as main_module
@@ -468,13 +469,13 @@ class ReadinessContextInheritanceTests(unittest.TestCase):
             seen_status.append(ctx.readiness_status if ctx else None)
             return json.dumps(reply_json, ensure_ascii=False)
 
-        orig = main_module.execute_turn
-        main_module.execute_turn = fake_execute
+        orig = runtime_execution.execute_turn
+        runtime_execution.execute_turn = fake_execute
         try:
             result = asyncio.run(runtime.run_turn(message, session_id="unit",
                                                   mode="async"))
         finally:
-            main_module.execute_turn = orig
+            runtime_execution.execute_turn = orig
         return result, seen_status
 
     def test_needs_user_inherited_by_next_run(self):

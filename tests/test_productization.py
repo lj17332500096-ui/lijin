@@ -14,6 +14,7 @@ from unittest import mock
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 import main as main_module
 from runtime.approval import ApprovalGate
@@ -100,7 +101,7 @@ class BoundedRunnerTests(unittest.TestCase):
         self.runtime.tasks = self.manager
         self.runtime.approval = ApprovalGate(self.manager)
         self.runtime.broker = object()
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         self._saved = os.environ.get("TOOL_ROUTER")
         os.environ["TOOL_ROUTER"] = "off"
         # 集成层只测异常收口；义务门判定由 tests/test_obligation_gate.py 独立覆盖。
@@ -109,14 +110,14 @@ class BoundedRunnerTests(unittest.TestCase):
         self.addCleanup(gate_off.stop)
 
     def tearDown(self):
-        main_module.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
         if self._saved is None:
             os.environ.pop("TOOL_ROUTER", None)
         else:
             os.environ["TOOL_ROUTER"] = self._saved
 
     def _fake(self, fn):
-        main_module.execute_turn = fn
+        runtime_execution.execute_turn = fn
 
     def test_no_progress_twice_fails_bounded(self):
         calls = {"n": 0}

@@ -24,6 +24,7 @@ from unittest import mock
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 from agents.tool_context import ToolContext
 
@@ -70,7 +71,7 @@ class ConcurrentRunStressTests(unittest.TestCase):
     """真实 AgentRuntime 并发矩阵：多容器并行 + 审批隔离 + FileScope + 单 Active。"""
 
     def setUp(self) -> None:
-        self._orig_execute = main_mod.execute_turn
+        self._orig_execute = runtime_execution.execute_turn
         self._tmp = Path(tempfile.mkdtemp(prefix="forge_stress_"))
         self._project_dirs: list[Path] = []
         self.rt = AgentRuntime(db_path=str(self._tmp / "agent.db"))
@@ -86,7 +87,7 @@ class ConcurrentRunStressTests(unittest.TestCase):
         self.addCleanup(gate_off.stop)
 
     def tearDown(self) -> None:
-        main_mod.execute_turn = self._orig_execute
+        runtime_execution.execute_turn = self._orig_execute
         shutil.rmtree(self._tmp, ignore_errors=True)
         # 清理本次测试在仓库 forge_data/projects 下创建的临时文件
         for d in self._project_dirs:
@@ -150,7 +151,7 @@ class ConcurrentRunStressTests(unittest.TestCase):
 
     def test_mixed_parallel_runs_approval_and_filescope_isolation(self):
         async def run():
-            main_mod.execute_turn = self._fake_execute
+            runtime_execution.execute_turn = self._fake_execute
             tm = self.rt.tasks
 
             # 4 个普通容器（2 计算 + 2 纯回答）
@@ -246,7 +247,7 @@ class ConcurrentRunStressTests(unittest.TestCase):
 
     def test_single_active_run_rejects_concurrent_second_run(self):
         async def run():
-            main_mod.execute_turn = self._fake_execute
+            runtime_execution.execute_turn = self._fake_execute
             first = asyncio.create_task(
                 self.rt.run_turn("@sleep 慢任务", session_id="stress-single",
                                  mode="async", max_turns=3))

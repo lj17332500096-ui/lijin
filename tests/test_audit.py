@@ -1,4 +1,4 @@
-﻿import sys
+import sys
 import tempfile
 import types
 import unittest
@@ -7,6 +7,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 from runtime.audit import AuditCollector
 from runtime.task_manager import TaskManager
@@ -100,15 +101,15 @@ class ExecuteAuditWiringTests(unittest.TestCase):
             captured["audit"] = audit
             return "ok"
 
-        orig = main_module.execute_turn
-        main_module.execute_turn = fake_execute_turn
+        orig = runtime_execution.execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
         try:
             runtime = AgentRuntime(db_path=str(self._tmp_path()))
             result = asyncio.run(runtime.run_turn("短任务", session_id="unit"))
             self.assertTrue(result.ok)
             self.assertIsNotNone(captured.get("audit"))
         finally:
-            main_module.execute_turn = orig
+            runtime_execution.execute_turn = orig
 
     @staticmethod
     def _tmp_path() -> str:

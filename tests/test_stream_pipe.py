@@ -7,6 +7,7 @@ from unittest.mock import patch
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 import main as main_module
 from runtime.errors import FinalResponseFailed
@@ -40,10 +41,10 @@ class StreamPipeTests(unittest.TestCase):
             events.append((name, payload))
 
         async def run():
-            with patch.object(main_module, "_run_attempt", new=fake_run_attempt):
-                with patch.object(main_module, "ensure_mcp", new=lambda: asyncio.sleep(0)):
-                    with patch.object(main_module, "OutputGuardrailTripwireTriggered", new=_CustomTrip):
-                        out = await main_module.execute_turn(
+            with patch.object(runtime_execution, "_run_attempt", new=fake_run_attempt):
+                with patch.object(runtime_execution, "ensure_mcp", new=lambda: asyncio.sleep(0)):
+                    with patch.object(runtime_execution, "OutputGuardrailTripwireTriggered", new=_CustomTrip):
+                        out = await runtime_execution.execute_turn(
                             "stream", "帮我算 1+1", session=None, stream_events_cb=cb
                         )
             return out
@@ -65,11 +66,11 @@ class StreamPipeTests(unittest.TestCase):
             raise _CustomTrip("无可用输出")
 
         async def run():
-            with patch.object(main_module, "_run_attempt", new=fake_run_attempt):
-                with patch.object(main_module, "ensure_mcp", new=lambda: asyncio.sleep(0)):
-                    with patch.object(main_module, "OutputGuardrailTripwireTriggered", new=_CustomTrip):
+            with patch.object(runtime_execution, "_run_attempt", new=fake_run_attempt):
+                with patch.object(runtime_execution, "ensure_mcp", new=lambda: asyncio.sleep(0)):
+                    with patch.object(runtime_execution, "OutputGuardrailTripwireTriggered", new=_CustomTrip):
                         try:
-                            await main_module.execute_turn("stream", "x", session=None)
+                            await runtime_execution.execute_turn("stream", "x", session=None)
                         except FinalResponseFailed:
                             return "raised-ok"
             return "no-raise"

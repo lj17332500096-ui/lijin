@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import os
 import sys
+import asyncio
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -80,6 +81,12 @@ class _StubRegistry:
     def all(self):
         return [_StubBinding("think"), _StubBinding("write_code_file", True)]
 
+    def get(self, name):
+        for binding in self.all():
+            if binding.spec.name == name:
+                return binding
+        raise KeyError(name)
+
 
 class _StubRuntime:
     def __init__(self, gated=(), broker=None):
@@ -90,15 +97,22 @@ class _StubRuntime:
     def _ensure(self):
         pass
 
+    async def execute_readonly_api_tool(self, tool, params, *, session_id, user_id=None):
+        result = await self.broker.execute(tool, params)
+        return {"run_id": "fixture-run", "result": result, "execution_status": "executed"}
+
 
 def _make_app() -> Starlette:
     """只挂本阶段涉及的端点，不引入 webapp 全量路由。"""
     return Starlette(routes=[
         Route("/tools", lb.api_tools_list, methods=["GET"]),
         Route("/tools", lb.api_tools_execute, methods=["POST"]),
+        Route("/v1/chat/completions", lb.api_chat_completions, methods=["POST"]),
         Route("/v1/chat/completions/control", lb.api_chat_control, methods=["POST"]),
         Route("/v1/streams/lookup", lb.api_stream_lookup, methods=["POST"]),
         Route("/v1/stream", lb.api_stream_resume, methods=["GET", "DELETE"]),
+        Route("/models/load", lb.api_models_load, methods=["POST"]),
+        Route("/models/unload", lb.api_models_unload, methods=["POST"]),
     ])
 
 
@@ -180,6 +194,94 @@ class UnifiedErrorEnvelopeTests(_Base):
         self.assertIsInstance(err["retryable"], bool)
         self.assertIn("request_id", body)
 
+
+class NonStreamingChatRouteTests(_Base):
+    """完整路由回归：忽略 Run 活动事件，直到消费到终态事件。"""
+
+    def _patch_chat_turn(self, events):
+        queue = asyncio.Queue()
+        for item in events:
+            queue.put_nowait(item)
+
+        async def fake_run_chat_turn(*args, **kwargs):
+            return "run-123", "session-123", queue, asyncio.sleep(0)
+
+        return mock.patch.object(lb, "_run_chat_turn", side_effect=fake_run_chat_turn)
+
+    def test_non_stream_waits_for_end_after_activity_events(self) -> None:
+        events = [
+            ("control", {"type": "run.started"}),
+            ("assistant_delta", {"metadata": {"delta": "天气"}}),
+            ("__end__", {"content": "今天晴。", "kind": "answer", "state": "completed", "ok": True}),
+        ]
+        with self._patch_chat_turn(events):
+            response = self.client.post("/v1/chat/completions", json={
+                "stream": False,
+                "messages": [{"role": "user", "content": "今天天气"}],
+            })
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["choices"][0]["message"]["content"], "今天晴。")
+        self.assertEqual(body["choices"][0]["finish_reason"], "stop")
+
+    def test_non_stream_returns_terminal_run_error_after_activity(self) -> None:
+        events = [
+            ("control", {"type": "run.started"}),
+            ("__error__", {"error": "provider unavailable"}),
+        ]
+        with self._patch_chat_turn(events):
+            response = self.client.post("/v1/chat/completions", json={
+                "stream": False,
+                "messages": [{"role": "user", "content": "hello"}],
+            })
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["error"]["code"], "run_failed")
+
+    def test_model_mismatch_is_rejected_before_starting_a_run(self) -> None:
+        async def unexpected_run(*args, **kwargs):
+            raise AssertionError("model mismatch must not start a Run")
+
+        with mock.patch.object(lb, "_model_name", return_value="active-model"), \
+                mock.patch.object(lb, "_run_chat_turn", side_effect=unexpected_run):
+            response = self.client.post("/v1/chat/completions", json={
+                "model": "other-model",
+                "messages": [{"role": "user", "content": "hello"}],
+            })
+        self.assertEqual(response.status_code, 400)
+        self.assertEqual(response.json()["error"]["code"], "model_not_configured")
+
+    def test_usage_and_model_are_taken_from_terminal_metadata(self) -> None:
+        events = [("__end__", {
+            "content": "回答", "kind": "answer", "state": "completed", "ok": True,
+            "model": "actual-provider-model",
+            "usage": {"prompt_tokens": 17, "completion_tokens": 5, "total_tokens": 22},
+        })]
+        with mock.patch.object(lb, "_model_name", return_value="active-alias"), \
+                self._patch_chat_turn(events):
+            response = self.client.post("/v1/chat/completions", json={
+                "model": "active-alias", "stream": False,
+                "messages": [{"role": "user", "content": "hello"}],
+            })
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["model"], "actual-provider-model")
+        self.assertEqual(body["usage"], {
+            "prompt_tokens": 17, "completion_tokens": 5, "total_tokens": 22,
+        })
+
+
+class UnifiedErrorEnvelopeTests(_Base):
+    def _assert_envelope(self, body: dict) -> None:
+        self.assertIn("error", body)
+        err = body["error"]
+        self.assertIsInstance(err, dict, "信封里的 error 必须是对象（前端读 error.message）")
+        for key in ("message", "type", "code", "retryable"):
+            self.assertIn(key, err, f"信封缺字段 {key}")
+        self.assertIsInstance(err["message"], str)
+        self.assertIsInstance(err["code"], str)
+        self.assertIsInstance(err["retryable"], bool)
+        self.assertIn("request_id", body)
+
     def test_stream_not_found_is_enveloped_404(self) -> None:
         r = self.client.get("/v1/stream?conv_id=absent&from=0")
         self.assertEqual(r.status_code, 404)
@@ -248,6 +350,14 @@ class UnifiedErrorEnvelopeTests(_Base):
 # C3 —— 200 路径契约（防止信封被误用到成功路径）
 # ---------------------------------------------------------------------------
 class SuccessPathContractTests(_Base):
+    def test_model_lifecycle_stubs_do_not_claim_success(self) -> None:
+        for path, operation in (("/models/load", "load"), ("/models/unload", "unload")):
+            response = self.client.post(path, json={})
+            self.assertEqual(response.status_code, 501)
+            self.assertIs(response.json()["success"], False)
+            self.assertEqual(response.json()["status"], "unsupported")
+            self.assertEqual(response.json()["operation"], operation)
+
     def test_ungated_tool_returns_plain_text_response(self) -> None:
         stub = _StubRuntime(gated=set())
         stub.broker = _StubBroker(result="计算结果 42")
@@ -281,14 +391,17 @@ class SuccessPathContractTests(_Base):
         stub = _StubRuntime(gated={"write_code_file"})
         with self._patched_runtime(stub):
             r = self.client.post("/tools", json={"tool": "write_code_file"})
-        self.assertEqual(r.status_code, 200)
-        body = r.json()
-        self.assertIsInstance(body.get("error"), str, "必须给前端可读的字符串 error")
-        self.assertIn("write_code_file", body["error"])
-        # 兼容保留：实现了该语义的调用方仍可读这两个键
-        self.assertIs(body.get("approval_required"), True)
-        self.assertEqual(body["approval"]["status"], "pending")
+        self.assertEqual(r.status_code, 409)
+        self.assertEqual(r.json()["error"]["code"], "tool_requires_agent_run")
         self.assertEqual(stub.broker.calls, [], "被审批门拦下的工具绝不能被真正执行")
+
+    def test_side_effect_tool_is_never_directly_executed(self) -> None:
+        stub = _StubRuntime(gated=set())
+        with self._patched_runtime(stub):
+            response = self.client.post("/tools", json={"tool": "write_code_file"})
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["error"]["code"], "tool_requires_agent_run")
+        self.assertEqual(stub.broker.calls, [])
 
     def test_tools_list_shape_unchanged(self) -> None:
         with self._patched_runtime(_StubRuntime()):
@@ -317,7 +430,8 @@ class LoopbackBindingAssertionTests(unittest.TestCase):
         from ui_frozen import ENABLE_FLAG
 
         argv = ["webapp.py", "--metrics-port", "0", ENABLE_FLAG, "--host", host]
-        env = {"FORGE_ALLOW_NONLOCAL_UI": "1"} if allow else {}
+        env = ({"FORGE_ALLOW_NONLOCAL_UI": "1",
+                "FORGE_UI_API_TOKEN": "test-token-" + "x" * 32} if allow else {})
         with mock.patch.object(sys, "argv", argv), \
                 mock.patch.dict(os.environ, env, clear=False), \
                 mock.patch("uvicorn.run") as mocked_run, \
@@ -335,8 +449,49 @@ class LoopbackBindingAssertionTests(unittest.TestCase):
     def test_nonlocal_host_proceeds_with_optin(self) -> None:
         self._run_main("0.0.0.0", allow=True).assert_called_once()
 
+    def test_nonlocal_host_refused_without_auth_token(self) -> None:
+        import webapp
+        from ui_frozen import ENABLE_FLAG
+
+        argv = ["webapp.py", "--metrics-port", "0", ENABLE_FLAG, "--host", "0.0.0.0"]
+        with mock.patch.object(sys, "argv", argv), \
+                mock.patch.dict(os.environ, {webapp.ALLOW_NONLOCAL_ENV: "1"}, clear=False), \
+                mock.patch("uvicorn.run") as mocked_run:
+            os.environ.pop(webapp.UI_API_TOKEN_ENV, None)
+            with self.assertRaises(SystemExit) as ctx:
+                webapp.main()
+        self.assertEqual(ctx.exception.code, 2)
+        mocked_run.assert_not_called()
+
     def test_loopback_host_proceeds(self) -> None:
         self._run_main("127.0.0.1", allow=False).assert_called_once()
+
+    def test_auth_middleware_protects_remote_app_routes(self) -> None:
+        import webapp
+        from starlette.testclient import TestClient
+
+        old_required = getattr(webapp.app.state, "require_ui_auth", False)
+        old_token = getattr(webapp.app.state, "ui_api_token", "")
+        webapp.app.state.require_ui_auth = True
+        webapp.app.state.ui_api_token = "test-token-" + "x" * 32
+        try:
+            client = TestClient(webapp.app, follow_redirects=False)
+            self.assertEqual(client.get("/").status_code, 401)
+            self.assertEqual(client.get("/", headers={"Authorization": "Bearer wrong"}).status_code, 401)
+            response = client.get("/", headers={
+                "Authorization": "Bearer " + webapp.app.state.ui_api_token,
+            })
+            self.assertEqual(response.status_code, 302)
+            import base64
+            basic = base64.b64encode(
+                ("operator:" + webapp.app.state.ui_api_token).encode("utf-8")
+            ).decode("ascii")
+            self.assertEqual(client.get("/", headers={
+                "Authorization": "Basic " + basic,
+            }).status_code, 302)
+        finally:
+            webapp.app.state.require_ui_auth = old_required
+            webapp.app.state.ui_api_token = old_token
 
     def test_refusal_never_reaches_uvicorn(self) -> None:
         """拒绝路径绝不能顺手把服务起来（与 UI 冻结门禁同一防守原则）。"""
@@ -351,6 +506,48 @@ class LoopbackBindingAssertionTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 webapp.main()
             mocked_run.assert_not_called()
+
+
+class StreamCacheBudgetTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.old_streams = dict(lb._STREAMS)
+        self.old_alias = dict(lb._STREAM_ALIAS)
+        self.old_per_stream = lb._STREAM_MAX_BYTES
+        self.old_total = lb._STREAM_TOTAL_MAX_BYTES
+        lb._STREAMS.clear()
+        lb._STREAM_ALIAS.clear()
+        lb._STREAM_MAX_BYTES = 16
+        lb._STREAM_TOTAL_MAX_BYTES = 24
+
+    def tearDown(self) -> None:
+        lb._STREAMS.clear()
+        lb._STREAMS.update(self.old_streams)
+        lb._STREAM_ALIAS.clear()
+        lb._STREAM_ALIAS.update(self.old_alias)
+        lb._STREAM_MAX_BYTES = self.old_per_stream
+        lb._STREAM_TOTAL_MAX_BYTES = self.old_total
+
+    def test_run_scoped_identity_and_byte_budgets(self) -> None:
+        first = lb._stream_open("conversation::model", "run-one")
+        second = lb._stream_open("conversation::model", "run-two")
+        self.assertNotEqual(first.key, second.key)
+        self.assertIs(lb._stream_find(first.key), first)
+        self.assertIs(lb._stream_find("conversation::model"), second)
+
+        first.publish("a" * 20)
+        second.publish("b" * 20)
+        self.assertLessEqual(len(first.buf), lb._STREAM_MAX_BYTES)
+        self.assertLessEqual(len(second.buf), lb._STREAM_MAX_BYTES)
+        self.assertLessEqual(sum(len(st.buf) for st in lb._STREAMS.values()), lb._STREAM_TOTAL_MAX_BYTES)
+        self.assertGreater(second.base_offset, 0)
+
+    def test_expired_byte_offset_returns_410(self) -> None:
+        stream = lb._stream_open("conversation", "run-expired")
+        stream.publish("x" * 20)
+        with TestClient(_make_app()) as client:
+            response = client.get(f"/v1/stream?conv_id={stream.key}&from=0")
+        self.assertEqual(response.status_code, 410)
+        self.assertEqual(response.json()["error"]["code"], "stream_offset_expired")
 
 
 if __name__ == "__main__":

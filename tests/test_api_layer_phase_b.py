@@ -16,7 +16,6 @@
 全部离线：不联网、不调真实模型。
 """
 from __future__ import annotations
-
 import os
 import sqlite3
 import sys
@@ -31,6 +30,7 @@ if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
 os.environ.setdefault("FORGE_TEST_MODE", "1")
+import runtime.execution as runtime_execution
 
 import code_exec  # noqa: E402  (需要先插好 sys.path)
 
@@ -51,7 +51,6 @@ def _tripwire(message: str = "格式不合规"):
     guardrail_result 时会退回 ``str(exc)``，所以只需要「它是该异常的子类」这一个属性。
     """
     import main as main_module
-
     class _Tripwire(main_module.OutputGuardrailTripwireTriggered):
         def __init__(self) -> None:
             Exception.__init__(self, message)
@@ -242,9 +241,9 @@ class SingleActiveRunTests(unittest.TestCase):
             ]
             return '{"kind":"answer","summary":"ok","content":"出发地已收到。"}'
 
-        orig = main_module.execute_turn
-        main_module.execute_turn = fake_execute_turn
-        self.addCleanup(setattr, main_module, "execute_turn", orig)
+        orig = runtime_execution.execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
+        self.addCleanup(setattr, runtime_execution, "execute_turn", orig)
         import asyncio
 
         asyncio.run(rt.run_turn("北京。", session_id="s_b4_flow"))
@@ -545,9 +544,9 @@ class ToolCallInstrumentationTests(unittest.TestCase):
 
         import main as main_module
 
-        orig = main_module.execute_turn
-        main_module.execute_turn = fake_execute_turn
-        self.addCleanup(setattr, main_module, "execute_turn", orig)
+        orig = runtime_execution.execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
+        self.addCleanup(setattr, runtime_execution, "execute_turn", orig)
         asyncio.run(rt.run_turn("跑一下", session_id="b7_ledger"))
 
         entries = captured.get("ledger") or []
@@ -568,13 +567,13 @@ class ToolTimeoutWiringTests(unittest.TestCase):
         import main as main_module
 
         self._main = main_module
-        self._orig_execute = main_module.execute_turn
+        self._orig_execute = runtime_execution.execute_turn
         from runtime.runner import AgentRuntime
 
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
 
     def tearDown(self) -> None:
-        self._main.execute_turn = self._orig_execute
+        runtime_execution.execute_turn = self._orig_execute
 
     def test_timeout_table_is_the_single_source(self) -> None:
         from runtime import spec
@@ -636,7 +635,7 @@ class ToolTimeoutWiringTests(unittest.TestCase):
             captured["ledger"] = list(rt._ledgers.get(rid, []))
             return '{"kind":"answer","summary":"x","content":"done"}'
 
-        self._main.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
 
         # 把超时压到 1 秒（唯一来源是 spec 表 + FORGE_TOOL_TIMEOUT 兜底）
         orig_table = dict(spec_mod.TOOL_TIMEOUT_SECONDS)
@@ -1118,10 +1117,10 @@ class FormatRerunBudgetTests(unittest.TestCase):
             return None
 
         with mock.patch.dict(os.environ, env), \
-                mock.patch.object(main_module, "_run_attempt", fake_attempt), \
-                mock.patch.object(main_module, "ensure_mcp", fake_ensure_mcp):
+                mock.patch.object(runtime_execution, "_run_attempt", fake_attempt), \
+                mock.patch.object(runtime_execution, "ensure_mcp", fake_ensure_mcp):
             with self.assertRaises(main_module.FinalResponseFailed):
-                _aio.run(main_module.execute_turn("stream", "写点东西"))
+                _aio.run(runtime_execution.execute_turn("stream", "写点东西"))
         return len(calls)
 
     def test_execute_turn_reruns_exactly_once_by_default(self) -> None:

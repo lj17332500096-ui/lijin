@@ -27,6 +27,7 @@ from unittest.mock import patch
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 import main as main_module
 from runtime.approval import ApprovalGate
@@ -268,7 +269,7 @@ class CompletionGateUnitTests(unittest.TestCase):
 
 
 class _FakeHarness:
-    """离线驱动 AgentRuntime.run_turn（fake main.execute_turn，真实 DB/状态机）。"""
+    """离线驱动 AgentRuntime.run_turn（fake runtime_execution.execute_turn，真实 DB/状态机）。"""
 
     def __init__(self, testcase: unittest.TestCase) -> None:
         self.tmp = Path(tempfile.mkdtemp(prefix="completion_run_"))
@@ -286,7 +287,7 @@ class _FakeHarness:
         self.calls: list[str] = []
         self.agent_tool_counts: list[int] = []
         self._main = main_module
-        self._orig_execute = main_module.execute_turn
+        self._orig_execute = runtime_execution.execute_turn
         self._saved_router = os.environ.get("TOOL_ROUTER")
         os.environ["TOOL_ROUTER"] = "off"  # 绕过工具子集克隆，让 fake 场景更确定
 
@@ -300,11 +301,11 @@ class _FakeHarness:
         return await self.fn(mode, message)
 
     def __enter__(self):
-        main_module.execute_turn = self._execute
+        runtime_execution.execute_turn = self._execute
         return self
 
     def __exit__(self, *exc) -> None:
-        main_module.execute_turn = self._orig_execute
+        runtime_execution.execute_turn = self._orig_execute
         if self._saved_router is None:
             os.environ.pop("TOOL_ROUTER", None)
         else:

@@ -16,6 +16,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 import main as main_module
 from runtime.approval import ApprovalGate
@@ -72,7 +73,7 @@ class _Harness:
         self.runtime.broker = object()
         self.runtime.artifact_dirs = (self.tmp / "notes",)
         (self.tmp / "notes").mkdir(exist_ok=True)
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         self._saved_router = os.environ.get("TOOL_ROUTER")
         os.environ["TOOL_ROUTER"] = "off"
         self.fn = None
@@ -81,11 +82,11 @@ class _Harness:
         return await self.fn(message)
 
     def __enter__(self):
-        main_module.execute_turn = self._execute
+        runtime_execution.execute_turn = self._execute
         return self
 
     def __exit__(self, *exc):
-        main_module.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
         if self._saved_router is None:
             os.environ.pop("TOOL_ROUTER", None)
         else:

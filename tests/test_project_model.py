@@ -2,7 +2,6 @@
 
 测试 7/8（记忆边界）验证 tools 层 binding：project_only 不得读到全局/其他项目；global 可读全局。
 """
-
 import asyncio
 import json
 import sys
@@ -14,6 +13,7 @@ from unittest.mock import patch
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 import tools as tools_mod
 from agents.tool_context import ToolContext
@@ -55,7 +55,7 @@ class ProjectModelTests(unittest.TestCase):
         async def fake(mode, message, session=None, debug=False, max_turns=20,
                        history_limit=None, agent=None, audit=None, stream_events_cb=None):
             return output
-        self._patcher = patch("main.execute_turn", new=fake)
+        self._patcher = patch("runtime_execution.execute_turn", new=fake)
         self._patcher.start()
         self.addCleanup(self._patcher.stop)
 

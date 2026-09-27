@@ -11,7 +11,6 @@
 全部离线：不联网、不调真实模型。
 """
 from __future__ import annotations
-
 import asyncio
 import json
 import os
@@ -23,6 +22,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 os.environ.setdefault("FORGE_TEST_MODE", "1")
+import runtime.execution as runtime_execution
 
 from runtime import public_activity as pa
 from runtime.approval import GATED_DEFAULT, SIDE_EFFECT_EXEMPT
@@ -260,13 +260,13 @@ class ToolValidationLedgerTests(unittest.TestCase):
         import main as main_module
 
         self._main = main_module
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         from runtime.runner import AgentRuntime
 
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
 
     def tearDown(self) -> None:
-        self._main.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
 
     def _install_tool_probe(self, tool_name: str, args_json: str) -> dict:
         captured: dict = {}
@@ -300,7 +300,7 @@ class ToolValidationLedgerTests(unittest.TestCase):
             captured["ledger"] = list(rt._ledgers.get(rid, []))
             return '{"kind":"answer","summary":"x","content":"done"}'
 
-        self._main.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
         return captured
 
     def test_missing_required_argument_is_recorded_as_error(self) -> None:
@@ -349,13 +349,13 @@ class ToolArgumentRedactionTests(unittest.TestCase):
         import main as main_module
 
         self._main = main_module
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         from runtime.runner import AgentRuntime
 
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
 
     def tearDown(self) -> None:
-        self._main.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
 
     def test_normalized_args_in_task_events_are_redacted(self) -> None:
         rt = self.runtime
@@ -378,7 +378,7 @@ class ToolArgumentRedactionTests(unittest.TestCase):
             )
             return '{"kind":"answer","summary":"x","content":"done"}'
 
-        self._main.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
         asyncio.run(rt.run_turn("跑段代码", session_id="phase_a_redact"))
 
         rid = captured.get("run_id")
@@ -406,7 +406,7 @@ class ToolArgumentRedactionTests(unittest.TestCase):
             captured["ledger"] = list(rt._ledgers.get(rid, []))
             return '{"kind":"answer","summary":"x","content":"done"}'
 
-        self._main.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
         asyncio.run(rt.run_turn("跑段代码", session_id="phase_a_redact2"))
 
         entries = captured.get("ledger") or []
@@ -426,13 +426,13 @@ class AbnormalExitTests(unittest.TestCase):
         import main as main_module
 
         self._main = main_module
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         from runtime.runner import AgentRuntime
 
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
 
     def tearDown(self) -> None:
-        self._main.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
 
     def test_base_exception_does_not_leave_run_running(self) -> None:
         """SystemExit 穿透时：Run 落 FAILED，且**不得**把进程退出信号带出 run_turn。
@@ -453,7 +453,7 @@ class AbnormalExitTests(unittest.TestCase):
             seen["run_id"] = getattr(_cur(), "run_id", None)
             raise SystemExit(3)
 
-        self._main.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
 
         async def _run():
             asyncio.get_running_loop().set_exception_handler(lambda _loop, _ctx: None)
@@ -504,7 +504,7 @@ class AbnormalExitTests(unittest.TestCase):
             seen["run_id"] = getattr(_cur(), "run_id", None)
             raise KeyboardInterrupt
 
-        self._main.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
 
         async def _run():
             asyncio.get_running_loop().set_exception_handler(lambda _loop, _ctx: None)

@@ -15,6 +15,7 @@ if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
 from runtime import tool_router as tr  # noqa: E402
+import runtime.execution as runtime_execution  # noqa: E402
 from runtime.spec import capability_of  # noqa: E402
 
 
@@ -136,14 +137,14 @@ class ExposureParityTests(unittest.IsolatedAsyncioTestCase):
 
         fake = _FakeRunner()
         sentinel_agent = object()
-        real = main_module.Runner
-        main_module.Runner = fake  # type: ignore[assignment]
+        real = runtime_execution.Runner
+        runtime_execution.Runner = fake  # type: ignore[assignment]
         try:
             for mode in ("sync", "async", "stream"):
-                await main_module._run_attempt(mode, "x", None, None, 1,
+                await runtime_execution._run_attempt(mode, "x", None, None, 1,
                                                agent=sentinel_agent)
         finally:
-            main_module.Runner = real  # type: ignore[assignment]
+            runtime_execution.Runner = real  # type: ignore[assignment]
         modes = [m for m, _ in fake.seen]
         self.assertEqual(sorted(modes), ["async", "stream", "sync"])
         self.assertTrue(all(a is sentinel_agent for _, a in fake.seen),

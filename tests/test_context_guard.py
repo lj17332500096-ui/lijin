@@ -1,4 +1,4 @@
-﻿# -*- coding: utf-8 -*-
+# -*- coding: utf-8 -*-
 """P0 第二阶段 Context Guard / Compact 接线测试（全部离线，真实 SQLiteSession）。
 
 覆盖（任务书 §34-44、54）：
@@ -24,6 +24,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 from runtime import compact
 import main as main_module
@@ -275,13 +276,13 @@ class RunTurnIntegrationTests(ContextEnvMixin, unittest.TestCase):
         self.runtime.tasks = self.manager
         self.runtime.approval = ApprovalGate(self.manager)
         self.runtime.broker = object()
-        self._orig_execute = main_module.execute_turn
+        self._orig_execute = runtime_execution.execute_turn
         self._saved_router = os.environ.get("TOOL_ROUTER")
         os.environ["TOOL_ROUTER"] = "off"
         self.last_agent = None
 
     def tearDown(self) -> None:
-        main_module.execute_turn = self._orig_execute
+        runtime_execution.execute_turn = self._orig_execute
         if self._saved_router is None:
             os.environ.pop("TOOL_ROUTER", None)
         else:
@@ -295,7 +296,7 @@ class RunTurnIntegrationTests(ContextEnvMixin, unittest.TestCase):
             return json.dumps({"kind": "answer", "summary": "ok", "content": reply_text,
                                "questions": [], "saved_file": None, "next_step": None},
                               ensure_ascii=False)
-        main_module.execute_turn = fake_execute
+        runtime_execution.execute_turn = fake_execute
 
     def _run(self, message: str, session, **kw) -> RunResult:
         return self.go(self.runtime.run_turn(message, session=session, session_id="unit",

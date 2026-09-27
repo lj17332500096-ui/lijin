@@ -1,4 +1,4 @@
-﻿import asyncio
+import asyncio
 import sys
 import tempfile
 import unittest
@@ -7,6 +7,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 from runtime.errors import AgentError
 from runtime.runner import AgentRuntime
@@ -284,11 +285,11 @@ class RuntimeRunTurnTests(unittest.TestCase):
         import main as main_module
 
         self._main = main_module
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
 
     def tearDown(self) -> None:
-        self._main.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
 
     def _install_fake(self, result: object = "fake-ok", error: Exception | None = None):
         async def fake_execute_turn(
@@ -299,7 +300,7 @@ class RuntimeRunTurnTests(unittest.TestCase):
                 raise error
             return result
 
-        self._main.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = fake_execute_turn
 
     def test_success_creates_completed_task(self) -> None:
         self._install_fake(result='{"kind":"answer","summary":"好","content":"OK"}')

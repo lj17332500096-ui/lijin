@@ -11,6 +11,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 import main as main_module
 from runtime.approval import ApprovalGate
@@ -31,7 +32,7 @@ class ModelSelectHarness:
         self.runtime.broker = object()
         self.testcase = testcase
         self.captured = {}
-        self._orig_exec = main_module.execute_turn
+        self._orig_exec = runtime_execution.execute_turn
         self._saved_env = {k: os.environ.get(k) for k in (
             "FORGE_LOCAL_MODEL_NAME", "FORGE_LOCAL_MODEL_BASE_URL",
             "FORGE_LOCAL_MODEL_API_KEY", "FORGE_MODEL_PREF", "TOOL_ROUTER")}
@@ -53,10 +54,10 @@ class ModelSelectHarness:
                                "questions": [], "saved_file": None, "next_step": None},
                               ensure_ascii=False)
 
-        main_module.execute_turn = fake_execute
+        runtime_execution.execute_turn = fake_execute
 
     def close(self):
-        main_module.execute_turn = self._orig_exec
+        runtime_execution.execute_turn = self._orig_exec
         for k, v in self._saved_env.items():
             if v is None:
                 os.environ.pop(k, None)

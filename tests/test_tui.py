@@ -626,6 +626,75 @@ def test_case_f_tool_tree():
     asyncio.run(_run())
 
 
+def test_running_turn_locks_input_and_escape_calls_runtime_cancel():
+    """运行中不能启动第二个共享状态 Run；Escape 必须请求 Runtime 取消。"""
+    from types import SimpleNamespace
+
+    async def _run():
+        app = ForgeTuiApp(session_name="cancel-lock", auto_summary=False)
+        release = asyncio.Event()
+
+        class FakeRuntime:
+            _active_run_id = "run-cancel-lock"
+
+            def __init__(self):
+                self.calls = 0
+                self.cancelled = []
+
+            async def run_turn(self, goal, **kwargs):
+                self.calls += 1
+                await release.wait()
+                return SimpleNamespace(
+                    waiting_approval=False, final_output="完成", ok=True,
+                    error="", artifacts=[], elapsed_seconds=0.01,
+                )
+
+            def cancel_run(self, run_id):
+                self.cancelled.append(run_id)
+                return True
+
+        runtime = FakeRuntime()
+        app._chat_app = SimpleNamespace(
+            runtime=runtime, session=object(), session_name="cancel-lock", mode="async",
+            debug=False, max_turns=2, history_limit=None, auto_summary=False,
+        )
+        async with app.run_test() as pilot:
+            await pilot.pause(0.05)
+            app._submit_text("第一条")
+            await pilot.pause(0.05)
+            assert app._bar().input.disabled is True
+
+            app._submit_text("第二条")
+            assert runtime.calls == 1
+
+            app._on_key_press("escape")
+            await pilot.pause(0.1)
+            assert runtime.cancelled == ["run-cancel-lock"]
+
+            release.set()
+            await pilot.pause(0.1)
+            assert app._bar().input.disabled is False
+
+    asyncio.run(_run())
+
+
+def test_persist_env_uses_project_root_not_current_directory(tmp_path, monkeypatch):
+    import runtime_paths
+
+    project = tmp_path / "project"
+    launch_dir = tmp_path / "elsewhere"
+    project.mkdir()
+    launch_dir.mkdir()
+    monkeypatch.setattr(runtime_paths, "PROJECT_ROOT", project)
+    monkeypatch.chdir(launch_dir)
+
+    app = ForgeTuiApp(session_name="dotenv-path")
+    app._persist_env_to_dotenv({"FORGE_TEST_SETTING": "value"})
+
+    assert (project / ".env").read_text(encoding="utf-8") == "FORGE_TEST_SETTING=value\n"
+    assert not (launch_dir / ".env").exists()
+
+
 def test_inspector_open_close_focus():
     """Ctrl+O 打开 Inspector，Esc 关闭后 focus 回到 InputBar。"""
 

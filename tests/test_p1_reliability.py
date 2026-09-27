@@ -16,6 +16,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 import main as main_module
 import tools as tools_mod
@@ -268,12 +269,12 @@ class AuditBackfillTests(unittest.TestCase):
         self.runtime.tasks = self.manager
         self.runtime.approval = ApprovalGate(self.manager)
         self.runtime.broker = object()
-        self._orig_execute = main_module.execute_turn
+        self._orig_execute = runtime_execution.execute_turn
         self._saved_router = os.environ.get("TOOL_ROUTER")
         os.environ["TOOL_ROUTER"] = "off"
 
     def tearDown(self) -> None:
-        main_module.execute_turn = self._orig_execute
+        runtime_execution.execute_turn = self._orig_execute
         if self._saved_router is None:
             os.environ.pop("TOOL_ROUTER", None)
         else:
@@ -292,7 +293,7 @@ class AuditBackfillTests(unittest.TestCase):
                  "status": "error", "output_head": "SyntaxError"})
             raise RuntimeError("boom after partial work")
 
-        main_module.execute_turn = fake
+        runtime_execution.execute_turn = fake
         result = asyncio.run(self.runtime.run_turn(
             "写文件并运行", session_id="unit", mode="sync"))
         self.assertFalse(result.ok)

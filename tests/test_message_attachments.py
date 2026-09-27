@@ -3,7 +3,6 @@
 覆盖：附件不入 Sources / 不跨消息长期化 / promote→Source 去重 / 引用不复制 /
 多附件 / 删除未绑定附件 / 重启持久 / 产物独立 / Context 注入当前附件优先。
 """
-
 import asyncio
 import json
 import sys
@@ -15,6 +14,7 @@ from unittest.mock import patch
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 from runtime.runner import AgentRuntime
 from runtime.task_manager import TaskManager
@@ -181,7 +181,7 @@ class AttachmentContextTests(unittest.TestCase):
                        provider=None):
             self.captured.append(str(getattr(agent, "instructions", "") or ""))
             return '{"kind":"answer","summary":"s","content":"ok"}'
-        self._patcher = patch("main.execute_turn", new=fake)
+        self._patcher = patch("runtime_execution.execute_turn", new=fake)
         self._patcher.start()
         self.addCleanup(self._patcher.stop)
 

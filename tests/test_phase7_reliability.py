@@ -6,7 +6,6 @@
 - 实时事实 → 暴露实时检索工具；
 - 明确无需工具 → 0 工具。
 """
-
 import asyncio
 import json
 import os
@@ -16,6 +15,7 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import runtime.execution as runtime_execution
 
 import main as main_module  # noqa: E402
 from runtime.readiness_gate import (  # noqa: E402
@@ -65,13 +65,13 @@ class DeterministicNeedsUserInputTests(unittest.TestCase):
     def setUp(self):
         self._tmp = Path(tempfile.mkdtemp(prefix="p7_rel_"))
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
 
     def tearDown(self):
-        main_module.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
 
     def _run(self, message, fake):
-        main_module.execute_turn = fake
+        runtime_execution.execute_turn = fake
         return asyncio.run(self.runtime.run_turn(message, session_id="unit", mode="async"))
 
     def test_deploy_prompt_pauses_waiting_user(self):

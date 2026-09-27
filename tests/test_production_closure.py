@@ -12,6 +12,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 from runtime.approval import ApprovalGate
 from runtime.errors import AgentError
@@ -45,7 +46,7 @@ class CancelSemanticsTests(unittest.TestCase):
 
         if _ORIG_EXECUTE_TURN is not None:
             try:
-                _main_mod.execute_turn = _ORIG_EXECUTE_TURN
+                _runtime_execution.execute_turn = _ORIG_EXECUTE_TURN
             except Exception:
                 pass
         shutil.rmtree(self.tmp, ignore_errors=True)
@@ -66,7 +67,7 @@ class CancelSemanticsTests(unittest.TestCase):
 
         import main as main_mod
 
-        main_mod.execute_turn = _fake_execute_turn
+        runtime_execution.execute_turn = _fake_execute_turn
         return runtime
 
     def test_explicit_cancel_stops_execution_and_lands_cancelled(self):
@@ -120,7 +121,7 @@ class CancelSemanticsTests(unittest.TestCase):
 
         import main as main_mod
 
-        main_mod.execute_turn = _fake2
+        runtime_execution.execute_turn = _fake2
         from runtime.runner import AgentRuntime
 
         runtime = AgentRuntime(db_path=str(self.tmp / "agent.db"))

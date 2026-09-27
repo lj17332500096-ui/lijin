@@ -1,5 +1,4 @@
 """Phase 10 —— Exact Redundant Evidence Guard + Completion-Ready Guard（确定性）。"""
-
 import asyncio
 import json
 import os
@@ -10,6 +9,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import runtime.execution as runtime_execution
 
 import main as main_module  # noqa: E402
 from runtime.errors import CompletionReadyTerminated  # noqa: E402
@@ -204,14 +204,14 @@ class CompletionReadyRunTurnTests(unittest.TestCase):
     def setUp(self):
         self._tmp = Path(tempfile.mkdtemp(prefix="p10_"))
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         # 集成层只测异常收口；义务门判定由 tests/test_obligation_gate.py 独立覆盖。
         gate_off = patch.dict(os.environ, {"FORGE_OBLIGATION_GATE": "off"})
         gate_off.start()
         self.addCleanup(gate_off.stop)
 
     def tearDown(self):
-        main_module.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
 
     def test_completion_ready_terminated_finalizes_completed(self):
         # CompletionReadyTerminated 的语义是"runtime 判定已可收口"。义务门已在
@@ -219,7 +219,7 @@ class CompletionReadyRunTurnTests(unittest.TestCase):
         async def fake(mode, message, **kw):
             raise CompletionReadyTerminated("completion_ready")
 
-        main_module.execute_turn = fake
+        runtime_execution.execute_turn = fake
         result = asyncio.run(self.runtime.run_turn("修好这个 bug", session_id="unit", mode="async"))
         self.assertTrue(result.ok)
         self.assertEqual(result.task.state, TaskState.COMPLETED)

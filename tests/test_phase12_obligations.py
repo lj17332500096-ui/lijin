@@ -1,11 +1,11 @@
 """Phase 12 —— 三态 Obligation Detection（M1–M8）+ Verification Due（确定性，无需模型）。"""
-
 import os
 import sys
 import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import runtime.execution as runtime_execution
 
 from runtime.completion import extract_obligations  # noqa: E402
 from runtime.runctx import RunContext  # noqa: E402
@@ -101,14 +101,14 @@ class CompletionObligationGateTests(unittest.TestCase):
         from runtime.runner import AgentRuntime
 
         self._main = main_module
-        self._orig = main_module.execute_turn
+        self._orig = runtime_execution.execute_turn
         self._tmp = tempfile.mkdtemp(prefix="p12_gate_")
         self.runtime = AgentRuntime(db_path=str(Path(self._tmp) / "agent.db"))
         self._saved = os.environ.get("FORGE_OBLIGATION_GATE")
         os.environ["FORGE_OBLIGATION_GATE"] = "on"
 
     def tearDown(self):
-        self._main.execute_turn = self._orig
+        runtime_execution.execute_turn = self._orig
         if self._saved is None:
             os.environ.pop("FORGE_OBLIGATION_GATE", None)
         else:
@@ -123,7 +123,7 @@ class CompletionObligationGateTests(unittest.TestCase):
                                 "questions": [], "saved_file": None, "next_step": None},
                                ensure_ascii=False)
 
-        self._main.execute_turn = fake
+        runtime_execution.execute_turn = fake
         result = asyncio.run(self.runtime.run_turn(
             "修复 calc.py 的 add 函数并运行测试确认通过。", session_id="unit", mode="async"))
         # 未满足 mutation+verification 义务 → 不得 completed

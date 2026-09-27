@@ -284,13 +284,19 @@ def api_slots(request: Request) -> Response:
 
 
 def api_models_load(request: Request) -> Response:
-    """POST /models/load —— 模型加载端点（适配层无本地模型，返回成功占位）。"""
-    return JSONResponse({"success": True, "message": "managed model load stub"})
+    """模型由 Agent Provider 管理；此兼容端点不支持加载模型。"""
+    return JSONResponse({
+        "success": False, "status": "unsupported", "operation": "load",
+        "message": "模型生命周期由 Agent Provider 管理；该接口未执行加载。",
+    }, status_code=501)
 
 
 def api_models_unload(request: Request) -> Response:
-    """POST /models/unload —— 模型卸载端点（适配层无本地模型，返回成功占位）。"""
-    return JSONResponse({"success": True, "message": "managed model unload stub"})
+    """模型由 Agent Provider 管理；此兼容端点不支持卸载模型。"""
+    return JSONResponse({
+        "success": False, "status": "unsupported", "operation": "unload",
+        "message": "模型生命周期由 Agent Provider 管理；该接口未执行卸载。",
+    }, status_code=501)
 
 
 def api_models_sse(request: Request) -> Response:
@@ -372,6 +378,12 @@ async def api_stream_resume(request: Request) -> Response:
         offset = int(float(raw_from))
     except (TypeError, ValueError):
         offset = 0
+    if offset < st.base_offset:
+        return _error(
+            request, 410, "该流的早期字节已超出缓存预算，无法从请求偏移继续。",
+            code="stream_offset_expired", conv_id=key,
+            earliest_offset=st.base_offset,
+        )
 
     async def gen():
         async for chunk in st.read_from(offset):
@@ -403,31 +415,30 @@ async def api_tools_execute(request) -> Response:
     if not tool or not isinstance(tool, str):
         return _error(request, 400, "缺少 tool 字段（需为非空字符串）", code="missing_tool")
 
-    # ④ 写工具审批门：命中 ApprovalGate 的工具不直接执行，返回「需审批」状态。
+    # Direct calls are only a read-only compatibility path. Mutations must enter
+    # through run_turn so RunContext, approval, state, and write-ahead evidence agree.
     gate = _approval_gate()
-    if gate is not None and gate.should_gate(tool):
-        # 前端确认语义：body.confirmation_token 与本轮登记的 pending 匹配才放行
-        # （与 run_turn 内部审批流一致；此处仅阻断「无人值守静默写盘」）
-        #
-        # 2026-09-22（API 接口层审计）：原先只回 {"approval_required":..., "approval":...}，
-        # 而 bundle 中 `approval_required` 与 `approval` 的命中数**均为 0** —— 前端根本没有
-        # 这个分支，只能落到 executeTool 的兜底 `JSON.stringify(a)`，用户看到一坨原始 JSON。
-        # 这里补一条 `error` **字符串**：前端 `kb.ERROR` 分支会 `String(a.error)` 并标红，
-        # 「被阻断」于是有了可读反馈。`error` 只能是字符串——传对象会被渲染成 `[object Object]`。
-        # 该分支仍保留 approval_required/approval，供实现了该语义的调用方使用。
-        reason = "该操作风险较高，需用户确认后才执行"
-        return JSONResponse({
-            "error": f"工具 {tool} 未执行：{reason}（状态：待审批）",
-            "approval_required": True,
-            "approval": {"tool": tool, "reason": reason, "status": "pending"},
-        }, status_code=200)
+    try:
+        binding = rt.registry.get(tool)
+    except Exception:
+        return _error(request, 404, f"未知工具：{tool}", code="tool_not_found")
+    if binding.spec.side_effect or (gate is not None and gate.should_gate(tool)):
+        reason = f"工具 {tool} 不能通过直调接口执行；请通过完整 Agent 对话发起该操作。"
+        return _error(request, 409, reason, code="tool_requires_agent_run")
 
     try:
-        result = await rt.broker.execute(tool, params)
+        invocation = await rt.execute_readonly_api_tool(
+            tool, params, session_id=f"api-tool-{_user_id_from_request(request, body)}",
+            user_id=_user_id_from_request(request, body),
+        )
     except Exception as e:
         # 200 + plain_text_response：成功与失败都走文本结果，保持前端既有契约。
         return JSONResponse({"plain_text_response": f"工具执行失败：{type(e).__name__}: {e}"}, status_code=200)
-    return JSONResponse({"plain_text_response": result or ""})
+    return JSONResponse({
+        "plain_text_response": invocation.get("result") or "",
+        "run_id": invocation.get("run_id"),
+        "execution_status": invocation.get("execution_status"),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -493,7 +504,21 @@ async def _run_chat_turn(message: str, payload: dict, request: Request | None, u
             )
             content, kind = _assistant_parts(res.final_output)
             state = res.task.state.value if res.task else "completed"
-            queue.put_nowait(("__end__", {"content": content, "kind": kind, "state": state, "ok": res.ok, "error": res.error}))
+            model_calls = rt.tasks.list_model_calls(res.task.id) if res.task and rt.tasks else []
+            successful_calls = [call for call in model_calls if call.get("status") in ("ok", "success", "succeeded")]
+            usage = None
+            if model_calls:
+                usage = {
+                    "prompt_tokens": sum(int(call.get("input_tokens") or 0) for call in model_calls),
+                    "completion_tokens": sum(int(call.get("output_tokens") or 0) for call in model_calls),
+                }
+                usage["total_tokens"] = usage["prompt_tokens"] + usage["completion_tokens"]
+            actual_model = next((call.get("model") for call in reversed(successful_calls)
+                                 if call.get("model")), None) or model
+            queue.put_nowait(("__end__", {
+                "content": content, "kind": kind, "state": state, "ok": res.ok,
+                "error": res.error, "model": actual_model, "usage": usage,
+            }))
         except Exception as e:
             queue.put_nowait(("__error__", {"error": f"{type(e).__name__}: {e}"}))
         finally:
@@ -534,6 +559,8 @@ def _assistant_parts(final_output):
 # 订阅者。POST 被 cancel、页面刷新、稍后再连，都能按字节偏移续读。
 _STREAM_RETENTION_SECONDS = 300.0   # 已结束的流保留时长（供迟到续读回放）
 _STREAM_MAX_ENTRIES = 64            # 最多保留的会话数（防内存无界增长）
+_STREAM_MAX_BYTES = 4 * 1024 * 1024
+_STREAM_TOTAL_MAX_BYTES = 32 * 1024 * 1024
 _STREAMS: dict[str, "_ConvStream"] = {}
 _STREAM_ALIAS: dict[str, str] = {}  # 裸 conv 前缀 → 实际 key（容忍 ::model 差异）
 _STREAM_LOCK = threading.Lock()
@@ -543,7 +570,7 @@ _PUMP_TASKS: set[asyncio.Task] = set()
 class _ConvStream:
     """单个会话的 SSE 字节缓冲，支持从任意字节偏移续读。"""
 
-    __slots__ = ("key", "run_id", "started_at", "buf", "done", "closed_at",
+    __slots__ = ("key", "run_id", "started_at", "buf", "base_offset", "done", "closed_at",
                  "_version", "_tick")
 
     def __init__(self, key: str, run_id: str) -> None:
@@ -551,6 +578,7 @@ class _ConvStream:
         self.run_id = run_id
         self.started_at = time.time()
         self.buf = bytearray()
+        self.base_offset = 0
         self.done = False
         self.closed_at: float | None = None
         self._version = 0
@@ -561,8 +589,15 @@ class _ConvStream:
     def publish(self, frame: str) -> None:
         if not frame:
             return
-        self.buf += frame.encode("utf-8")
-        self._version += 1
+        payload = frame.encode("utf-8")
+        with _STREAM_LOCK:
+            self.buf.extend(payload)
+            overflow = max(0, len(self.buf) - _STREAM_MAX_BYTES)
+            if overflow:
+                del self.buf[:overflow]
+                self.base_offset += overflow
+            _stream_enforce_byte_budget_locked()
+            self._version += 1
         self._tick.set()
 
     def finish(self) -> None:
@@ -575,23 +610,48 @@ class _ConvStream:
 
     async def read_from(self, offset: int):
         """async generator：先回放 offset 之后的存量字节，再跟随新字节直到流结束。"""
-        pos = max(0, min(int(offset or 0), len(self.buf)))
+        pos = max(self.base_offset, min(int(offset or 0), self.base_offset + len(self.buf)))
         while True:
-            if pos < len(self.buf):
-                chunk = bytes(self.buf[pos:])
-                pos = len(self.buf)
+            if pos < self.base_offset:
+                payload = json.dumps({
+                    "error": {"code": "stream_truncated",
+                              "message": "流缓存已超过字节预算，早期输出无法恢复。"},
+                    "earliest_offset": self.base_offset,
+                }, ensure_ascii=False)
+                yield f"event: error\ndata: {payload}\n\n".encode("utf-8")
+                return
+            end = self.base_offset + len(self.buf)
+            if pos < end:
+                start = max(0, pos - self.base_offset)
+                chunk = bytes(self.buf[start:])
+                pos = end
                 yield chunk
                 continue
             if self.done:
                 return
             version = self._version
             # 清事件前再确认一次，避免 clear/wait 之间丢通知导致永久挂起。
-            if pos < len(self.buf) or self.done or self._version != version:
+            if pos < self.base_offset + len(self.buf) or self.done or self._version != version:
                 continue
             self._tick.clear()
-            if pos < len(self.buf) or self.done or self._version != version:
+            if pos < self.base_offset + len(self.buf) or self.done or self._version != version:
                 continue
             await self._tick.wait()
+
+
+def _stream_enforce_byte_budget_locked() -> None:
+    """Trim oldest cached bytes, never silently evict a live stream object."""
+    total = sum(len(st.buf) for st in _STREAMS.values())
+    if total <= _STREAM_TOTAL_MAX_BYTES:
+        return
+    for st in sorted(_STREAMS.values(), key=lambda item: item.started_at):
+        if total <= _STREAM_TOTAL_MAX_BYTES:
+            break
+        remove = min(len(st.buf), total - _STREAM_TOTAL_MAX_BYTES)
+        if remove:
+            del st.buf[:remove]
+            st.base_offset += remove
+            total -= remove
 
 
 def _base_conv_key(key: str) -> str:
@@ -632,23 +692,25 @@ def _stream_prune_locked() -> None:
         for st in finished[:overflow]:
             _STREAMS.pop(st.key, None)
         overflow = len(_STREAMS) - _STREAM_MAX_ENTRIES
-        if overflow > 0:
-            oldest = sorted(_STREAMS.values(), key=lambda s: s.started_at)[:overflow]
-            for st in oldest:
-                _STREAMS.pop(st.key, None)
+        # Never evict an active stream merely to satisfy the entry target; byte
+        # budgets bound payload memory and active stream IDs remain resumable.
     for base, key in list(_STREAM_ALIAS.items()):
         if key not in _STREAMS:
             _STREAM_ALIAS.pop(base, None)
 
 
 def _stream_open(key: str, run_id: str) -> _ConvStream:
-    st = _ConvStream(key or f"anon::{run_id}", run_id)
+    base_key = key or "anon"
+    stable_key = f"{base_key}::run:{run_id}"
+    st = _ConvStream(stable_key, run_id)
     with _STREAM_LOCK:
         _stream_prune_locked()
         _STREAMS[st.key] = st
-        base = _base_conv_key(st.key)
+        base = _base_conv_key(base_key)
         if base:
             _STREAM_ALIAS[base] = st.key
+        if base_key:
+            _STREAM_ALIAS[base_key] = st.key
     return st
 
 
@@ -758,7 +820,14 @@ async def api_chat_completions(request) -> Response:
         return bad
     message = _last_user_message(payload)
     stream = bool(payload.get("stream"))
-    model = payload.get("model") or _model_name()
+    model = _model_name()
+    requested_model = str(payload.get("model") or "").strip()
+    if requested_model and requested_model != model:
+        return _error(
+            request, 400,
+            f"请求模型 {requested_model} 未配置为当前模型；当前 API 模型别名为 {model}。",
+            code="model_not_configured",
+        )
 
     # ① session 按用户隔离：从请求头 / body 提取 user_id
     user = _user_id_from_request(request, payload)
@@ -766,25 +835,28 @@ async def api_chat_completions(request) -> Response:
     run_id, session_id, queue, bg_task = await _run_chat_turn(message, payload, request, user)
 
     if not stream:
-        # 非流式：等终态
+        # 非流式：等终态事件。RunActivityProjector 会先发 run.started 等活动事件，
+        # 因此不能把队列首项当作结果；仅 __end__/__error__ 才是本轮终态。
         await bg_task
-        end = queue.get_nowait()
-        # 队列里可能残留事件，排空
-        while not queue.empty():
-            queue.get_nowait()
-        name, ev = end
+        name = ""
+        ev = {}
+        while True:
+            name, ev = await queue.get()
+            if name in ("__end__", "__error__"):
+                break
         if name == "__error__":
             # 统一错误信封（C3）：run 内部异常 → 500 + retryable。
             return _error(request, 500, ev["error"], code="run_failed",
                           err_type="server_error", retryable=True)
         content = ev.get("content") or ""
         kind = ev.get("kind", "answer")
+        effective_model = ev.get("model") or model
         # ④ 审批门：若本轮需要审批，在 content 里带上标记让前端处理
         body = {
             "id": run_id,
             "object": "chat.completion",
             "created": int(time.time()),
-            "model": model,
+            "model": effective_model,
             "choices": [
                 {
                     "index": 0,
@@ -792,8 +864,9 @@ async def api_chat_completions(request) -> Response:
                     "finish_reason": "stop",
                 },
             ],
-            "usage": {"prompt_tokens": 0, "completion_tokens": len(content), "total_tokens": len(content)},
         }
+        if isinstance(ev.get("usage"), dict):
+            body["usage"] = ev["usage"]
         if kind in ("needs_approval", "approval_required"):
             body["choices"][0]["finish_reason"] = "tool_calls"
             body["choices"][0]["message"]["approval_required"] = True
@@ -857,7 +930,8 @@ async def api_chat_completions(request) -> Response:
             yield chunk
 
     return StreamingResponse(gen(), media_type="text/event-stream",
-                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no",
+                                      "X-Forge-Stream-ID": conv_stream.key})
 
 
 # ---------------------------------------------------------------------------

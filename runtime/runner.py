@@ -2385,6 +2385,88 @@ class AgentRuntime:
         except Exception:
             return False
 
+    async def execute_readonly_api_tool(
+        self, tool_name: str, arguments: dict[str, Any], *, session_id: str,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
+        """Execute an explicitly read-only API tool under a durable RunContext.
+
+        The public `/tools` compatibility route is intentionally limited to tools
+        declared read-only and outside the approval policy. Mutations must enter
+        through `run_turn`, where user intent, approval, and write-ahead evidence
+        are collected as one workflow.
+        """
+        self._ensure()
+        assert self.tasks is not None and self.broker is not None and self.approval is not None
+        binding = self.registry.get(tool_name)
+        if binding.spec.side_effect or self.approval.should_gate(tool_name):
+            raise PermissionError(
+                f"{tool_name} 不能通过直接工具接口执行；请通过完整 Agent 对话发起并完成审批。"
+            )
+
+        from runtime.task import TaskState
+        from runtime.runctx import RunContext, bind as bind_runctx, reset as reset_runctx
+        from runtime.filescope import build_file_scope
+        from runtime_paths import PROJECT_ROOT
+        from tools import WORKSPACE_ROOT
+
+        task = self.tasks.create_task(
+            session_id=session_id,
+            goal=f"API read-only tool invocation: {tool_name}",
+            metadata={"channel": "api-tool", "user_id": user_id or ""},
+        )
+        task = self.tasks.transition(task.id, TaskState.RUNNING, reason="api_tool_started")
+        container_id = self.tasks.get_run_container_id(task.id)
+        project = self.tasks.get_container(container_id) if container_id else None
+        work_location = None
+        if project and project.get("work_location_id"):
+            work_location = self.tasks.get_work_location(project["work_location_id"])
+        scope = build_file_scope(
+            container_id=container_id,
+            session_id=session_id,
+            work_location_path=(work_location or {}).get("local_path"),
+            base_dir=PROJECT_ROOT,
+            workspace_root=WORKSPACE_ROOT,
+            notes_dir=PROJECT_ROOT / "notes",
+        )
+        self._ledgers[task.id] = []
+        self.approval.begin(task.id, channel="api")
+        context = RunContext(
+            run_id=task.id,
+            container_id=container_id,
+            session_id=session_id,
+            channel="api",
+            memory_scope=(project or {}).get("memory_scope"),
+            request_text=f"Explicit read-only API invocation: {tool_name} {json.dumps(arguments, ensure_ascii=False)}",
+            file_scope=scope,
+        )
+        token = bind_runctx(context)
+        self.tasks.add_event(task.id, "run.started", {"run_id": task.id, "channel": "api-tool"})
+        try:
+            result = await self.broker.execute(
+                tool_name, arguments, tool_call_id=f"api-{uuid.uuid4().hex}"
+            )
+            ledger = self._ledgers.get(task.id, [])
+            last = ledger[-1] if ledger else {}
+            status = last.get("status", "executed")
+            self.tasks.add_event(task.id, "run.completed", {
+                "run_id": task.id, "tool": tool_name, "execution_status": status,
+            })
+            self.tasks.transition(task.id, TaskState.COMPLETED, reason="api_tool_completed")
+            return {"run_id": task.id, "result": result, "execution_status": status}
+        except BaseException as exc:
+            if isinstance(exc, asyncio.CancelledError):
+                self.tasks.transition(task.id, TaskState.CANCELLED, reason="api_tool_cancelled")
+            else:
+                self.tasks.add_event(task.id, "run.failed", {
+                    "run_id": task.id, "error": f"{type(exc).__name__}: {exc}"[:500],
+                })
+                self.tasks.transition(task.id, TaskState.FAILED, reason="api_tool_failed")
+            raise
+        finally:
+            reset_runctx(token)
+            self.approval.clear_run(task.id)
+
     async def run_turn(
         self,
         message: str,
@@ -3190,7 +3272,7 @@ class AgentRuntime:
         # ------------------------------------------------------------------
         # 执行（含最多 1 次 Completion Repair）
         # ------------------------------------------------------------------
-        from main import execute_turn  # 延迟导入，避免循环
+        from runtime.execution import execute_turn  # Provider/SDK adapter lives below the Runtime boundary
 
         completion_gate = CompletionGate()
         gate_verdict: GateVerdict = GateVerdict.PASS

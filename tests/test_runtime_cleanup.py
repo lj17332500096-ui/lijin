@@ -12,6 +12,7 @@ from pathlib import Path
 BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
+import runtime.execution as runtime_execution
 
 from runtime import compact
 import main as main_module
@@ -189,8 +190,8 @@ class StateConsistencyTests(unittest.TestCase):
                 return json.dumps({"kind": "answer", "summary": "s", "content": "x",
                                    "questions": [], "saved_file": None, "next_step": None})
 
-            orig = main_module.execute_turn
-            main_module.execute_turn = slow_execute
+            orig = runtime_execution.execute_turn
+            runtime_execution.execute_turn = slow_execute
             runtime = AgentRuntime(db_path=str(self.tmp / "agent.db"))
             runtime._initialized = True
             runtime._tools_patched = True
@@ -200,7 +201,7 @@ class StateConsistencyTests(unittest.TestCase):
             try:
                 result = asyncio.run(runtime.run_turn("x", session_id="s1", mode="sync"))
             finally:
-                main_module.execute_turn = orig
+                runtime_execution.execute_turn = orig
             # env=1s 大于 fake 执行时间 → 正常完成（证明 env 已接入预算路径而未破坏）
             self.assertTrue(result.ok)
         finally:
