@@ -64,21 +64,21 @@ from cli.tui.panels import (
 
 # ── 斜杠命令静态列表（与 cli/commands.py build_registry 同步）──────
 _SLAH_COMMANDS: list[tuple[str, str]] = [
-    ("/api", "Open API/gateway settings"),
-    ("/help", "Show available commands"),
-    ("/sessions", "List sessions (recent first)"),
-    ("/new", "Create and switch to new session"),
-    ("/switch", "Switch session"),
-    ("/history", "Show recent messages"),
-    ("/last", "Show last assistant reply"),
-    ("/compact", "Compact conversation (auto summary)"),
-    ("/clear", "Clear current session messages"),
-    ("/artifacts", "List artifacts"),
-    ("/tools", "Show recent tool calls"),
-    ("/diag", "Diagnose latest run"),
-    ("/debug", "Toggle debug event printing"),
-    ("/mode", "Switch execution mode"),
-    ("/exit", "Quit CLI"),
+    ("/api", "打开 API 与网关设置"),
+    ("/help", "查看可用命令"),
+    ("/sessions", "按最近使用顺序列出会话"),
+    ("/new", "创建并切换到新会话"),
+    ("/switch", "切换会话"),
+    ("/history", "查看最近消息"),
+    ("/last", "查看上一条助手回复"),
+    ("/compact", "压缩对话并自动生成摘要"),
+    ("/clear", "清空当前会话消息"),
+    ("/artifacts", "列出生成的文件"),
+    ("/tools", "查看最近的工具调用"),
+    ("/diag", "诊断最近一次运行"),
+    ("/debug", "切换调试事件输出"),
+    ("/mode", "切换执行模式"),
+    ("/exit", "退出命令行界面"),
 ]
 
 
@@ -94,8 +94,8 @@ class InspectorScreen(Screen):
     """
 
     BINDINGS = [
-        Binding("ctrl+o", "close_inspector", "Close"),
-        Binding("escape", "close_inspector", "Close"),
+        Binding("ctrl+o", "close_inspector", "关闭"),
+        Binding("escape", "close_inspector", "关闭"),
     ]
 
     CSS = """
@@ -127,18 +127,18 @@ class InspectorScreen(Screen):
 
     def compose(self) -> ComposeResult:
         with Vertical(classes="inspector-panel"):
-            yield Label("◆ FORGE — Inspector", classes="inspector-title")
-            yield Static(f"  run_id: {self._data.get('run_id', '—')}", classes="inspector-row")
-            yield Static(f"  model:  {self._data.get('model', '—')}", classes="inspector-row")
-            yield Static(f"  state:  {self._data.get('state', '—')}", classes="inspector-row")
-            yield Static(f"  elapsed:{self._data.get('elapsed', '—')}", classes="inspector-row")
-            yield Static(f"  tokens: {self._data.get('tokens', '—')}", classes="inspector-row")
-            yield Static(f"  cwd:    {self._data.get('cwd', '—')}", classes="inspector-row")
-            yield Static(f"  tools:  {self._data.get('tools', [])}", classes="inspector-row")
-            yield Static("  ── 事件时间线（最近 5 条）────────────", classes="inspector-row")
+            yield Label("◆ FORGE · 运行检查", classes="inspector-title")
+            yield Static(f"  运行编号：{self._data.get('run_id', '—')}", classes="inspector-row")
+            yield Static(f"  模型：    {self._data.get('model', '—')}", classes="inspector-row")
+            yield Static(f"  状态：    {self._data.get('state', '—')}", classes="inspector-row")
+            yield Static(f"  耗时：    {self._data.get('elapsed', '—')}", classes="inspector-row")
+            yield Static(f"  用量：    {self._data.get('tokens', '—')} 个令牌", classes="inspector-row")
+            yield Static(f"  工作目录：{self._data.get('cwd', '—')}", classes="inspector-row")
+            yield Static(f"  工具：    {self._data.get('tools', [])}", classes="inspector-row")
+            yield Static("  ── 最近 5 条事件 ───────────────────", classes="inspector-row")
             for ev in (self._data.get("events") or [])[:5]:
                 yield Static(f"  · {ev}", classes="inspector-row")
-            yield Static("  （详细数据请用 /diag 查看）", classes="inspector-row")
+            yield Static("  （输入 /diag 查看详细诊断）", classes="inspector-row")
 
     def on_screen_closed(self) -> None:
         """Screen 关闭时由 App 层回调恢复 focus。"""
@@ -370,18 +370,18 @@ class ForgeTuiApp(App):
     """
 
     BINDINGS = [
-        Binding("ctrl+q", "quit", "Quit"),
-        Binding("ctrl+l", "clear_log", "Clear"),
-        Binding("ctrl+o", "show_inspector", "Inspector"),
-        Binding("m", "toggle_model_picker", "Models", priority=True),
+        Binding("ctrl+q", "quit", "退出"),
+        Binding("ctrl+l", "clear_log", "清屏"),
+        Binding("ctrl+o", "show_inspector", "运行检查"),
+        Binding("m", "toggle_model_picker", "切换模型", priority=True),
         # F1 历史搜索对话框（可搜索，替代线性回看）
-        Binding("f1", "toggle_history_search", "Search History"),
+        Binding("f1", "toggle_history_search", "搜索历史"),
         # Ctrl+F1 保留为回退（向下）
-        Binding("ctrl+f1", "history_next", "History ↓"),
+        Binding("ctrl+f1", "history_next", "历史记录 ↓"),
         # 会话列表
-        Binding("ctrl+s", "toggle_session_list", "Sessions"),
+        Binding("ctrl+s", "toggle_session_list", "会话列表"),
         # priority=True 覆盖 Screen 默认的 tab → app.focus_next
-        Binding("tab", "complete_slash", "Tab complete", priority=True),
+        Binding("tab", "complete_slash", "补全命令", priority=True),
     ]
 
     # ── F1 历史搜索对话框 ──────────────────────────────────────────
@@ -588,7 +588,7 @@ class ForgeTuiApp(App):
         if not tui_laya_autostart_enabled():
             return
         self._bar().input.disabled = True
-        self._msglog().add_meta("正在启动并预热 Laya GPU 模型，请稍候…")
+        self._msglog().add_meta("正在启动并预热 Laya 图形处理器模型，请稍候…")
         self._run_async(self._prepare_laya_backend())
 
     async def _prepare_laya_backend(self) -> None:
@@ -628,9 +628,15 @@ class ForgeTuiApp(App):
 
     def _banner(self) -> None:
         msglog = self._msglog()
-        msglog.add_meta("◆ FORGE · 全能助手 TUI")
-        msglog.add_meta(f"  session: {self.session_name}   |   mode: {self.mode}")
-        msglog.add_meta("  /help 看命令   |   Ctrl+Q 退出   |   Ctrl+O Inspector")
+        msglog.add_meta("◆ FORGE · 全能助手终端界面")
+        mode_label = {
+            "stream": "流式",
+            "async": "异步",
+            "sync": "同步",
+            "blocking": "阻塞",
+        }.get(self.mode, self.mode)
+        msglog.add_meta(f"  会话：{self.session_name}   ·   模式：{mode_label}")
+        msglog.add_meta("  /help 查看命令   |   Ctrl+Q 退出   |   Ctrl+O 运行检查")
         msglog.add_meta("  按 m 切换模型   |   ↑↓ 历史   |   Tab 补全")
         msglog.add_meta("")
         self._bar().focus_input()
@@ -843,7 +849,8 @@ class ForgeTuiApp(App):
         if picker:
             picker.set_current(model_id)
         self._header().set_model(model_id)
-        self._msglog().add_meta(f"已切换模型 → {model_id}（{source}）")
+        source_label = {"gateway": "网关", "local": "本地"}.get(source, source)
+        self._msglog().add_meta(f"已切换模型 → {model_id}（{source_label}）")
         self._model_picker_visible = False
 
     def _on_model_popup_closed(self) -> None:
@@ -967,7 +974,7 @@ class ForgeTuiApp(App):
         if sl is not None and sl.is_visible():
             sel = sl.selected_session()
             if sel:
-                self._msglog().add_meta(f"→ 选中会话: {sel.get('title', '?')}")
+                self._msglog().add_meta(f"→ 已选会话：{sel.get('title', '?')}")
             sl.hide()
             self._bar().focus_input()
 
@@ -1037,15 +1044,15 @@ class ForgeTuiApp(App):
             runtime = self._get_chat_app().runtime
             run_id = getattr(runtime, "_active_run_id", None)
             if not run_id:
-                self._msglog().add_meta("当前 Run 尚未登记或已经结束；未发送取消请求。")
+                self._msglog().add_meta("当前运行任务尚未登记或已经结束，未发送取消请求。")
                 return
             import asyncio
 
             cancelled = await asyncio.to_thread(runtime.cancel_run, run_id)
             if cancelled:
-                self._msglog().add_meta(f"已请求 Runtime 取消 Run {run_id}；等待取消终态…")
+                self._msglog().add_meta(f"已请求运行时取消任务 {run_id}，等待最终状态…")
             else:
-                self._msglog().add_meta(f"Run {run_id} 已不在执行，取消请求未生效。")
+                self._msglog().add_meta(f"任务 {run_id} 已不在执行，取消请求未生效。")
         except Exception as exc:
             self._msglog().add_error(title="取消失败", detail=f"{type(exc).__name__}: {exc}")
         finally:
@@ -1093,7 +1100,7 @@ class ForgeTuiApp(App):
             self._stream_buf = ""
             self._header().set_state("idle")
             self._stop_spinner()
-            self._msglog().add_error(title="已中断", detail="本地等待已中断，后端 Run 可能仍在执行。")
+            self._msglog().add_error(title="已中断", detail="本地等待已中断，后端任务可能仍在执行。")
             self._update_footer("idle")
             self._set_turn_active(False)
             return
@@ -1184,11 +1191,11 @@ class ForgeTuiApp(App):
         for ap in approvals:
             desc = str(ap.get("description") or ap.get("label") or "高风险操作")
             self._msglog().add_error(
-                title="◆ APPROVAL REQUIRED",
+                title="◆ 需要审批",
                 detail=desc,
                 hints=["Y 批准", "N 拒绝", "D 查看详情"],
             )
-        self._bar().set_placeholder("Approve? [y/N]  —  Y approve   N reject   D details")
+        self._bar().set_placeholder("需要确认：[Y] 批准  [N] 拒绝  [D] 查看详情")
         self._bar().focus_input()
 
     def _exit_approval(self) -> None:
@@ -1196,7 +1203,7 @@ class ForgeTuiApp(App):
         self._in_approval = False
         self._set_turn_active(False)
         self._pending_approvals = []
-        self._bar().set_placeholder("Enter 发送；/ 看命令；Ctrl+Q 退出")
+        self._bar().set_placeholder("Enter 发送；输入 / 查看命令；Ctrl+Q 退出")
         self._update_footer("idle")
         self._bar().focus_input()
 
@@ -1226,8 +1233,8 @@ class ForgeTuiApp(App):
             self._pending_approvals = []
             self._header().set_state("idle")
             self._update_footer("idle")
-            self._bar().set_placeholder("Enter 发送；/ 看命令；Ctrl+Q 退出")
-            self._msglog().add_meta("× 已拒绝，Run 停止。")
+            self._bar().set_placeholder("Enter 发送；输入 / 查看命令；Ctrl+Q 退出")
+            self._msglog().add_meta("× 已拒绝，任务已停止。")
             self._bar().focus_input()
 
         elif lower in ("d", "details"):
@@ -1245,7 +1252,7 @@ class ForgeTuiApp(App):
 
         else:
             # 普通文本：作为 clarification 记录，不解除 pending
-            self._msglog().add_meta(f"  [clarification] {text}")
+            self._msglog().add_meta(f"  [补充说明] {text}")
             self._msglog().add_meta("  （审批仍待处理，请输入 Y / N / D）")
             # _in_approval 保持 True，header/footer 不变
             self._bar().focus_input()
@@ -1258,7 +1265,7 @@ class ForgeTuiApp(App):
 
         result = self._waiting_result
         if result is None:
-            self._msglog().add_meta("（未找到待审批 Run，忽略）")
+            self._msglog().add_meta("（未找到等待审批的任务，已忽略）")
             self._exit_approval()
             return
         self._waiting_result = None  # 消费后清除，防重复
@@ -1409,7 +1416,7 @@ class ForgeTuiApp(App):
                         self._in_approval = True
                         self._header().set_state("waiting")
                         self._update_footer("approval")
-                        self._bar().set_placeholder("Approve? [y/N]")
+                        self._bar().set_placeholder("需要确认：[Y] 批准  [N] 拒绝")
                         self._bar().focus_input()
 
         except (NoScreen, NoActiveAppError, MountError):
@@ -1426,6 +1433,7 @@ class ForgeTuiApp(App):
 
         elapsed = float(getattr(result, "elapsed_seconds", 0) or 0) or (time.monotonic() - started)
         msglog = self._msglog()
+        streamed_item = self._stream_item if self._streamed_this_turn else None
 
         # 强制 flush 流式 buffer
         if self._stream_item:
@@ -1443,9 +1451,10 @@ class ForgeTuiApp(App):
                 if not self._streamed_this_turn:
                     msglog.add_assistant(content, title=kind_label)
                 else:
-                    # 流式渲染过但没有 title 元数据时，补一条标注
-                    if kind_label:
-                        msglog.add_meta(f"FORGE · {kind_label}")
+                    # 把最终类型标签合并到原流式消息头，避免回答结束后再出现
+                    # 一条孤立的「FORGE · 回答」元信息，看起来像重复输出。
+                    if streamed_item is not None and kind_label:
+                        streamed_item.set_title(kind_label)
             else:
                 msglog.add_meta(f"✓ 完成 · {kind_label}")
             if reply.summary:
@@ -1453,7 +1462,7 @@ class ForgeTuiApp(App):
             if reply.saved_file:
                 msglog.add_artifact(reply.saved_file)
             if reply.next_step:
-                msglog.add_meta(f"➡ 下一步: {_escape_text(reply.next_step)}")
+                msglog.add_meta(f"➡ 下一步：{_escape_text(reply.next_step)}")
         elif reply:
             text = str(reply)
             if text.strip():
@@ -1470,24 +1479,33 @@ class ForgeTuiApp(App):
         task_id = getattr(getattr(result, "task", None), "id", "") or "?"
         outcome = str(getattr(result, "outcome", "") or "")
         status_label = {
-            "completed": "✓ COMPLETED",
-            "needs_user": "? NEEDS USER",
-            "partial": "! PARTIAL",
-            "blocked": "× BLOCKED",
-            "failed": "× FAILED",
-            "cancelled": "■ CANCELLED",
-        }.get(outcome, "✓ COMPLETED" if getattr(result, "ok", True) else "× FAILED")
-        msglog.add_meta(f"{status_label} · {elapsed:.1f}s · run {task_id[:8]}")
-        msglog.add_meta("")
+            "partial": "! 部分完成",
+            "blocked": "× 已阻止",
+            "failed": "× 失败",
+            "cancelled": "■ 已取消",
+            "completed": "✓ 已完成",
+            "needs_user": "? 需要你处理",
+        }.get(outcome, "✓ 已完成" if getattr(result, "ok", True) else "× 失败")
+        msglog.add_meta(f"{status_label} · {elapsed:.1f}秒 · 运行编号 {task_id[:8]}")
 
         if self.auto_summary:
             chat = self._get_chat_app()
             self._pending_compact = chat.session
 
         self._exit_approval()  # 安全：result 正常完成时清除（若仍有 pending）
-        self._header().set_state("idle")
+        header_state = {
+            "completed": "idle",
+            "needs_user": "needs_user",
+            "partial": "partial",
+            "blocked": "blocked",
+            "failed": "failed",
+            "cancelled": "cancelled",
+        }.get(outcome)
+        if header_state is None:
+            header_state = "idle" if getattr(result, "ok", True) else "failed"
+        self._header().set_state(header_state)
         self._update_footer("idle")
-        self._bar().set_placeholder("Enter 发送；/ 看命令；Ctrl+Q 退出")
+        self._bar().set_placeholder("Enter 发送；输入 / 查看命令；Ctrl+Q 退出")
         self._bar().focus_input()
 
     def _render_exception(self, exc: BaseException) -> None:
@@ -1719,11 +1737,11 @@ class ForgeTuiApp(App):
         """
         self._footer_mode = mode
         hints = {
-            "idle": "/ commands   F1 search   Ctrl+S sessions   m model   Ctrl+Q quit",
-            "running": "Esc interrupt   Ctrl+Q quit",
-            "approval": "Y approve   N reject   D details",
-            "slash": "↑↓ select   Tab complete   Enter run   Esc close",
-            "hist_search": "↑↓ select   Enter fill   F1/Esc close",
+            "idle": "/ 查看命令   F1 搜索历史   Ctrl+S 会话   m 切换模型   Ctrl+Q 退出",
+            "running": "Esc 请求取消   Ctrl+Q 退出",
+            "approval": "Y 批准   N 拒绝   D 查看详情",
+            "slash": "↑↓ 选择   Tab 补全   Enter 执行   Esc 关闭",
+            "hist_search": "↑↓ 选择   Enter 填入   F1/Esc 关闭",
         }
         hint = hints.get(mode, hints["idle"])
         label = self._hint_label
@@ -1743,11 +1761,35 @@ class ForgeTuiApp(App):
             info = chat.store.diagnose(chat.container_id()) if hasattr(chat, "store") else {}
             latest = info.get("latest_run") or {}
             data["run_id"] = latest.get("id", "—")
-            data["state"] = latest.get("state", "—")
-            data["elapsed"] = str(info.get("elapsed_s", "—"))
+            state = str(latest.get("state", "—"))
+            data["state"] = {
+                "idle": "就绪",
+                "running": "运行中",
+                "waiting_approval": "等待审批",
+                "needs_user": "需要用户处理",
+                "completed": "已完成",
+                "failed": "失败",
+                "blocked": "已阻止",
+                "partial": "部分完成",
+                "cancelled": "已取消",
+            }.get(state, state)
+            elapsed_s = info.get("elapsed_s")
+            data["elapsed"] = f"{elapsed_s} 秒" if elapsed_s is not None else "—"
             events = info.get("events") or []
+            event_labels = {
+                "run.started": "运行开始",
+                "run.completed": "运行完成",
+                "run.failed": "运行失败",
+                "run.cancelled": "运行取消",
+                "run.waiting_approval": "等待审批",
+                "tool.started": "工具开始",
+                "tool.completed": "工具完成",
+                "tool.failed": "工具失败",
+                "assistant_delta": "回答生成中",
+            }
             data["events"] = [
-                f"{e.get('type', '?')}  {str(e.get('at', ''))[:19].replace('T', ' ')}"
+                f"{event_labels.get(str(e.get('type', '?')), '事件')}  "
+                f"{str(e.get('at', ''))[:19].replace('T', ' ')}"
                 for e in events[-5:]
             ]
         except (AttributeError, TypeError, KeyError):

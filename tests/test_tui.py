@@ -40,9 +40,9 @@ def test_header_80col_keeps_core_fields():
     plain = header._build_text().plain
     assert "FORGE" in plain
     assert "personal" in plain
-    assert "RUNNING" in plain
+    assert "运行中" in plain
     assert "GPT-5.6" in plain
-    assert "4 tools" in plain
+    assert "4 项工具" in plain
     assert "03.2s" in plain
 
 
@@ -57,7 +57,7 @@ def test_header_60col_drops_elapsed():
     assert "FORGE" in plain
     assert "personal" in plain
     assert "GPT-5.6" in plain
-    assert "4 tools" in plain
+    assert "4 项工具" in plain
     assert "03.2s" not in plain  # 60 < 80，elapsed 被裁减
 
 
@@ -71,7 +71,7 @@ def test_header_40col_minimal():
     plain = header._build_text().plain
     assert "FORGE" in plain
     assert "personal" in plain
-    assert "ERROR" in plain
+    assert "出错" in plain
     assert "GPT-5.6" not in plain  # 40 < 50，model 被裁减
 
 
@@ -87,8 +87,8 @@ def test_header_height_single_line():
 
 def test_header_all_states_render():
     header = StatusHeader("test")
-    for state, label in (("idle", "READY"), ("running", "RUNNING"),
-                          ("waiting", "APPROVAL"), ("failed", "ERROR")):
+    for state, label in (("idle", "就绪"), ("running", "运行中"),
+                          ("waiting", "等待审批"), ("failed", "出错")):
         header.set_state(state)
         assert label in header._build_text().plain
 
@@ -100,7 +100,7 @@ def test_header_all_states_render():
 def test_message_item_user():
     item = MessageItem(kind="user", content="你好")
     text = item.render()
-    assert "YOU" in text.plain
+    assert "你" in text.plain
     assert "你好" in text.plain
 
 
@@ -144,8 +144,8 @@ def test_message_item_error_with_hints():
         detail="Check MCP\nRetry",
     )
     text = item.render()
-    assert "× ERROR" in text.plain
-    assert "Possible fixes" in text.plain
+    assert "× 出错" in text.plain
+    assert "可尝试的处理方式" in text.plain
 
 
 def test_message_item_artifact():
@@ -955,7 +955,7 @@ def test_hint_line_renders_in_screen():
             await pilot.pause()
             await pilot.pause()
             rows = _screen_rows(app)
-            hit = [r for r in rows if "commands" in r and "F1" in r]
+            hit = [r for r in rows if "查看命令" in r and "F1" in r]
             assert hit, f"屏幕上找不到 idle 提示行；底部 4 行={rows[-4:]}"
             hint = app.query_one(TuiPanels).bar.hint
             assert hint.region.width <= app.screen.region.width
@@ -973,10 +973,10 @@ def test_hint_line_switches_with_state():
             await pilot.pause()
             panel = app.query_one(TuiPanels)
             expected = {
-                "idle": "commands",
-                "running": "Esc interrupt",
-                "approval": "Y approve",
-                "slash": "Tab complete",
+                    "idle": "查看命令",
+                    "running": "Esc 请求取消",
+                    "approval": "Y 批准",
+                    "slash": "Tab 补全",
             }
             for mode, token in expected.items():
                 app._update_footer(mode)
@@ -989,10 +989,10 @@ def test_hint_line_switches_with_state():
             app._update_footer("idle")
             await pilot.pause()
             rows = _screen_rows(app)
-            assert not any("Esc interrupt" in r for r in rows), (
+            assert not any("Esc 请求取消" in r for r in rows), (
                 "切回 idle 后仍残留 running 态提示"
             )
-            assert any("commands" in r for r in rows)
+            assert any("查看命令" in r for r in rows)
 
     asyncio.run(_run())
 
@@ -1035,7 +1035,7 @@ def test_tool_group_widget_basic():
     text = g.render()
     assert "▼ 工具执行" in text.plain
     assert "文件系统" in text.plain
-    assert "0.3s" in text.plain
+    assert "0.3秒" in text.plain
     g.collapse()
     assert "▸ 工具执行" in g.render().plain
     assert "· 3 项" in g.render().plain
@@ -1059,7 +1059,7 @@ def test_tool_group_in_message_log():
             plain = g.render().plain
             assert "工具执行" in plain
             assert "文件系统" in plain
-            assert "0.4s" in plain
+            assert "0.4秒" in plain
             ml.tool_group_toggle()
             assert "▸ 工具执行" in g.render().plain
 

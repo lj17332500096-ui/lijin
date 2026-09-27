@@ -145,13 +145,21 @@ class StatusHeader(Static):
             "running": WARNING,
             "waiting": AGENT,
             "failed": ERROR_C,
+            "partial": WARNING,
+            "blocked": ERROR_C,
+            "needs_user": WARNING,
+            "cancelled": MUTED,
         }.get(state, MUTED)
         state_label = {
-            "idle": "● READY",
-            "running": "◌ RUNNING",
-            "waiting": "◆ APPROVAL",
-            "failed": "× ERROR",
-        }.get(state, f"· {state.upper()}")
+            "idle": "● 就绪",
+            "running": "◌ 运行中",
+            "waiting": "◆ 等待审批",
+            "failed": "× 出错",
+            "partial": "! 部分完成",
+            "blocked": "× 已阻止",
+            "needs_user": "? 需要你处理",
+            "cancelled": "■ 已取消",
+        }.get(state, "· 状态更新")
 
         # 始终保留：FORGE + session + state
         w = self._width
@@ -165,7 +173,7 @@ class StatusHeader(Static):
 
         # 优先级 3：tool count + elapsed（width ≥ 60）
         if self._tool_count and w >= 60:
-            t.append(f"  {self._tool_count} tools", style=MUTED)
+            t.append(f"  {self._tool_count} 项工具", style=MUTED)
 
         t.append(f"  {state_label}", style=f"bold {color}")
         if self._elapsed and state == "running" and w >= 80:
@@ -271,7 +279,23 @@ class ToolGroup(Static):
     def _build_text(self) -> Text:
         t = Text()
         arrow = "▸" if self._collapsed else "▼"
-        count = f"  · {len(self._rows)} 项" if self._rows else ""
+        count = ""
+        if self._rows:
+            parts = [f"{len(self._rows)} 项"]
+            if self._collapsed:
+                totals = {
+                    status: sum(1 for row in self._rows if row[2] == status)
+                    for status in ("done", "failed", "running")
+                }
+                if totals["done"]:
+                    parts.append(f"✓{totals['done']}")
+                if totals["failed"]:
+                    parts.append(f"×{totals['failed']}")
+                if totals["running"]:
+                    parts.append(f"◌{totals['running']}")
+                if all(row[3] is not None for row in self._rows):
+                    parts.append(f"{sum(row[3] or 0.0 for row in self._rows):.1f}秒")
+            count = "  · " + "  ".join(parts)
         t.append(f"{arrow} ", style=MUTED)
         t.append(self._title, style=f"bold {PRIMARY}")
         t.append(count, style=MUTED)
@@ -290,7 +314,7 @@ class ToolGroup(Static):
             if detail:
                 t.append(f"  {_escape(detail)}", style=MUTED)
             if elapsed is not None:
-                t.append(f"  {elapsed:.1f}s", style=MUTED)
+                t.append(f"  {elapsed:.1f}秒", style=MUTED)
             elif status == "running":
                 t.append("  进行中", style=MUTED)
             t.append("\n")
@@ -333,7 +357,7 @@ class MessageItem(Static):
         k = self._kind
 
         if k == "user":
-            t.append("YOU", style=f"bold {PRIMARY}")
+            t.append("你", style=f"bold {PRIMARY}")
             t.append("\n")
             for line in (self._content or "").splitlines() or [""]:
                 t.append(f"  {_escape(line)}\n")
@@ -369,14 +393,14 @@ class MessageItem(Static):
             t.append("\n")
 
         elif k == "error":
-            t.append("× ERROR", style=f"bold {ERROR_C}")
+            t.append("× 出错", style=f"bold {ERROR_C}")
             t.append("\n")
             if self._title:
                 t.append(f"  {_escape(self._title)}\n", style=ERROR_C)
             for line in (self._content or "").splitlines() or [""]:
                 t.append(f"  {_escape(line)}\n", style=TEXT_C)
             if self._detail:
-                t.append("  Possible fixes\n", style=MUTED)
+                t.append("  可尝试的处理方式\n", style=MUTED)
                 for hint in self._detail.split("\n"):
                     if hint.strip():
                         t.append(f"  ├─ {_escape(hint.strip())}\n", style=TEXT_C)
@@ -407,6 +431,10 @@ class MessageItem(Static):
 
     def set_content(self, text: str) -> None:
         self._content = text
+        self._refresh()
+
+    def set_title(self, title: str) -> None:
+        self._title = title
         self._refresh()
 
     def set_status(self, status: str, detail: str = "") -> None:
@@ -597,7 +625,7 @@ class InputBar(Vertical, can_focus=False):
         from cli.tui.panels import SlashPopup
         self.popup = SlashPopup()
         self.input = ForgeInput(
-            placeholder="Enter 发送；/ 看命令；Ctrl+Q 退出",
+            placeholder="Enter 发送；输入 / 查看命令；Ctrl+Q 退出",
             classes="forge-input",
         )
         # 上下文提示行：idle / running / approval / slash 四态由 App 层
@@ -748,7 +776,7 @@ class ModelPopup(Vertical, can_focus=False):
         self._body = _ModelPopupBody(self._build_text(), classes="model-popup-body")
         self._body._popup_ref = self  # patch 双向引用
         self._body.display = True
-        self._header = Static("选择模型  （↑↓ 选 / Enter 切换 / Esc 取消）",
+        self._header = Static("选择模型  （↑↓ 选择 / Enter 切换 / Esc 取消）",
                               classes="model-popup-header")
 
     def compose(self) -> ComposeResult:
@@ -834,17 +862,17 @@ class ModelPopup(Vertical, can_focus=False):
             pass
 
     def _build_header(self) -> str:
-        return "选择模型  （↑↓ 选 / Enter 切换 / Esc 取消）"
+        return "选择模型  （↑↓ 选择 / Enter 切换 / Esc 取消）"
 
     def _build_text(self) -> Text:
         if not self._models:
-            return Text("(未加载模型，按 m 重新拉取)", style=MUTED)
+            return Text("（模型列表未加载，按 m 重新获取）", style=MUTED)
         t = Text()
         for i, (mid, source) in enumerate(self._models):
             marker = "●" if i == self._selected else " "
             color = PRIMARY if i == self._selected else TEXT_C
             tag = {"gateway": "[网关]", "local": "[本地]",
-                   "unknown": "", "loading": ""}.get(source, f"[{source}]")
+                   "unknown": "", "loading": ""}.get(source, "[其他来源]")
             t.append(f"{marker} {mid}", style=f"bold {color}")
             if tag:
                 t.append(f"  {tag}", style=MUTED)
@@ -951,7 +979,7 @@ class HistorySearchDialog(Vertical, can_focus=False):
         self._selected: int = 0
         self._input: Input | None = None
         self._body = Static(self._build_text(), classes="hist-search-body")
-        self._header = Static("⌕ 搜索历史  （↑↓ 选 / Enter 填入 / Esc 关闭）",
+        self._header = Static("⌕ 搜索历史  （↑↓ 选择 / Enter 填入 / Esc 关闭）",
                                classes="hist-search-header")
         self.display = False  # 默认隐藏
 
@@ -1021,20 +1049,20 @@ class HistorySearchDialog(Vertical, can_focus=False):
 
     @staticmethod
     def _relative_age(ts: float) -> str:
-        """参照 dsh-TUI formatRelativeAge：now / Xm ago / Xh ago / Xd ago。"""
+        """以中文显示历史记录的相对时间。"""
         elapsed = _time.time() - ts
         if elapsed < 60:
-            return "just now"
+            return "刚刚"
         if elapsed < 3600:
-            return f"{int(elapsed // 60)}m ago"
+            return f"{int(elapsed // 60)} 分钟前"
         if elapsed < 86400:
-            return f"{int(elapsed // 3600)}h ago"
-        return f"{int(elapsed // 86400)}d ago"
+            return f"{int(elapsed // 3600)} 小时前"
+        return f"{int(elapsed // 86400)} 天前"
 
     def _build_text(self) -> Text:
         matches = self._filtered()
         if not matches:
-            return Text("(无匹配)", style=MUTED)
+            return Text("（没有匹配项）", style=MUTED)
         # 新→旧排列
         matches = list(reversed(matches))
         t = Text()
@@ -1275,7 +1303,7 @@ class ApprovalPanel(Vertical, can_focus=False):
         self._approvals: list[dict] = []
         self._selected: int = 0
         self._body = Static(self._build_text(), classes="approval-body")
-        self._header = Static("◆ APPROVAL REQUIRED", classes="approval-header")
+        self._header = Static("◆ 需要审批", classes="approval-header")
         self.display = False
 
     def compose(self) -> ComposeResult:
@@ -1309,7 +1337,7 @@ class ApprovalPanel(Vertical, can_focus=False):
 
         n = len(self._approvals)
         for i, ap in enumerate(self._approvals):
-            label = str(ap.get("label") or ap.get("description") or f"item {i+1}")
+            label = str(ap.get("label") or ap.get("description") or f"第 {i+1} 项")
             desc = str(ap.get("description") or "")
             tool = str(ap.get("tool") or "")
             marker = "●" if i == self._selected else " "
@@ -1376,7 +1404,7 @@ class SessionListPopup(Vertical, can_focus=False):
         self._sessions: list[dict] = []
         self._selected: int = 0
         self._body = Static(self._build_text(), classes="session-list-body")
-        self._header = Static("◆ 会话列表  （↑↓ 选 / Enter 恢复 / Esc 关闭）",
+        self._header = Static("◆ 会话列表  （↑↓ 选择 / Enter 恢复 / Esc 关闭）",
                                classes="session-list-header")
         self.display = False
 
@@ -1498,7 +1526,7 @@ class ApiSettingsPanel(Vertical, can_focus=False):
         import os
         self._fields[self._KEY_API] = Input(
             value=os.getenv(self._KEY_API, ""),
-            placeholder="sk-…（网关鉴权 key）",
+            placeholder="sk-…（网关访问密钥）",
             classes="api-in",
         )
         self._fields[self._KEY_URL] = Input(
@@ -1516,13 +1544,13 @@ class ApiSettingsPanel(Vertical, can_focus=False):
             placeholder="http://localhost:8080/v1",
             classes="api-in",
         )
-        yield Static("◆ API / 网关设置  （Enter 保存 / Esc 取消）",
+        yield Static("◆ 接口 / 网关设置  （Enter 保存 / Esc 取消）",
                      classes="api-header")
         for label, key in [
-            ("网关 API Key  ", self._KEY_API),
-            ("网关 Base URL ", self._KEY_URL),
+            ("网关访问密钥  ", self._KEY_API),
+            ("网关接口地址  ", self._KEY_URL),
             ("本地模型名    ", self._KEY_LNAME),
-            ("本地 Base URL ", self._KEY_LBASE),
+            ("本地接口地址  ", self._KEY_LBASE),
         ]:
             yield Static(label, classes="api-label")
             yield self._fields[key]

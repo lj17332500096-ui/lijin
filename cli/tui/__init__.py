@@ -1,34 +1,34 @@
-"""FORGE TUI — 专业 Agent Runtime Console（Textual 8.x）。
+"""FORGE 终端界面 — Agent 运行控制台（Textual 8.x）。
 
 布局
 ----
 ┌─────────────────────────────────────────────────────────────────┐
-│  ◆ FORGE   personal   GPT-5.6   4 tools   ● READY             │  ← StatusHeader
+│  ◆ FORGE   personal   GPT-5.6   4 项工具   ● 就绪             │  ← 状态栏
 ├─────────────────────────────────────────────────────────────────┤
-│  MessageLog                                                    │
+│  对话记录                                                      │
 │                                                                │
-│  YOU                                                           │
+│  你                                                             │
 │  帮我检查当前项目还有哪些问题。                                   │
 │                                                                │
-│  ┃ RUN  Inspecting repository                                 │
-│  │   ├─ ✓ filesystem   scanned 128 files    0.8s             │
-│  │   ├─ ✓ github       loaded branch/main   1.2s             │
-│  │   └─ ✓ terminal     pytest                 3.8s           │
+│  ▼ 工具执行 · 3 项                                              │
+│  │   ├─ ✓ filesystem   已扫描 128 个文件    0.8 秒            │
+│  │   ├─ ✓ github       已读取 main 分支     1.2 秒            │
+│  │   └─ ✓ terminal     测试已完成           3.8 秒            │
 │  │                                                             │
 │  FORGE                                                          │
-│  当前主要还有三个问题……                                          │
-│  ✓ DONE · 3 tools · 6.4s · run 3F7A                          │
+│  当前主要还有三个问题……                                        │
+│  ✓ 已完成 · 3 项工具 · 6.4 秒 · 运行编号 3F7A                 │
 │  ↳ runtime-audit.md                                            │
 ├─────────────────────────────────────────────────────────────────┤
-│  > _                                                          │
-│  / commands   ↑↓ history   Ctrl+L clear   Ctrl+Q quit        │
+│  > _                                                           │
+│  / 查看命令   ↑↓ 历史   Ctrl+L 清屏   Ctrl+Q 退出            │
 └─────────────────────────────────────────────────────────────────┘
 
 快捷键
 ------
   Ctrl+Q   退出
   Ctrl+L   清屏
-  Ctrl+O   Inspector
+  Ctrl+O   运行检查
   Tab      命令补全（slash 模式）
 
 入口
