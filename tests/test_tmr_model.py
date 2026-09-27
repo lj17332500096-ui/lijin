@@ -30,7 +30,7 @@ class TMRModelTests(unittest.TestCase):
                                     history_limit=None, agent=None, audit=None, stream_events_cb=None):
             return output
 
-        self._patcher = patch("runtime_execution.execute_turn", new=fake_execute_turn)
+        self._patcher = patch.object(runtime_execution, "execute_turn", new=fake_execute_turn)
         self._patcher.start()
         self.addCleanup(self._patcher.stop)
 

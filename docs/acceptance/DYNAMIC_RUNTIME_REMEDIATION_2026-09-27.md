@@ -49,3 +49,27 @@
 - JSONL 轮转：`var/acceptance/log-rotation-20260927/result.json`
 - Chat Completions 清洁 EOF 中断：`var/acceptance/provider-clean-eof-20260927/result.json`
 - 含 `[DONE]` 的正常 SSE 完成：`var/acceptance/provider-valid-done-20260927/result.json`
+
+## 用户口语天气与多阶段任务复验（2026-09-27）
+
+针对此前真实天气请求漏调用/误答的问题，本轮再次使用 Agnes 真实模型、Open-Meteo 天气源和隔离 Runtime DB 验收；未修改持久 `.env`，未调用写入型工具。
+
+| 问题 | 修复 | 验收结果 |
+|---|---|---|
+| “锦州今天的天气”准备度拦截重复追问 | 天气位置白名单补充锦州、廊坊；Open-Meteo 对部分汉字地名无索引时，已知城市改用英文别名重试，并从同名结果中匹配对应中文行政区 | 锦州天气工具真实返回辽宁锦州市天气；不再因位置已提供而要求确认 |
+| 温差请求只生成天气阶段 | Task Plan 识别“温差/差值/相差”，依次生成 `get_weather` → `calculate` 阶段 | 真实 Runtime 顺序执行天气和温差计算，计算结果 5.4°C |
+| 只读成功阶段被误判为结果不确定 | 变更状态不确定性只对真实写入工具判断；成功阶段不再进入 `needs_user_input` | 单阶段和多阶段 Runtime 回归通过 |
+| 模型重复调用已完成的工具 | 全部计划阶段完成后，Runner 阻止后续工具调用并提示模型直接使用已有结果 | 真实验收中额外重复调用均被阻止，Run 仍以完成状态收口 |
+| 天气已查到但模型声称“没有数据” | `get_weather` 纳入 Completion Gate 的外部事实检索证据；新增最终回答与成功天气证据矛盾时拒绝并做一次有界修复 | 真实输出引用天气工具结果；单阶段和天气+计算任务均 `completed` |
+| Laya fallback 单测意外初始化真实模型 | fallback 单测固定不运行 `_ensure()`，避免加载机器上的 Laya checkpoint | 测试不再依赖本机模型资产，运行耗时稳定 |
+
+真实验收记录位于 `var/acceptance/runtime-gap-remediation-20260927h/live_results.json`；两条 Run 分别只执行 `get_weather`，以及依序执行 `get_weather`、`calculate`，并成功输出当前天气/今日预报和 5.4°C 温差。
+
+本轮回归：Runtime/Tool Router/TUI/Provider/MCP/Skill/Memory/Completion/天气准备度等 **405 passed，5 subtests passed**；能力清单、项目模型、TMR、附件、Observability、Router metrics、trace export 追加 **53 passed**。`git diff --check` 通过。
+
+## 仍需要外部环境才能闭环的验收
+
+- **生产 Agnes 网关自身宕机/上游中断与账号 fallback**：客户端代理断流、真实上游首块后断流和本地 HTTP 503 已有隔离证据，但本地代码无权模拟运营商网关整体故障。没有将其记为生产故障切换已通过。
+- **操作系统卷真实耗尽**：SQLite `SQLITE_FULL` 与数据库恢复已在隔离 DB 测过；没有在共享 C:/F: 卷制造空间耗尽，也没有专用 VHD/虚拟卷环境。
+- **真实账单/长期 P95**：已验证成本与 Run 延迟记录路径；真实账单需 Agnes 账户结算数据，长期 P95 需积累生产样本。当前保留为观测边界，不伪造基准。
+- **物理终端里的审批暂停/继续**：Textual Pilot 审批续跑回归通过，真实 PTY 的 Agnes 普通对话此前通过；本轮没有在真实终端执行审批交互。APPROVAL 仍保持用户先前指定的 `off`。

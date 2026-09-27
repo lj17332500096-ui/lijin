@@ -26,7 +26,7 @@ _ACTION_CAPABILITY_RULES: tuple[tuple[str, re.Pattern[str], tuple[str, ...]], ..
     ), ("read_spreadsheet", "read_office_file", "read_workspace_file")),
     ("compute", re.compile(
         r"计算|算(?:一下|平均|总和|合计|最大值|最小值)|求(?:平均|总和|合计|最大值|最小值)|"
-        r"平均值|加总|统计(?:一下|结果)?", re.I,
+        r"平均值|加总|统计(?:一下|结果)?|温差|差值|相差", re.I,
     ), ("calculate",)),
     ("write_output", re.compile(
         r"写入(?:到|进)?(?:文件|项目|工作区)|保存(?:结果|文件|到文件)|导出|写到文件|生成文件", re.I,

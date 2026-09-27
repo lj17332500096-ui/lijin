@@ -1128,7 +1128,7 @@ class AgentRuntime:
                                 f"多阶段任务的“{_finished['phase']}”已执行，但阶段证据未能持久保存。"
                                 "请先核对操作是否生效，再说明是否继续。"
                             ])
-                    if uncertain and _finished:
+                    if uncertain and _finished and not success:
                         rctx.enter_needs_user_input([
                             f"多阶段任务的“{_finished['phase']}”步骤执行结果不确定。"
                             "请先核对该操作是否已经生效，再告诉我是否继续。"
@@ -1357,7 +1357,11 @@ class AgentRuntime:
                             _phase_success = False
                         _finish_capability_phase(
                             success=_phase_success,
-                            uncertain=_mut_outcome == "UNKNOWN" or not _wa_durable,
+                            uncertain=(
+                                not _wa_durable
+                                or (name in _P9_MUTATION_TOOLS
+                                    and _mut_outcome == "UNKNOWN")
+                            ),
                         )
                         _prog_error = ("mutation_failed"
                                        if (_prog_status == "error") else None)
@@ -2041,14 +2045,17 @@ class AgentRuntime:
 
         catalog = build_tool_catalog(tools)
         capability_plan = infer_task_plan(message, [t.name for t in tools])
-        if len(capability_plan.get("phases", [])) > 1:
+        if capability_plan.get("phases"):
             _phase_lines = [
                 f"{i + 1}. {phase['phase']} (tools: {', '.join(phase['tools'])})"
                 for i, phase in enumerate(capability_plan["phases"])
             ]
+            _phase_intro = ("本轮检测到需要工具执行的能力步骤，请按下列依赖顺序完成；"
+                            "前一阶段产出应作为后一阶段输入。"
+                            "不得用猜测或未验证的文字替代工具结果。"
+                            "每个写入/提醒仍须核对用户明确意图及工具约束：\n")
             chosen = chosen.clone(instructions=(chosen.instructions or "") +
-                "\n\n本轮检测到多阶段能力需求，请按下列依赖顺序处理；前一阶段产出应作为后一阶段输入。"
-                "每个写入/提醒仍须核对用户明确意图及工具约束：\n" + "\n".join(_phase_lines))
+                                  "\n\n" + _phase_intro + "\n".join(_phase_lines))
 
         # Laya 只提供意图提示，不拥有工具集合的裁决权。
         # 即使高置信判为 direct_text，也继续走 select_tool_names；纯文本请求由
@@ -3315,15 +3322,37 @@ class AgentRuntime:
         final_output: object | None = None
 
         def _evaluate_completion(reply: dict[str, Any], evidence: ExecutionEvidence) -> GateVerdict:
+            nonlocal attempt_text
             verdict = completion_gate.evaluate(reply, evidence, request_text=message)
             if verdict != GateVerdict.PASS:
                 return verdict
+            try:
+                from runtime.completion import contradicts_successful_weather_evidence
+                if contradicts_successful_weather_evidence(reply, evidence):
+                    try:
+                        self.tasks.add_event(task.id, "completion.tool_result_contradiction", {
+                            "tool": "get_weather",
+                            "reason": "answer_denies_successful_forecast_evidence",
+                        })
+                    except Exception:
+                        pass
+                    attempt_text = (
+                        f"{attempt_text}\n\n[Runtime evidence correction] "
+                        "get_weather completed successfully and returned today's forecast. "
+                        "Use the existing tool result from this Run to answer; do not say "
+                        "the weather was not actually queried or that its temperature data "
+                        "is missing. Do not call the completed weather step again."
+                    )
+                    return GateVerdict.NO_PROGRESS
+            except Exception:
+                _logger.warning("天气执行证据一致性检查失败 run=%s", task.id, exc_info=True)
+                return GateVerdict.NO_PROGRESS
             try:
                 from runtime.runctx import current as _current_runctx
                 _phase_ctx = _current_runctx()
                 phases = (_phase_ctx.capability_plan.get("phases") or []
                           if _phase_ctx is not None else [])
-                if (len(phases) > 1
+                if (phases
                         and _phase_ctx.capability_phase_index < len(phases)
                         and str(reply.get("kind") or "answer") in ("answer", "done")):
                     _phase = phases[_phase_ctx.capability_phase_index]

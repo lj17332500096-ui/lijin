@@ -181,7 +181,7 @@ class AttachmentContextTests(unittest.TestCase):
                        provider=None):
             self.captured.append(str(getattr(agent, "instructions", "") or ""))
             return '{"kind":"answer","summary":"s","content":"ok"}'
-        self._patcher = patch("runtime_execution.execute_turn", new=fake)
+        self._patcher = patch.object(runtime_execution, "execute_turn", new=fake)
         self._patcher.start()
         self.addCleanup(self._patcher.stop)
 

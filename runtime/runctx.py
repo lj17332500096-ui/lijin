@@ -178,7 +178,7 @@ class RunContext:
     def configure_capability_plan(self, plan: dict[str, Any] | None) -> None:
         plan = plan if isinstance(plan, dict) else {}
         phases = plan.get("phases")
-        self.capability_plan = plan if isinstance(phases, list) and len(phases) > 1 else {}
+        self.capability_plan = plan if isinstance(phases, list) and phases else {}
         self.capability_phase_index = 0
         self.capability_phase_inflight = None
         self.capability_plan_uncertain = False
@@ -186,8 +186,16 @@ class RunContext:
     def claim_capability_phase_tool(self, tool_name: str) -> tuple[bool, dict[str, Any]]:
         """Atomically reserve the only tool allowed in the current plan phase."""
         phases = self.capability_plan.get("phases") or []
-        if len(phases) < 2 or self.capability_phase_index >= len(phases):
+        if not phases:
             return True, {}
+        if self.capability_phase_index >= len(phases):
+            return False, {
+                "phase_index": self.capability_phase_index,
+                "phase": "completed",
+                "tools": [],
+                "reason": "plan_completed",
+                "message": "本请求要求的工具步骤都已成功完成。请直接使用已有结果回答，不要再次调用工具。",
+            }
         phase = phases[self.capability_phase_index]
         phase_name = str(phase.get("phase") or f"phase_{self.capability_phase_index + 1}")
         details = {"phase_index": self.capability_phase_index,

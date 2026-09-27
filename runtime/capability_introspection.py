@@ -146,6 +146,7 @@ _CAPABILITY_RE = re.compile(
 _CAPABILITY_QUERY_SHAPE = re.compile(
     r"有哪些|有什么|你会(?:什么|哪些)|你能做什么|能用(?:什么|哪些)|可用(?:什么|哪些)|"
     r"(?:工具|插件|扩展|技能).{0,12}(?:列表|清单|状态|有哪些|有什么)|"
+    r"把.{0,32}(?:列出来|展示出来|列示)|"
     r"(?:what can you do|what tools|available tools|list.*(?:tools|plugins|skills))",
     re.IGNORECASE,
 )

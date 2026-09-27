@@ -55,7 +55,7 @@ class ProjectModelTests(unittest.TestCase):
         async def fake(mode, message, session=None, debug=False, max_turns=20,
                        history_limit=None, agent=None, audit=None, stream_events_cb=None):
             return output
-        self._patcher = patch("runtime_execution.execute_turn", new=fake)
+        self._patcher = patch.object(runtime_execution, "execute_turn", new=fake)
         self._patcher.start()
         self.addCleanup(self._patcher.stop)
 

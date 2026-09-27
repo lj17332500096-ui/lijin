@@ -130,7 +130,12 @@ class LayaBugRegressionTests(unittest.TestCase):
         r = lr.LayaRouter.__new__(lr.LayaRouter)
         r._router = None
         r.last_decision = None
-        d = r.classify("hello")
+        # Prevent _ensure() from loading an installed Laya model during a unit
+        # test that specifically verifies the no-router fallback.  The previous
+        # version could initialize a real checkpoint here and turn this into a
+        # slow, environment-dependent model test.
+        with mock.patch.object(r, "_ensure"):
+            d = r.classify("hello")
         self.assertIsNone(d.intent)
         self.assertIsNone(d.route)
 

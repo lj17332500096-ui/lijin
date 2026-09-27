@@ -261,6 +261,7 @@ _FROM_HINT = re.compile(r"(?:从|自)\s*([\u4e00-\u9fa5A-Za-z]{1,12})\s*(?:出�
 _WEATHER_KNOWN_LOCATIONS = re.compile(
     r"北京|上海|广州|深圳|成都|杭州|武汉|西安|南京|重庆|苏州|天津|"
     r"长沙|郑州|青岛|厦门|香港|台北|纽约|伦敦|东京|巴黎|新加坡|北京天气"
+    r"|锦州|霸州|廊坊"
 )
 _WEATHER_ADMIN_LOCATION = re.compile(
     r"[一-龥]{1,5}(?:特别行政区|自治州|地区|市|省|区|县|州|盟|旗)"

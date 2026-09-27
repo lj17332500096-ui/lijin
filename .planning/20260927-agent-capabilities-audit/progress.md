@@ -19,3 +19,5 @@
 - 全局记忆模式的 `remember` 现在同步 upsert 当前项目副本；按项目记忆 ID 删除时强制验证当前 Run 的项目归属，`project_only` 禁止删个人全局记忆。
 - `TaskManager` 在终态事件持久化后 best-effort 自动 ingest Episode，错误只记录、不改变终态；保留手动补采命令。
 - `.venv` 下 `py_compile` 覆盖记忆策略、TaskManager、Runner、Router、Episode recall、工具和 CLI 模块并通过；`git diff --check` 通过。未运行测试或故障注入。
+- 2026-09-27：修复后续发现的既存验收问题。能力查询检测现在把“把……列出来/展示出来”识别为能力清单查询；项目模型、TMR、附件上下文测试改用 `patch.object(runtime_execution, ...)`，并检查修复所有同模式的错误字符串 patch。
+- `tests/test_capability_introspection.py`、`tests/test_project_model.py`、`tests/test_tmr_model.py`、`tests/test_message_attachments.py` 合计 38 项通过。

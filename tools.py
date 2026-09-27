@@ -921,6 +921,45 @@ _WMO_WEATHER = {
     85: "阵雪", 86: "阵雪", 95: "雷阵雨", 96: "雷雨伴冰雹", 99: "雷雨伴冰雹",
 }
 
+# Open-Meteo's geocoder does not index every Chinese locality by Hanzi. Keep a
+# small explicit fallback for places already used in the app's own examples and
+# support history; the API still resolves the coordinates and forecast data.
+_WEATHER_GEOCODE_ALIASES = {
+    "锦州": "Jinzhou",
+    "锦州市": "Jinzhou",
+    "廊坊": "Langfang",
+    "廊坊市": "Langfang",
+}
+
+
+def _geocode_weather_city(city: str) -> dict | None:
+    """Resolve a weather location, retrying known Hanzi aliases in Latin form."""
+    queries = [city]
+    alias = _WEATHER_GEOCODE_ALIASES.get(city.strip())
+    if alias and alias not in queries:
+        queries.append(alias)
+    for query in queries:
+        geo = requests.get(
+            "https://geocoding-api.open-meteo.com/v1/search",
+            params={"name": query, "count": 5, "language": "zh", "format": "json"},
+            timeout=5,
+        )
+        geo.raise_for_status()
+        matches = geo.json().get("results", [])
+        if not matches:
+            continue
+        # For Latin aliases, prefer the exact matching Chinese administrative
+        # locality when the provider returns several romanized homonyms.
+        if query != city:
+            target = city.removesuffix("市")
+            exact = next((item for item in matches
+                          if target in str(item.get("name", ""))
+                          or target in str(item.get("admin2", ""))), None)
+            if exact is not None:
+                return exact
+        return matches[0]
+    return None
+
 
 @function_tool
 def get_weather(city: str) -> str:
@@ -932,16 +971,9 @@ def get_weather(city: str) -> str:
         return '错误：city 参数为空，请提供城市名（如"上海"）。'
     try:
         # 1) 地理编码：城市名 → 经纬度（Open-Meteo 地理编码 API，免费无 key）
-        geo = requests.get(
-            "https://geocoding-api.open-meteo.com/v1/search",
-            params={"name": city, "count": 1, "language": "zh", "format": "json"},
-            timeout=5,
-        )
-        geo.raise_for_status()
-        results = geo.json().get("results", [])
-        if not results:
+        loc = _geocode_weather_city(city)
+        if loc is None:
             return f'未找到城市"{city}"，请确认城市名是否正确（如"上海""北京""廊坊"）。'
-        loc = results[0]
         resolved = loc.get("name", city)
         admin1 = loc.get("admin1", "")
         admin2 = loc.get("admin2", "")

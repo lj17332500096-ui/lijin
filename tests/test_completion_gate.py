@@ -71,6 +71,47 @@ class CompletionGateUnitTests(unittest.TestCase):
     def setUp(self) -> None:
         self.gate = CompletionGate()
 
+    def test_weather_answer_cannot_deny_forecast_present_in_execution_evidence(self) -> None:
+        from runtime.completion import contradicts_successful_weather_evidence
+
+        evidence = ExecutionEvidence.from_records([{
+            "name": "get_weather",
+            "status": "executed",
+            "output_head": "今日：阵雨，13.2~18.6°C",
+        }])
+        self.assertTrue(contradicts_successful_weather_evidence(
+            _reply(content="天气结果没有给出具体温度数据。"), evidence,
+        ))
+        self.assertFalse(contradicts_successful_weather_evidence(
+            _reply(content="锦州今日 13.2~18.6°C，有阵雨。"), evidence,
+        ))
+        self.assertFalse(contradicts_successful_weather_evidence(
+            _reply(content="锦州今天有阵雨，出门没拿到伞。"), evidence,
+        ))
+
+        failed_lookup = ExecutionEvidence.from_records([{
+            "name": "get_weather",
+            "status": "executed",
+            "output_head": '未找到城市"未知地区"',
+        }])
+        self.assertFalse(contradicts_successful_weather_evidence(
+            _reply(content="天气数据没有提供。"), failed_lookup,
+        ))
+
+    def test_successful_weather_lookup_supports_external_temperature_claim(self) -> None:
+        evidence = ExecutionEvidence.from_records([{
+            "name": "get_weather",
+            "status": "executed",
+            "output_head": "今日：阵雨，13.2~18.6°C",
+        }])
+        self.assertTrue(evidence.retrieval_evidence())
+        self.assertEqual(
+            self.gate.evaluate(
+                _reply(content="锦州今日 13.2~18.6°C，有阵雨。"), evidence,
+            ),
+            GateVerdict.PASS,
+        )
+
     # TEST 1
     def test_plain_qa_zero_tool_passes(self) -> None:
         self.assertEqual(
@@ -375,6 +416,17 @@ class RunTurnCompletionGateTests(unittest.TestCase):
             self.assertFalse(result.ok)
             self.assertEqual(result.task.state, TaskState.FAILED)
             self.assertEqual(len(h.calls), 2)  # 有界的一次 completion repair
+            types = self._events(h, result.task.id)
+            self.assertIn("capability.phase.incomplete", types)
+            self.assertNotIn("completion.check.passed", types)
+
+    def test_explicit_single_tool_request_cannot_complete_without_tool_evidence(self) -> None:
+        with _FakeHarness(self) as h:
+            h.install(_canned("我明白了。"))
+            result = h.run("查询锦州今天的天气。")
+            self.assertFalse(result.ok)
+            self.assertEqual(result.task.state, TaskState.FAILED)
+            self.assertEqual(len(h.calls), 2)
             types = self._events(h, result.task.id)
             self.assertIn("capability.phase.incomplete", types)
             self.assertNotIn("completion.check.passed", types)

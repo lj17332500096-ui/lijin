@@ -219,6 +219,18 @@ class RuntimeRouteAgentTests(unittest.TestCase):
         self.assertEqual(plan["phases"][0]["tools"], ["get_weather"])
         self.assertEqual(plan["phases"][1]["depends_on"], ["external_fact"])
 
+    def test_weather_temperature_difference_plan_requires_weather_then_calculation(self) -> None:
+        plan = tr.infer_capability_plan(
+            "查锦州今天的天气，再根据最高温和最低温算出温差，最后给穿衣建议",
+            ["get_weather", "calculate"],
+        )
+        self.assertEqual(
+            [phase["phase"] for phase in plan["phases"]],
+            ["external_fact", "compute"],
+        )
+        self.assertEqual(plan["required_tools"], ["get_weather", "calculate"])
+        self.assertEqual(plan["phases"][1]["depends_on"], ["external_fact"])
+
     def test_run_context_enforces_ordered_capability_phases(self) -> None:
         from runtime.runctx import RunContext
 
@@ -236,6 +248,12 @@ class RuntimeRouteAgentTests(unittest.TestCase):
         self.assertFalse(ctx.claim_capability_phase_tool("calculate")[0])
         ctx.finish_capability_phase_tool("calculate", success=True)
         self.assertEqual(ctx.capability_phase_index, 1)
+        allowed, _ = ctx.claim_capability_phase_tool("save_note")
+        self.assertTrue(allowed)
+        ctx.finish_capability_phase_tool("save_note", success=True)
+        allowed, details = ctx.claim_capability_phase_tool("calculate")
+        self.assertFalse(allowed)
+        self.assertEqual(details["reason"], "plan_completed")
         ctx.mark_capability_phase_uncertain(0)
         self.assertEqual(ctx.capability_phase_index, 0)
         self.assertTrue(ctx.capability_plan_uncertain)
@@ -277,6 +295,48 @@ class RuntimeRouteAgentTests(unittest.TestCase):
             and event.payload.get("reason") == "out_of_order_tool"
             for event in events
         ))
+
+    def test_successful_read_phase_does_not_become_uncertain(self) -> None:
+        import asyncio
+        from unittest.mock import patch
+        from agents.tool_context import ToolContext
+        from runtime.runctx import RunContext, bind
+
+        self.runtime._ensure()
+        task = self.runtime.tasks.create_task("phase-read", "查锦州天气")
+        agent = self.runtime.route_agent(task.goal, channel="chat", run_id=task.id)
+        self.runtime._route_plans.pop(task.id, None)
+        tool = next(item for item in agent.tools if item.name == "get_weather")
+        original = tool._wrapped_original
+        runctx = RunContext(
+            run_id=task.id,
+            request_text=task.goal,
+            capability_plan={"phases": [
+                {"phase": "external_fact", "tools": ["get_weather"]},
+            ]},
+        )
+        bind(runctx)
+        try:
+            with patch.object(original, "on_invoke_tool",
+                              return_value="锦州当前晴，今日 13~19°C"):
+                result = tool.on_invoke_tool(
+                    ToolContext(context=None, tool_name="get_weather",
+                                tool_call_id="phase-read-weather",
+                                tool_arguments='{"city":"锦州"}'),
+                    '{"city":"锦州"}',
+                )
+                if asyncio.iscoroutine(result):
+                    result = asyncio.run(result)
+        finally:
+            bind(None)
+
+        self.assertIn("锦州当前晴", str(result))
+        self.assertEqual(runctx.capability_phase_index, 1)
+        self.assertFalse(runctx.capability_plan_uncertain)
+        self.assertFalse(runctx.needs_user_input)
+        allowed, details = runctx.claim_capability_phase_tool("get_weather")
+        self.assertFalse(allowed)
+        self.assertEqual(details["reason"], "plan_completed")
 
     def test_unresolved_phase_start_restores_as_uncertain(self) -> None:
         from types import SimpleNamespace

@@ -464,6 +464,43 @@ def evaluate_completion_eligibility(
     return CompletionEligibility(eligible=bool(ok), reasons=reasons)
 
 
+def contradicts_successful_weather_evidence(reply: dict[str, Any] | None,
+                                            evidence: "ExecutionEvidence") -> bool:
+    """Detect a final answer that denies weather data the Run actually received.
+
+    Tool execution alone does not make a user-facing claim truthful. When the
+    weather tool returned a recognizable forecast range, reject answers that
+    say no weather/temperature data was obtained so the bounded repair can use
+    the recorded result instead of falsely claiming the lookup failed.
+    """
+    if not isinstance(reply, dict):
+        return False
+    content = " ".join(str(reply.get(key) or "") for key in ("content", "summary"))
+    if not content:
+        return False
+    denial = re.search(
+        r"(?:没(?:有)?(?:真正)?查到.{0,12}(?:天气|气温|温度|数据|结果)|"
+        r"未查到.{0,12}(?:天气|气温|温度|数据|结果)|"
+        r"没有(?:拿到|获取到).{0,12}(?:天气|气温|温度|数据|结果)|"
+        r"(?:天气|温度|气温)(?:结果|数据)?没有(?:给出|提供|返回)|"
+        r"(?:没有|缺少|未提供).{0,8}(?:具体)?(?:温度|气温)(?:数据|结果)?)",
+        content,
+    )
+    if not denial:
+        return False
+    for call in evidence.tool_calls:
+        if call.get("name") != "get_weather" or call.get("status") not in (
+            TOOL_EXECUTED, "succeeded", "success",
+        ):
+            continue
+        output = str(call.get("output_head") or "")
+        if re.search(r"未找到城市|天气查询失败|服务暂时无法|查询失败", output):
+            continue
+        if re.search(r"\d+(?:\.\d+)?\s*[~～至到]\s*\d+(?:\.\d+)?\s*°?C", output, re.I):
+            return True
+    return False
+
+
 @dataclass(slots=True)
 class ExecutionEvidence:
     """Canonical execution facts shared by completion, recovery, and terminal audit.
@@ -618,7 +655,7 @@ class ExecutionEvidence:
 
     def retrieval_evidence(self) -> bool:
         """是否真实执行过外部检索/查询工具（支撑外部事实声明）。"""
-        return self.executed("web_search", "search_documents", "deep_research",
+        return self.executed("get_weather", "web_search", "search_documents", "deep_research",
                              "search_sources", "fetch_github_repo")
 
     def executed_names(self) -> list[str]:
