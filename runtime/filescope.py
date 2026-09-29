@@ -68,6 +68,14 @@ def _within(path: Path, roots: list[Path]) -> bool:
     return False
 
 
+def is_within_roots(path: Path | str, roots: list[Path] | tuple[Path, ...]) -> bool:
+    """Public read-scope check for Runtime preflight and tool authorization."""
+    try:
+        return _within(Path(path), list(roots))
+    except (OSError, TypeError, ValueError):
+        return False
+
+
 def build_file_scope(
     *,
     container_id: str | None,

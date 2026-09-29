@@ -229,6 +229,30 @@ from runtime.terminalization import (
     classify_exception,
     consistency_errors,
 )
+
+_EXPLICIT_FILE_REFERENCE_RE = re.compile(
+    r"(?i)(?:[a-z]:[\\/]|\\\\)[^\r\n<>\"|?*]*?\.(?:zip|7z|rar|tar|gz|pdf|docx?|xlsx?|pptx?|txt|md|json|csv|py|js|ts|png|jpe?g|gif|webp)"
+)
+
+
+def _explicit_absolute_file_references(text: str) -> list[Path]:
+    """Extract explicit Windows/UNC file paths without treating prose as paths."""
+    found: list[Path] = []
+    for match in _EXPLICIT_FILE_REFERENCE_RE.finditer(str(text or "")):
+        raw = match.group(0).rstrip("，。；：、)]}>")
+        try:
+            path = Path(raw)
+            if path.is_absolute() and path not in found:
+                found.append(path)
+        except (OSError, ValueError):
+            continue
+    return found
+
+
+def _is_missing_tool_call_id_error(exc: BaseException) -> bool:
+    message = str(exc).casefold()
+    return ("tool invocations require a non-empty string call id" in message
+            or "non-empty string call_id" in message)
 from runtime.tool_router import router_enabled, select_tool_names
 from runtime.public_activity import RunActivityProjector, current_activity, public_text
 
@@ -2699,6 +2723,9 @@ class AgentRuntime:
         self._ledgers[task.id] = []
         self._active_run_id = task.id
         attempt_log: list[str] = []  # P1-D：每次 execute 尝试的模型名（供失败路径 audit 兜底）
+        api_disposition = "unavailable"
+        api_review_passes = 0
+        api_supplement_attempted = False
 
         # P2：TASK_MAX_WALL_SECONDS / FORGE_RUN_WALL_TIMEOUT_SECONDS 作为默认墙钟预算
         # （FORGE_RUN_WALL_TIMEOUT_SECONDS 提供生产默认 1800s；两者都设时取更严的小值）
@@ -3002,6 +3029,23 @@ class AgentRuntime:
                         for call in side_effect_calls
                     ),
                 )
+                _model_calls = []
+                try:
+                    _model_calls = self.tasks.list_model_calls(task.id, limit=500)
+                except Exception:
+                    pass
+                _model_latency = [
+                    int(row.get("latency_ms") or 0) for row in _model_calls
+                    if row.get("latency_ms") is not None
+                ]
+                _usage_totals = {
+                    "model_calls": len(_model_calls),
+                    "input_tokens": sum(int(row.get("input_tokens") or 0) for row in _model_calls),
+                    "output_tokens": sum(int(row.get("output_tokens") or 0) for row in _model_calls),
+                    "latency_ms_total": sum(_model_latency),
+                    "latency_ms_max": max(_model_latency, default=None),
+                    "latency_samples": len(_model_latency),
+                }
                 actual_has_evidence = bool(
                     evidence.executed_count() or evidence.new_files or evidence.persistence_evidence()
                 )
@@ -3022,6 +3066,21 @@ class AgentRuntime:
                     "kind": kind,
                     "state": state.value,
                     "error": str(error_text)[:300],
+                    "conversation_workflow": {
+                        "analysis_disposition": api_disposition,
+                        "review_passes": api_review_passes,
+                        "supplement_attempted": api_supplement_attempted,
+                        "supplement_count": int(bool(api_supplement_attempted)),
+                    },
+                    "model_usage_and_latency": _usage_totals,
+                    "tool_call_statuses": [
+                        {
+                            "tool": str(call.get("name") or "")[:100],
+                            "invocation_id": str(call.get("invocation_id") or "")[:120] or None,
+                            "status": str(call.get("status") or "unknown")[:40],
+                        }
+                        for call in evidence.tool_calls[:200]
+                    ],
                     "consistency": errs,
                     "execution_evidence": evidence.snapshot(include_calls=False),
                 })
@@ -3326,6 +3385,57 @@ class AgentRuntime:
         # ------------------------------------------------------------------
         from runtime.execution import execute_turn  # Provider/SDK adapter lives below the Runtime boundary
 
+        async def _workflow_api_call(stage: str, workflow_agent: Any,
+                                     prompt: str, schema: type) -> Any:
+            """Run a no-tool structured API stage under the same Run budget/audit."""
+            from runtime.api_workflow import structured_output
+
+            activity = current_activity()
+            phase_label = "分析请求" if stage == "conversation.analysis" else "复核结果"
+            if activity:
+                activity.set_phase(phase_label)
+            _stage_started = time.perf_counter()
+            _usage_before = dict(_tg_usage or {})
+            self.tasks.add_event(task.id, f"{stage}.started", {
+                "run_id": task.id, "model": requested_model or "unknown",
+                "authority": "runtime_workflow_api_no_tools",
+            })
+            attempt_log.append(f"{requested_model or 'unknown'}:{stage}")
+            try:
+                raw = await run_with_wall_limit(
+                    execute_turn(
+                        "async", prompt, session=None, debug=False, max_turns=1,
+                        agent=workflow_agent, audit=collector,
+                        stream_events_cb=None, provider=run_provider,
+                    ),
+                    effective_budget, task,
+                )
+                parsed = structured_output(raw, schema)
+            except asyncio.CancelledError:
+                self.tasks.add_event(task.id, f"{stage}.failed", {
+                    "run_id": task.id, "reason": "cancelled",
+                    "latency_ms": round((time.perf_counter() - _stage_started) * 1000),
+                })
+                raise
+            except Exception as exc:
+                self.tasks.add_event(task.id, f"{stage}.failed", {
+                    "run_id": task.id, "error_type": type(exc).__name__,
+                    "error": str(exc)[:300],
+                    "latency_ms": round((time.perf_counter() - _stage_started) * 1000),
+                })
+                raise
+            self.tasks.add_event(task.id, f"{stage}.completed", {
+                "run_id": task.id, "status": "completed",
+                "latency_ms": round((time.perf_counter() - _stage_started) * 1000),
+                "usage_delta": {
+                    "input_tokens": max(0, int(_tg_usage.get("input", 0) or 0)
+                                         - int(_usage_before.get("input", 0) or 0)),
+                    "output_tokens": max(0, int(_tg_usage.get("output", 0) or 0)
+                                          - int(_usage_before.get("output", 0) or 0)),
+                },
+            })
+            return parsed
+
         completion_gate = CompletionGate()
         gate_verdict: GateVerdict = GateVerdict.PASS
         reject_detail: dict[str, Any] | None = None
@@ -3465,6 +3575,169 @@ class AgentRuntime:
             # 与 completion repair（final response 自身不合格）不再共用同一个计数。
             completion_repairs = 0
             obligation_feedback_signatures: set[str] = set()
+            api_supplement_prompt = ""
+            api_supplement_requires_tools = False
+            api_plan: dict[str, Any] | None = None
+
+            # 明确给出工作区外的绝对文件路径时，在调用模型和工具前直接提示
+            # 可操作的接入方式，避免模型反复列目录或把未读取文件说成已读取。
+            try:
+                from runtime.filescope import is_within_roots
+                from runtime.runctx import current as _preflight_ctx
+
+                _scope = getattr(_preflight_ctx(), "file_scope", None)
+                _read_roots = _scope.allowed_read_roots() if _scope else []
+                _attached_basenames = {
+                    Path(str(row.get("display_name") or row.get("original_name") or ""))
+                    .name.casefold()
+                    for row in atts
+                    if row.get("display_name") or row.get("original_name")
+                }
+                _outside_paths = [
+                    path for path in _explicit_absolute_file_references(message)
+                    if path.name.casefold() not in _attached_basenames
+                    and not is_within_roots(path, _read_roots)
+                ]
+                if _outside_paths:
+                    _basename = _outside_paths[0].name[:180]
+                    try:
+                        self.tasks.add_event(task.id, "file.scope.preflight", {
+                            "status": "waiting_user",
+                            "reason": "explicit_path_outside_authorized_read_roots",
+                            "file_name": _basename,
+                            "authorized_root_count": len(_read_roots),
+                        })
+                    except Exception:
+                        pass
+                    _guidance = (
+                        f"文件“{_basename}”不在当前工作区的可读取范围内。"
+                        "请在 TUI 点击「+ 文件」附加该文件，或选择包含它的项目文件夹作为工作区后重试。"
+                    )
+                    _reply = {
+                        "kind": "questions", "content": _guidance,
+                        "summary": _guidance[:200], "questions": [_guidance],
+                    }
+                    return _succeed_waiting_user(
+                        _reply, json.dumps(_reply, ensure_ascii=False),
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as _scope_exc:
+                _logger.warning("文件路径前置检查失败 run=%s", task.id, exc_info=True)
+                try:
+                    self.tasks.add_event(task.id, "file.scope.preflight.unavailable", {
+                        "error_type": type(_scope_exc).__name__,
+                    })
+                except Exception:
+                    pass
+
+            # API 预分析只产出目标/策略建议；不接触工具、不写会话历史，也不
+            # 决定 Runtime 工具授权。解析失败时记录降级并走既有安全路由。
+            try:
+                from runtime.api_workflow import (
+                    RequestAnalysis, analysis_input, build_analysis_agent,
+                    normalized_plan,
+                )
+                from runtime.runctx import current as _analysis_ctx
+
+                _analysis_ctx = _analysis_ctx()
+                _file_scope = getattr(_analysis_ctx, "file_scope", None)
+                _laya_advice: dict[str, Any] = {"status": "unavailable_or_skipped"}
+                try:
+                    for _event in reversed(self.tasks.list_events(task.id, limit=200)):
+                        if getattr(_event, "event_type", None) == "routing.decision":
+                            _layer = (getattr(_event, "payload", None) or {}).get("layer") or {}
+                            _laya_advice = {
+                                "status": "hinted" if _layer.get("hint") else (
+                                    "skipped" if _layer.get("skipped") else "no_hint"
+                                ),
+                                "hint": _layer.get("hint"),
+                                "enabled": bool(_layer.get("enabled")),
+                                "route_hint_candidate": _layer.get("route_hint_candidate"),
+                                "route_hint_effect": _layer.get("route_hint_effect"),
+                                "authority": "advisory_only",
+                            }
+                            break
+                except Exception:
+                    pass
+                _analysis_context = {
+                    "container_selected": bool(container_id),
+                    "work_location_selected": bool(
+                        proj and proj.get("work_location_id")
+                    ),
+                    "authorized_read_roots": [
+                        str(root) for root in (_file_scope.allowed_read_roots()
+                                               if _file_scope else [])
+                    ][:8],
+                    "attached_files": [
+                        str(row.get("display_name") or row.get("original_name") or "")[:180]
+                        for row in atts[:12]
+                    ],
+                    "available_tool_names": [
+                        str(getattr(tool, "name", ""))[:120]
+                        for tool in (getattr(selected_agent, "tools", []) or [])[:120]
+                    ],
+                    "laya_advice": _laya_advice,
+                    "decision_authority": "api_analysis_formal_disposition_runtime_enforces",
+                    "runtime_project_context": str(ctx_block or "")[:6000],
+                }
+                _analysis_agent = build_analysis_agent(
+                    getattr(selected_agent, "model", None),
+                    getattr(selected_agent, "model_settings", None),
+                )
+                _plan_obj = await _workflow_api_call(
+                    "conversation.analysis", _analysis_agent,
+                    analysis_input(message, _analysis_context), RequestAnalysis,
+                )
+                api_plan = normalized_plan(_plan_obj)
+                api_disposition = _plan_obj.disposition
+                self.tasks.add_event(task.id, "conversation.plan", {
+                    "schema_version": 1,
+                    "disposition": api_disposition,
+                    "objective": _plan_obj.objective[:1200],
+                    "completion_criteria": _plan_obj.completion_criteria[:12],
+                    "context_requirements": _plan_obj.context_requirements[:12],
+                    "question_count": len(_plan_obj.questions),
+                    "laya_advice": _laya_advice,
+                    "decision_authority": "api_analysis",
+                })
+                if api_disposition == "ask_user":
+                    _analysis_questions = [q.strip() for q in _plan_obj.questions if q.strip()]
+                    if not _analysis_questions:
+                        _analysis_questions = ["请补充完成这项任务所必需的信息。"]
+                    try:
+                        from runtime.runctx import current as _ask_ctx
+                        _ask_ctx = _ask_ctx()
+                        if _ask_ctx is not None:
+                            _ask_ctx.enter_needs_user_input(_analysis_questions)
+                    except Exception:
+                        pass
+                    _analysis_content = "需要你补充信息后继续：" + "；".join(_analysis_questions)
+                    _analysis_reply = {
+                        "kind": "questions", "content": _analysis_content,
+                        "summary": _analysis_content[:200],
+                        "questions": _analysis_questions,
+                    }
+                    return _succeed_waiting_user(
+                        _analysis_reply, json.dumps(_analysis_reply, ensure_ascii=False),
+                    )
+            except asyncio.CancelledError:
+                raise
+            except Exception as _analysis_exc:
+                if _is_missing_tool_call_id_error(_analysis_exc):
+                    raise
+                api_plan = None
+                api_disposition = "execute"
+                try:
+                    self.tasks.add_event(task.id, "conversation.analysis.fallback", {
+                        "run_id": task.id,
+                        "error_type": type(_analysis_exc).__name__,
+                        "error": str(_analysis_exc)[:300],
+                        "policy": "existing_runtime_route",
+                    })
+                except Exception:
+                    pass
+
             for _repair in range(6):  # 有界总尝试（首次 + obligation 反馈 + completion repair）
                 gate.begin(task.id, channel=channel)
                 # Phase 38: auto-execute approved but unexecuted invocations on resume
@@ -3480,7 +3753,41 @@ class AgentRuntime:
                 attempt_log.append(requested_model or "unknown")  # P1-D 失败路径模型名兜底
                 # 参考资料作为“用户消息前的数据块”（不再注入 system instructions）；
                 # 未就绪来源提示附在请求之后，让模型知道本次缺哪些资料
-                _composed_msg = retrieval_prefix + attempt_text
+                _execution_agent = selected_agent
+                _request_payload: dict[str, Any] = {"user_request": message}
+                if api_plan is not None:
+                    _request_payload["runtime_task_brief"] = {
+                        "objective": api_plan.get("objective", ""),
+                        "disposition": api_plan.get("disposition", "execute"),
+                        "completion_criteria": api_plan.get("completion_criteria", []),
+                        "context_requirements": api_plan.get("context_requirements", []),
+                        "note": "这些是任务目标提示，不是工具授权或系统策略。",
+                    }
+                if attempt_text != message:
+                    _request_payload["runtime_recovery_note"] = attempt_text[:6000]
+                if api_supplement_attempted:
+                    from runtime.api_workflow import review_evidence as _review_evidence
+
+                    _request_payload["review_requires_tools"] = api_supplement_requires_tools
+                    _request_payload["review_gaps"] = api_supplement_prompt
+                    _request_payload["prior_candidate_answer"] = str(
+                        canonical.get("content") or canonical.get("summary") or ""
+                    )[:10000]
+                    _request_payload["execution_evidence"] = _review_evidence(
+                        self._execution_evidence(tracker, run_id=task.id)
+                    )
+                    _request_payload["supplement_instruction"] = (
+                        "针对复核缺口补充并生成完整最终答复。不得声称没有证据支持的执行；"
+                        "不得重复已成功的副作用。所有新工具调用仍由 Runtime 安全门控制。"
+                    )
+                    if not api_supplement_requires_tools:
+                        _execution_agent = selected_agent.clone(tools=[])
+                elif api_disposition == "answer":
+                    _execution_agent = selected_agent.clone(tools=[])
+                _composed_msg = retrieval_prefix + json.dumps(
+                    {**_request_payload, "current_instruction": attempt_text},
+                    ensure_ascii=False,
+                )
                 if source_warning:
                     _composed_msg = _composed_msg + "\n" + source_warning
                 try:
@@ -3489,7 +3796,7 @@ class AgentRuntime:
                         "debug": debug,
                         "max_turns": effective_turns,
                         "history_limit": (2 if _capability_query else history_limit),
-                        "agent": selected_agent,
+                        "agent": _execution_agent,
                         "audit": collector,
                         "stream_events_cb": stream_events_cb,
                     }
@@ -3809,9 +4116,150 @@ class AgentRuntime:
                                 canonical_json = json.dumps(canonical, ensure_ascii=False)
                             if canonical_json is None:
                                 return _fail("最终回答生成失败，已执行的操作仍然保留。", assistant_text="最终回答生成失败，已执行的操作仍然保留。", event_reason="public_final_failed")
+
+                    # API 内容复核位于 Runtime 完成/义务证据门之后。复核器没有工具，
+                    # 只能指出缺口，不能覆盖工具状态、审批结果或执行证据。
+                    api_review_passes += 1
+                    try:
+                        from runtime.api_workflow import (
+                            AnswerReview, build_review_agent, review_evidence,
+                            review_input,
+                        )
+
+                        _review_agent = build_review_agent(
+                            getattr(selected_agent, "model", None),
+                            getattr(selected_agent, "model_settings", None),
+                        )
+                        _review_obj = await _workflow_api_call(
+                            "conversation.review", _review_agent,
+                            review_input(
+                                request=message,
+                                plan=api_plan or {},
+                                answer=str(canonical.get("content") or
+                                           canonical.get("summary") or ""),
+                                evidence=review_evidence(evidence),
+                            ),
+                            AnswerReview,
+                        )
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as _review_exc:
+                        if _is_missing_tool_call_id_error(_review_exc):
+                            raise
+                        _review_failure = (
+                            "本轮执行结果尚未通过质量复核，任务状态未标记为完成。"
+                        )
+                        try:
+                            self.tasks.add_event(task.id, "conversation.review.unavailable", {
+                                "run_id": task.id,
+                                "review_pass": api_review_passes,
+                                "error_type": type(_review_exc).__name__,
+                                "error": str(_review_exc)[:300],
+                            })
+                        except Exception:
+                            pass
+                        return _fail(
+                            _review_failure, resp=canonical_json,
+                            assistant_text=_review_failure,
+                            run_state="failed", event_reason="quality_review_unavailable",
+                            terminal_kind=KIND_NO_PROGRESS,
+                        )
+
+                    try:
+                        self.tasks.add_event(task.id, "conversation.review.result", {
+                            "run_id": task.id,
+                            "review_pass": api_review_passes,
+                            "verdict": _review_obj.verdict,
+                            "gap_count": len(_review_obj.gaps),
+                            "supplement_requires_tools": _review_obj.supplement_requires_tools,
+                            "reason": _review_obj.reason[:400],
+                        })
+                    except Exception:
+                        pass
+
+                    if _review_obj.verdict == "ask_user":
+                        _review_questions = [q.strip() for q in _review_obj.questions if q.strip()]
+                        if not _review_questions:
+                            _review_questions = ["请补充继续完成任务所必需的信息。"]
+                        try:
+                            from runtime.runctx import current as _review_ctx
+                            _review_ctx = _review_ctx()
+                            if _review_ctx is not None:
+                                _review_ctx.enter_needs_user_input(_review_questions)
+                        except Exception:
+                            pass
+                        _review_content = "需要你补充信息后继续：" + "；".join(_review_questions)
+                        _review_reply = {
+                            "kind": "questions", "content": _review_content,
+                            "summary": _review_content[:200],
+                            "questions": _review_questions,
+                        }
+                        return _succeed_waiting_user(
+                            _review_reply,
+                            json.dumps(_review_reply, ensure_ascii=False),
+                        )
+
+                    if _review_obj.verdict == "supplement" and not api_supplement_attempted:
+                        if not _review_obj.supplement_prompt.strip():
+                            _review_obj.verdict = "blocked"
+                        else:
+                            api_supplement_attempted = True
+                            api_supplement_prompt = _review_obj.supplement_prompt.strip()
+                            api_supplement_requires_tools = bool(
+                                _review_obj.supplement_requires_tools
+                            )
+                            try:
+                                self.tasks.add_event(task.id, "conversation.supplement.started", {
+                                    "run_id": task.id,
+                                    "attempt": 1,
+                                    "requires_tools": api_supplement_requires_tools,
+                                    "gaps": [str(g)[:300] for g in _review_obj.gaps[:12]],
+                                })
+                            except Exception:
+                                pass
+                            if mode == "stream" and stream_events_cb is not None:
+                                try:
+                                    stream_events_cb("stream_reset", {
+                                        "reason": "复核发现需要补充的内容",
+                                    })
+                                except Exception:
+                                    pass
+                            if activity:
+                                activity.fixing()
+                            continue
+
+                    if _review_obj.verdict != "complete":
+                        if api_supplement_attempted:
+                            _review_failure = (
+                                "已完成一次补充，但复核仍发现未解决的问题；"
+                                "本轮不会继续重试，也不会标记为完成。"
+                            )
+                        else:
+                            _review_failure = (
+                                _review_obj.reason.strip()[:600]
+                                or "复核发现当前结果缺少必要证据，任务尚未完成。"
+                            )
+                        try:
+                            self.tasks.add_event(task.id, "conversation.review.incomplete", {
+                                "run_id": task.id,
+                                "review_pass": api_review_passes,
+                                "verdict": _review_obj.verdict,
+                                "gaps": [str(g)[:300] for g in _review_obj.gaps[:12]],
+                            })
+                        except Exception:
+                            pass
+                        return _fail(
+                            _review_failure, resp=canonical_json,
+                            assistant_text=_review_failure,
+                            run_state="failed", event_reason="quality_review_incomplete",
+                            terminal_kind=KIND_NO_PROGRESS,
+                        )
+
                     try:
                         self.tasks.add_event(task.id, "completion.check.passed",
-                                             {"attempt": _repair, "payload": reject_detail})
+                                             {"attempt": _repair, "payload": reject_detail,
+                                              "api_review_passes": api_review_passes,
+                                              "api_supplement_attempted": api_supplement_attempted})
                     except Exception:
                         pass
                     artifacts = tracker.register_new(self.tasks, task_id=task.id,
@@ -4055,6 +4503,35 @@ class AgentRuntime:
                     message_ids=message_ids,
                     outcome=outcome,
                     next_action=next_action,
+                )
+            if _is_missing_tool_call_id_error(exc):
+                _executed_before_protocol_error = 0
+                try:
+                    _executed_before_protocol_error = self._execution_evidence(
+                        tracker, run_id=task.id
+                    ).executed_count()
+                except Exception:
+                    pass
+                try:
+                    self.tasks.add_event(task.id, "model.protocol_error", {
+                        "run_id": task.id,
+                        "category": "missing_tool_call_id",
+                        "error_type": type(exc).__name__,
+                        "tool_execution_started_for_invalid_call": False,
+                        "prior_successful_tool_count": _executed_before_protocol_error,
+                    })
+                except Exception:
+                    pass
+                _public_protocol_error = (
+                    "模型/网关返回了不完整的工具调用，缺少必要的 call_id；"
+                    "这次调用没有交给工具执行。请重试；如果任务涉及本地文件，也请先通过「+ 文件」附加文件，"
+                    "或选择包含文件的项目文件夹作为工作区。"
+                )
+                return _fail(
+                    _public_protocol_error, resp=final_output,
+                    assistant_text=_public_protocol_error,
+                    event_reason="model_protocol_error_missing_call_id",
+                    exc_orig=exc, terminal_kind=KIND_BOUNDED_FAILURE,
                 )
             # ---- Provider/网关错误：分类、0/有限重试已由 provider_gateway 处理；
             # 这里负责把 401/503 等转换成友好文案 + provider.failure 审计，绝不进入 stalled 语义 ----

@@ -22,15 +22,18 @@ Textual 8.2.8 关键约束（勿违反）：
 
 from __future__ import annotations
 
+import asyncio
 import time
 
 _time = time  # 事件处理里算 elapsed 用 monotonic
 
+from rich.markdown import Markdown
 from rich.text import Text
 from textual._context import NoActiveAppError
 from textual.app import App, ComposeResult, NoScreen, Screen
 from textual.binding import Binding
-from textual.containers import Vertical, Horizontal
+from textual.containers import Vertical, Horizontal, ScrollableContainer
+from textual.screen import ModalScreen
 from textual.widgets import Button, Input, Static, Label
 from textual.widget import MountError, Widget
 
@@ -59,6 +62,7 @@ from cli.tui.panels import (
     QuestionPanel,
     ApprovalPanel,
     SessionListPopup,
+    ArtifactItem,
 )
 
 
@@ -148,6 +152,70 @@ class InspectorScreen(Screen):
         pass
 
     def action_close_inspector(self) -> None:
+        self.app.pop_screen()
+
+
+class ArtifactPreviewScreen(ModalScreen):
+    """Bounded, read-only preview for a registered text artifact."""
+
+    BINDINGS = [Binding("escape", "close_preview", "关闭")]
+    CSS = f"""
+    ArtifactPreviewScreen {{
+        align: center middle;
+        background: #000000 70%;
+    }}
+    #artifact-preview-panel {{
+        width: 92%;
+        max-width: 120;
+        height: 86%;
+        border: round {BORDER};
+        background: {SURFACE};
+        padding: 1;
+    }}
+    #artifact-preview-title {{
+        height: 1;
+        color: {PRIMARY};
+        text-style: bold;
+    }}
+    #artifact-preview-path {{
+        height: 1;
+        color: {MUTED};
+    }}
+    #artifact-preview-scroll {{
+        height: 1fr;
+        border: solid {BORDER};
+        padding: 0 1;
+    }}
+    #artifact-preview-content {{
+        width: 100%;
+        color: {TEXT_C};
+    }}
+    #artifact-preview-close {{
+        width: 16;
+        height: 3;
+        margin: 1 0 0 0;
+        dock: right;
+    }}
+    """
+
+    def __init__(self, name: str, path: str, content: str) -> None:
+        super().__init__()
+        self.artifact_name = name
+        self.path = path
+        self.content = content
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="artifact-preview-panel"):
+            yield Label(f"📄 {self.artifact_name}", id="artifact-preview-title")
+            yield Static(self.path, id="artifact-preview-path")
+            preview = (Markdown(self.content)
+                       if self.artifact_name.lower().endswith((".md", ".markdown"))
+                       else Text(self.content))
+            with ScrollableContainer(id="artifact-preview-scroll"):
+                yield Static(preview, id="artifact-preview-content")
+            yield Button("关闭", id="artifact-preview-close", variant="default")
+
+    def action_close_preview(self) -> None:
         self.app.pop_screen()
 
 
@@ -272,6 +340,36 @@ class ForgeTuiApp(App):
     }}
     MessageItem {{
         padding: 0 1;
+    }}
+    ArtifactItem {{
+        width: 100%;
+        height: auto;
+        margin: 1 1;
+        padding: 0 1;
+        border-left: solid {ARTIFACT};
+        background: {SURFACE};
+    }}
+    .artifact-name {{
+        height: 1;
+        color: {ARTIFACT};
+        text-style: bold;
+    }}
+    .artifact-actions {{
+        height: 1;
+        width: 100%;
+    }}
+    .artifact-action {{
+        height: 1;
+        min-width: 8;
+        margin: 0 1 0 0;
+        padding: 0 1;
+        border: none;
+        color: {PRIMARY};
+        background: transparent;
+    }}
+    .artifact-action:hover {{
+        color: {TEXT_C};
+        background: {PANEL};
     }}
     InputBar {{
         /* ⚠️ Textual 的 Vertical 默认 CSS 是 height: 1fr，
@@ -630,7 +728,15 @@ class ForgeTuiApp(App):
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
         button_id = event.button.id
-        if button_id and button_id.startswith("session-select-"):
+        if button_id == "artifact-preview-close":
+            self.pop_screen()
+        elif button_id and button_id.startswith("artifact-view-"):
+            artifact_id = button_id[len("artifact-view-"):]
+            self._run_async(self._open_registered_artifact(artifact_id, reveal=False))
+        elif button_id and button_id.startswith("artifact-folder-"):
+            artifact_id = button_id[len("artifact-folder-"):]
+            self._run_async(self._open_registered_artifact(artifact_id, reveal=True))
+        elif button_id and button_id.startswith("session-select-"):
             sidebar = self._app_state.sidebar if self._app_state else None
             if sidebar is not None:
                 try:
@@ -1397,6 +1503,9 @@ class ForgeTuiApp(App):
         if command in ("/sessions", "/session"):
             self._show_session_list()
             return
+        if command == "/artifacts":
+            self._run_async(self._show_artifacts(argument))
+            return
         if command == "/new":
             self._run_async(self._create_new_chat(argument or "新对话"))
             return
@@ -1462,6 +1571,75 @@ class ForgeTuiApp(App):
             for line in clean.splitlines():
                 if line.strip():
                     self._msglog().add_meta(line)
+
+    async def _show_artifacts(self, limit_text: str = "") -> None:
+        """Render the current conversation's registered artifacts as actions."""
+        chat = self._get_chat_app()
+        try:
+            limit = max(1, min(int(limit_text), 200)) if limit_text else 20
+        except ValueError:
+            limit = 20
+        try:
+            artifacts = await asyncio.to_thread(
+                chat.store.artifacts, chat.session_name, limit,
+            )
+        except Exception as exc:
+            self._msglog().add_error(title="无法加载生成文件", detail=str(exc))
+            return
+        if not artifacts:
+            self._msglog().add_meta("当前对话还没有登记的生成文件。")
+            return
+        self._msglog().add_meta(f"当前对话的生成文件（{len(artifacts)} 个）：")
+        for artifact in artifacts:
+            self._msglog().add_artifact(artifact)
+
+    def _load_registered_artifact(self, artifact_id: str):
+        """Load by database ID and confine the path to Runtime artifact roots."""
+        import re
+
+        from cli.tui.artifacts import resolve_registered_artifact
+
+        if not re.fullmatch(r"art_[A-Za-z0-9]+", artifact_id or ""):
+            raise ValueError("生成文件编号无效。")
+        chat = self._get_chat_app()
+        artifact = chat.store.mgr.get_artifact(artifact_id)
+        if artifact is None:
+            raise ValueError("这个生成文件已不在登记列表中。")
+        if str(artifact.get("session_id") or "") != str(chat.session_name or ""):
+            raise ValueError("只能打开当前对话登记的生成文件。")
+        roots = getattr(chat.runtime, "artifact_dirs", ()) or ()
+        path = resolve_registered_artifact(artifact, roots)
+        return artifact, path
+
+    async def _open_registered_artifact(self, artifact_id: str, *, reveal: bool) -> None:
+        from cli.tui.artifacts import (
+            TEXT_PREVIEW_SUFFIXES,
+            open_artifact,
+            read_artifact_preview,
+            reveal_artifact,
+        )
+
+        try:
+            artifact, path = await asyncio.to_thread(
+                self._load_registered_artifact, artifact_id,
+            )
+            if reveal:
+                await asyncio.to_thread(reveal_artifact, path)
+                self._msglog().add_meta(f"已在文件夹中定位：{artifact['name']}")
+            elif path.suffix.lower() in TEXT_PREVIEW_SUFFIXES:
+                content, _truncated = await asyncio.to_thread(read_artifact_preview, path)
+                self.push_screen(ArtifactPreviewScreen(
+                    str(artifact.get("name") or path.name), str(path), content,
+                ))
+            else:
+                await asyncio.to_thread(open_artifact, path)
+                self._msglog().add_meta(f"已用系统默认程序打开：{artifact['name']}")
+        except Exception as exc:
+            self._msglog().add_error(
+                title="打开生成文件失败",
+                detail=f"{type(exc).__name__}: {exc}",
+                hints=["检查文件是否仍存在，以及是否位于 Agent 的产物目录中。"],
+            )
 
     # ── 普通消息 ────────────────────────────────────────────────
     def _submit_text(self, text: str) -> None:
@@ -1950,8 +2128,22 @@ class ForgeTuiApp(App):
                 msglog.add_meta(f"✓ 完成 · {kind_label}")
             if reply.summary:
                 msglog.add_meta(f"📌 {_escape_text(reply.summary)}")
+            artifacts = [
+                artifact for artifact in (getattr(result, "artifacts", []) or [])
+                if isinstance(artifact, dict) and artifact.get("id")
+            ]
             if reply.saved_file:
-                msglog.add_artifact(reply.saved_file)
+                saved_label = str(reply.saved_file).strip().replace("\\", "/").lower()
+                saved_basename = saved_label.rsplit("/", 1)[-1]
+                is_registered = any(
+                    saved_label == str(artifact.get("storage_path") or "").replace("\\", "/").lower()
+                    or saved_basename == str(artifact.get("name") or "").replace("\\", "/").lower()
+                    for artifact in artifacts
+                )
+                if not is_registered:
+                    # A model-provided saved_file string is display-only. Only
+                    # database-registered artifacts receive open actions.
+                    msglog.add_artifact(str(reply.saved_file))
             if reply.next_step:
                 msglog.add_meta(f"➡ 下一步：{_escape_text(reply.next_step)}")
         elif reply:
@@ -1964,8 +2156,9 @@ class ForgeTuiApp(App):
         if getattr(result, "ok", True) is False or error_text:
             msglog.add_error(title=error_text[:400] or "本轮未成功")
 
-        for artifact in getattr(result, "artifacts", []) or []:
-            msglog.add_artifact(artifact.get("name", "?"))
+        for artifact in (getattr(result, "artifacts", []) or []):
+            if isinstance(artifact, dict) and artifact.get("id"):
+                msglog.add_artifact(artifact)
 
         task_id = getattr(getattr(result, "task", None), "id", "") or "?"
         outcome = str(getattr(result, "outcome", "") or "")

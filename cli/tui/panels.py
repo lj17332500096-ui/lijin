@@ -468,6 +468,36 @@ class MessageItem(Static):
         return _escape(line)
 
 
+class ArtifactItem(Vertical):
+    """Registered generated file with keyboard- and mouse-accessible actions."""
+
+    def __init__(self, artifact: dict) -> None:
+        self.artifact_id = str(artifact.get("id") or "")
+        self.artifact_name = str(artifact.get("name") or "生成文件")
+        self.kind = str(artifact.get("kind") or "file")
+        self.storage_path = str(artifact.get("storage_path") or "")
+        self.size_bytes = max(0, int(artifact.get("size_bytes") or 0))
+        safe_id = _re.sub(r"[^A-Za-z0-9_-]", "_", self.artifact_id)
+        self.view_button_id = f"artifact-view-{safe_id}"
+        self.folder_button_id = f"artifact-folder-{safe_id}"
+        super().__init__(classes="artifact-item")
+
+    def compose(self) -> ComposeResult:
+        size = _format_artifact_size(self.size_bytes)
+        yield Static(f"📄 {self.artifact_name}  ·  {self.kind}  ·  {size}", classes="artifact-name")
+        with Horizontal(classes="artifact-actions"):
+            yield Button("查看", id=self.view_button_id, classes="artifact-action")
+            yield Button("打开所在文件夹", id=self.folder_button_id, classes="artifact-action")
+
+
+def _format_artifact_size(size: int) -> str:
+    if size < 1024:
+        return f"{size} B"
+    if size < 1024 * 1024:
+        return f"{size / 1024:.1f} KB"
+    return f"{size / (1024 * 1024):.1f} MB"
+
+
 # ── 面板：消息流 ──────────────────────────────────────────────────
 class MessageLog(VerticalScroll, can_focus=False):
     """中部：MessageItem 列表，支持流式打字机效果。
@@ -483,7 +513,7 @@ class MessageLog(VerticalScroll, can_focus=False):
 
     def __init__(self) -> None:
         super().__init__()
-        self._items: list["MessageItem | ToolGroup"] = []
+        self._items: list["MessageItem | ArtifactItem | ToolGroup"] = []
         self._stream_item: MessageItem | None = None
         self._stream_buf: str = ""
         self._last_refresh: float = 0.0
@@ -557,8 +587,13 @@ class MessageLog(VerticalScroll, can_focus=False):
             )
         )
 
-    def add_artifact(self, name: str) -> None:
-        self._append_item(MessageItem(kind="artifact", title=name))
+    def add_artifact(self, artifact: dict | str) -> MessageItem | ArtifactItem:
+        if isinstance(artifact, dict) and artifact.get("id"):
+            return self._append_item(ArtifactItem(artifact))
+        # Legacy saved_file text is informational only; it is not trusted as a
+        # path and deliberately receives no open-file action.
+        name = str(artifact.get("name") or "生成文件") if isinstance(artifact, dict) else str(artifact)
+        return self._append_item(MessageItem(kind="artifact", title=name))
 
     def add_meta(self, text: str) -> None:
         self._append_item(MessageItem(kind="meta", content=text))
