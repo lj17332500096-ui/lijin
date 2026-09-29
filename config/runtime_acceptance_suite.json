@@ -73,8 +73,6 @@
   },
   "excluded_non_runtime": {
     "ui_theme": [
-      "tests/test_theme_cdp.py",
-      "tests/test_frontend_smoke.py",
       "tests/test_ui_schema.py",
       "tests/test_markdown_js.py"
     ],
@@ -84,6 +82,6 @@
       "tests/test_multimodal.py",
       "tests/test_skill_gorden_ppt.py"
     ],
-    "note": "Excluded from Runtime Acceptance Suite; tracked in Full Repository Regression only."
+    "note": "Excluded from Runtime Acceptance Suite; run these UI and media checks separately."
   }
 }

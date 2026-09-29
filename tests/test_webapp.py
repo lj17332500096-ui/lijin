@@ -3,7 +3,7 @@
 背景
 ----
 2026-09-22：webapp.py 的 63 条 /api/* 路由已归档删除，见
-FORGE-API-LAYER-AUDIT-2026-09-22.md §17（前置决策：「归档」而非「复活」）。
+docs/archive/2026-09/FORGE-API-LAYER-AUDIT-2026-09-22.md §17（前置决策：「归档」而非「复活」）。
 依据是生产 bundle 中 "/api/" 命中 0 次、assistant_delta/run_id/EventSource 命中均为 0、
 全仓无 HTTP 消费者、唯一测试消费者（即本文件）处于冻结跳过——它是一套前端从未
 调用过的并行协议面。
@@ -67,16 +67,15 @@ class WebAppArchiveTests(unittest.TestCase):
 
     def test_page_entries_present(self) -> None:
         paths = {route.path for route in webapp.app.routes}
-        for p in ("/", "/chat", "/runtime"):
-            self.assertIn(p, paths)
+        self.assertIn("/", paths)
 
     def test_route_count_is_pages_plus_bridge_plus_mount(self) -> None:
-        """自我更新的形状闸：3 页面 + 桥路由 + 1 静态挂载。
+        """自我更新的形状闸：根页面 + 桥路由 + 1 静态挂载。
 
         用 len(build_llama_ui_routes()) 推导而不是写死数字，这样桥合法增删路由
         不会产生假失败；但任何额外注册（如悄悄加回 /api/*）仍会被挡下。
         """
-        expected = 3 + len(llama_bridge.build_llama_ui_routes()) + 1
+        expected = 1 + len(llama_bridge.build_llama_ui_routes()) + 1
         self.assertEqual(
             len(webapp.app.routes), expected,
             "webapp 路由数量偏离「页面 + llama_bridge + 静态挂载」形状",

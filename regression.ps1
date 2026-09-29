@@ -1,19 +1,4 @@
-# FORGE Runtime FROZEN baseline - one-click regression gate.
-#   .\regression.ps1          deterministic offline subset: 538 tests
-#                             (excludes test_theme_cdp, which needs a browser)
-#   .\regression.ps1 -Full    full baseline: 546 tests
-#                             (requires webapp on 127.0.0.1:8765 + Edge headless)
-# Baseline: 468 OK at freeze (2026-09-07) + 10 aux-provider-retry
-#           + 6 MCP-policy + 4 concurrency-stress + 7 markdown-bullet
-#           + 6 completion-gate false-positive + 2 tool-router
-#             capability tests + 11 capability-introspection + 6 task-readiness
-#             + 1 capability-full-tools test + 25 readiness-closure
-#             (24 项 RT-GATE/Discovery/Capability/Clarification + 1 项
-#              questions 精度门语义更新) = 546 full.
-
-param(
-    [switch]$Full
-)
+# One-command runner for the active offline regression suite.
 
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -50,21 +35,8 @@ New-Item -ItemType Directory -Force -Path $reportDir | Out-Null
 $stamp = Get-Date -Format 'yyyyMMdd_HHmmss'
 $log = Join-Path $reportDir "regression_$stamp.log"
 
-if ($Full) {
-    $listening = Get-NetTCPConnection -LocalPort 8765 -State Listen -ErrorAction SilentlyContinue
-    if (-not $listening) {
-        Write-Host '[regression] -Full needs the web UI running first: start webapp.py (http://127.0.0.1:8765), then rerun.'
-        Write-Host '[regression] (or use plain .\regression.ps1 for the deterministic offline subset)'
-        exit 3
-    }
-    Write-Host '[regression] running FULL baseline (546; CDP theme tests use Edge headless against :8765) ...'
-    $testArgs = @()
-    $expectedRan = 546
-} else {
-    Write-Host '[regression] running deterministic offline subset (538; browser theme CDP excluded) ...'
-    $testArgs = @('--exclude', 'test_theme_cdp')
-    $expectedRan = 538
-}
+Write-Host '[regression] running active offline regression suite ...'
+$testArgs = @()
 
 # unittest writes progress to stderr; under ErrorActionPreference=Stop those
 # native stderr records abort the capture, so relax it just for the call.
@@ -85,9 +57,6 @@ Write-Host "[regression] last line: $tail"
 
 if ($code -eq 0) {
     Write-Host '[regression] PASS (exit 0)'
-    if ($ran -ne $expectedRan) {
-        Write-Warning "[regression] baseline drift: expected ran=$expectedRan, actual ran=$ran - review before relying on freeze status."
-    }
     exit 0
 }
 

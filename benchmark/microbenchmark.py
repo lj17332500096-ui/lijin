@@ -65,7 +65,7 @@ async def _auto_approve(rt, task_id: str) -> int:
 async def _run_case(rt, case: dict, mode: str, rep: int) -> dict:
     # Phase 11：本文件早期为了「固定 Guard B OFF」会硬置
     # FORGE_COMPLETION_READY / FORGE_REDUNDANT_GUARD / FORGE_DECISION_HINT。
-    # 2026-09-19 Phase 1 审计纠正（FORGE-RUNTIME-TRUTH-AUDIT-PHASE1 §11/§14）：
+    # 2026-09-19 Phase 1 审计纠正（docs/archive/2026-09/FORGE-RUNTIME-TRUTH-AUDIT-PHASE1.md §11/§14）：
     # 这些偏移让评测口径 != 生产口径，是 BENCHMARK_NOT_PRODUCTION_PARITY 的主要来源。
     # 现在一律**跟随生产 resolver 的默认值**（.env 没设就是 runner 里的默认），
     # 不再硬置。OBLIGATION_GATE 仍显式保持 "on"（防 false completion 的底线，

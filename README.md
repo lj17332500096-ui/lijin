@@ -31,7 +31,7 @@ my_creative_agent/
 ├── scheduler.py      # 定时任务：计划解析、config/tasks.json 读写、下次运行计算
 ├── voice.py          # 语音对话：Windows 本机语音识别 + 语音合成
 ├── webapp.py         # 冻结的网页宿主（默认拒绝启动，需显式 opt-in）
-├── web/              # 共享 Markdown helper；旧页面在迁移后保留为 legacy archive
+├── web/              # llama-ui 构建产物与共享 Markdown helper
 ├── evaluate.py       # 端到端场景评估（真实调用模型）
 ├── main.py           # 终端聊天入口（含多轮记忆）
 ├── tests/            # 离线回归测试（报告写入 var/test-reports/）
@@ -526,13 +526,8 @@ Skill 工具仍由 Runtime 统一路由和执行。
 
 ## Agent Runtime（Task → Run 生产运行时）
 
-面向“可冻结、可审计”的运行时；2026-09-07 起为 **Runtime Stable Baseline**（FROZEN），
-此后仅做 bug/安全级最小修改，不再做架构级改动。当前基线：确定性离线回归 538 项全绿
-（完整 546 = 冻结日 468 + 10 项辅助直连点重试 + 6 项 MCP 策略映射 + 4 项并发压力矩阵
-+ 7 项 Markdown 空项目符号回归 + 6 项 Completion Gate 误报回归 + 2 项 Tool Router
-能力盘点回归 + 11 项 Capability Introspection + 6 项 Task Readiness 回归
-+ 1 项能力全量工具回归；
-另含 8 项需浏览器的主题 CDP）。
+面向可审计、可恢复的生产运行。早期冻结基线和旧 Web UI 的浏览器验收统计已归档；
+当前修改按活跃离线回归和对应生产入口验收。
 
 ```text
 runtime/
@@ -773,8 +768,7 @@ FORGE Runtime Core 已于 2026-09-07 冻结（详见
   agent.db / sessions.sqlite 协议、SSE 订阅主链、Sources 检索核心、Memory Scope。
 - **不做什么**：不新增 RunCoordinator/VerificationEngine/第二套 Context/第二套 Tool 系统；
   不做架构级重构，直到出现真实生产故障或现有结构无法承载的新需求。
-- **门禁**：离线回归 `tests/run_tests.py`（冻结基线 468 项，后续 bug 修复允许按真实新增测试
-  上调总数；`regression.ps1` 默认跑确定性 538 子集，`-Full` 跑 546 含浏览器主题）
+- **门禁**：离线回归 `tests/run_tests.py` / `regression.ps1`；需要外部服务的场景单独按生产入口验收。
   + LIVE E2E（真实网关 20/20）；bug 修复后必须全绿。
 - **一键回归**：`.\regression.ps1`（见「评估与回归测试」）。
 - **已接受的残余限制**（诚实清单）：PAUSED 为 DB 级状态、run_python 无 OS 级网络沙箱、
@@ -982,7 +976,6 @@ MCP_SERVERS=[{
 | 路径 | 作用 |
 |---|---|
 | `/` | 302 → `/llama-ui/` |
-| `/chat`、`/runtime` | 301 → `/llama-ui/`（旧页面已下线） |
 | `/v1/models`、`/v1/chat/completions`、`/v1/chat/completions/control`、`/v1/stream`、`/v1/streams/lookup`、`/props`、`/tools`、`/slots`、`/models/*` | llama_bridge 的 OpenAI 兼容端点（根路径版与 `/llama-ui/` 前缀版同时提供） |
 | `/llama-ui` | `_SPAStaticFiles` 托管前端产物（SPA fallback；带资源扩展名与 API-like 命名空间保持真 404，不做 HTML 回落） |
 
@@ -990,48 +983,20 @@ MCP_SERVERS=[{
 Sources / 记忆 / 定时 / 搜索 / 通知等）已删除。依据是生产 bundle 中 `"/api/"` 命中 **0** 次、
 `assistant_delta` / `run_id` / `EventSource` 命中均为 **0**，全仓无 HTTP 消费者，唯一测试
 消费者 `tests/test_webapp.py` 处于冻结跳过——它是一套前端从未调用过的并行协议面。
-同一批清理还处理了 `web/runtime/`（已移除）与 `web/index.html`（现为 `.legacy.archive`）。
+同一批清理还处理了旧 `web/runtime/` 页面与入口别名（`/chat`、`/runtime` 已移除）。历史报告和网页验收材料已移至
+[`docs/archive/2026-09/`](docs/archive/2026-09/)，不参与运行或测试。
 
 - 恢复点：`git tag archive/api-routes-pre-delete-20260922`
   （`git show <tag>:webapp.py` 可取回含 63 条路由的原文件）
-- 审计依据：`FORGE-API-LAYER-AUDIT-2026-09-22.md` §17 与 §19
+- 历史审计依据：[归档 API Layer 审计](docs/archive/2026-09/FORGE-API-LAYER-AUDIT-2026-09-22.md) §17 与 §19
 
 说明：网页服务负责交互与执行；定时任务常驻请另开 `python main.py --daemon`。
 
-## 生成式 UI 交互卡片
+## 结构化 UI 输出
 
-> **存续状态（2026-09-22）**：`ui` 数组是**仍在生效的后端契约**——由 `schemas.py`
-> 定义、`agent.py` 注入提示、`runtime/reply_parser.py` 解析、`runtime/guardrails.py` 校验
-> （单回复 ≤8 块、图表 series 长度等于 labels、表格行宽等于列数等）。
-> 但**网页渲染器已随 UI 层归档**（仅存于 `web/index.html.legacy.archive`）：
-> 终端模式仍会在文字后显示「📊 附 N 张交互卡片」一行，卡片本身不再有可视化宿主。
-> 下列形态与设计要点描述的是该契约，将来若要恢复渲染，按此实现即可。
-
-网页端除了文字回复，还能把 Agent 输出的 `ui` 数组渲染成**可交互卡片**（聊天流内嵌），
-形态对应 awesome-llm-apps 的 generative UI 模板（dashboard-canvas / financial-coach），
-但**不引 CopilotKit/React/任何图表 CDN**——渲染器是网页内置的少量原生 JS + 手写 SVG。
-
-| 卡片类型 | 展示 | 交互 |
-|---|---|---|
-| `metric` | 指标大数字 + 趋势 | 无 |
-| `bar` / `line` / `pie` | 手写 SVG 图（支持多系列、单位、图例） | 无 |
-| `table` | 二维表格 | 「下载 CSV」（本地 Blob，Excel 兼容中文） |
-| `todo` | 可勾选清单 | 勾选/取消 → 回灌成新消息，Agent 更新状态 |
-| `form` | 可编辑表单（文本/数字/下拉/开关） | 「应用修改」→ 字段以消息回灌 |
-| `file_list` | 文件清单（notes/GitHub 仓库等） | 「查看内容 / 就它问答」按钮 → 回灌触发工具 |
-
-设计要点：
-
-- **数据驱动、白名单渲染**：模型只产结构化数据（`ui` 数组），网页只渲染上面 8 种类型，
-  全程 `textContent`、禁用 innerHTML，无任意 HTML 注入面；
-- **安全护栏**：输出闸校验——单回复 ≤8 块、图表 series 长度必须等于 labels、
-  表格行宽必须等于列数、表单字段 ≤6 且不重名、数据行合计 ≤500；超限整轮丢弃并回传精确原因；
-- **回灌闭环**：卡片按钮 = 发一条带【卡片】标记的普通消息，Agent 按正常流程核对/调工具/更新，
-  因此定时任务开关、建索引、读文件等按钮零新增后端端点；
-- 历史消息带卡片会自动重渲染；终端模式在文字后显示「📊 附 N 张交互卡片」一行，内容不变。
-
-试用（网页端）：问“把我的月支出用表格和柱状图展示出来”“给我列一个学习计划清单”
-“看看我的 notes 都有什么”，回复中会直接出现卡片。
+`AgentReply.ui` 仍作为兼容输出字段参与解析与校验；当前 CLI/TUI 和保留的冻结网页宿主
+没有交互卡片渲染器。旧网页实现与验收快照仅保存在
+[`docs/archive/2026-09/legacy-web-ui/`](docs/archive/2026-09/legacy-web-ui/)。
 
 ## 语音对话
 
@@ -1097,12 +1062,11 @@ Agent 会用 `schedule_add` 把任务登记到 `config/tasks.json` 并告诉你�
 
 项目带两层测试，改代码后建议至少跑第一层。
 
-**离线回归测试（不调模型、不联网，确定性，约 2 分钟；当前确定性 538 项 = 完整 546 − 8 项主题 CDP）：**
+**离线回归测试（不调模型、不联网）：**
 
 ```powershell
 .\.venv\Scripts\python tests\run_tests.py
-.\regression.ps1        # 一键回归（确定性离线子集 538 项；自动跳过需浏览器的主题 CDP）
-.\regression.ps1 -Full  # 完整基线 546（需要 webapp.py 运行在 127.0.0.1:8765 + Edge headless）
+.\regression.ps1        # 一键运行当前活跃的离线回归集
 ```
 
 覆盖：AgentReply 结构校验、输入/输出安全闸规则（含“输入里夹带密钥”拦截）、
@@ -1135,9 +1099,7 @@ YouTube MCP 下载了字幕”这类直接完成声明仍必须拦截；NEEDS_US
 READY/普通回答不继承（防止旧任务状态污染新请求）。
 能力问题给全量工具回归：避免超长历史中模型误调本轮未挂载旧工具造成 “Tool not found” 空转。
 
-> 冻结基线的含义：`regression.ps1` 默认跑确定性离线子集（538 项），`-Full` 跑含真实浏览器
-> 主题回归的完整 546 项（需要后端在线 + Edge）。任一模式失败先排查环境差异
-> （如 WORKSPACE_ROOT/TMP 指向旧盘符或短路径），再谈代码改动。
+> 旧 Web Runtime 的主题 CDP 与前端冒烟测试已从活动测试目录归档；当前回归命令不再启动旧网页或 Edge。
 
 **端到端评估（真实调用模型，多维自动判分）：**
 

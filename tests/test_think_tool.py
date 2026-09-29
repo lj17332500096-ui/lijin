@@ -1,6 +1,6 @@
 """P0-C think / scratchpad 工具回归（2026-09-21，P0 三件套最后一块）。
 
-按 FORGE-ARCHITECTURE-AUDIT-2026-09-21.md §2.3 落地 think 工具：
+按 docs/archive/2026-09/FORGE-ARCHITECTURE-AUDIT-2026-09-21.md §2.3 落地 think 工具：
 - 零副作用、只写 Run 级 scratchpad（不落库、不进主 context、不当 evidence）；
 - 补「模型→自己」的过程地板（与 decision_hint「运行时→模型」互补）；
 - 随时可用、无目标参数、不在任何 mutation/discovery/read 分类表里。

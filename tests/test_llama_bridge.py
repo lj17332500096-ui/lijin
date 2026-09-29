@@ -315,17 +315,6 @@ class StaticAssetNot404Tests(unittest.TestCase):
         if r.status_code in (200, 404, 405):
             self.assertNotIn("<!DOCTYPE html>", r.text, "API-like 路径不得返回 HTML 页面")
 
-    def test_legacy_ui_entries_redirect_to_llama_ui(self) -> None:
-        # llama-ui 为唯一前端：旧 UI 入口不得继续服务旧 HTML/资产，只能回到唯一入口。
-        c = self._client()
-        if c is None:
-            self.skipTest("webapp.App 不可离线构造，跳过")
-        for path in ("/runtime", "/chat"):
-            r = c.get(path)
-            self.assertEqual(r.status_code, 301, f"{path} 必须 301 到唯一前端 /llama-ui/")
-            self.assertEqual(r.headers.get("location", ""), "/llama-ui/")
-            self.assertNotIn("text/html", r.headers.get("content-type", ""))
-
     def test_legacy_static_runtime_assets_not_served(self) -> None:
         # 旧 /rt 静态命名空间已移除；若再次被挂回，会让旧 UI 与 llama-ui 同时存在。
         c = self._client()

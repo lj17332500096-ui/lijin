@@ -2,8 +2,8 @@
 
 定位
 ----
-后端优化阶段的**唯一交互入口**：进程内直连 `AgentRuntime.run_turn`，不经 HTTP，
-所以拿到的是原始异常、真实耗时与完整过程事件；前端网页界面已停用（见 ui_frozen.py）。
+CLI 消息入口：进程内直连 `AgentRuntime.run_turn`，不经 HTTP，
+所以拿到的是原始异常、真实耗时与完整过程事件。Textual TUI 复用本模块的 ChatApp。
 
 一条消息的生命周期
 ------------------

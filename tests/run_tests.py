@@ -1,8 +1,8 @@
 """离线回归测试入口：python tests/run_tests.py [--exclude mod1,mod2]
 
 不调用任何模型/网络，确定性离线跑完约 2 分钟；全部通过返回 0，否则返回 1。
---exclude：逗号分隔的模块名（不含 tests. 前缀，如 test_theme_cdp），
-           用于在“无浏览器/无后端”环境跳过需浏览器的主题 CDP 用例。
+--exclude：逗号分隔的模块名（不含 tests. 前缀，如 test_model_select），
+           用于在当前环境跳过指定模块。
 """
 
 import sys

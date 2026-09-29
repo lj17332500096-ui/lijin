@@ -193,11 +193,6 @@ err_msgs = [p.get("message", "") for e, p in raw_sse if e == "error"]
 check("GET message 返回迁移错误指引", any("POST" in m for m in err_msgs), err_msgs[:1])
 time.sleep(1)
 
-print("== T10: /chat 旧页面仍可返回（已不再作为创建入口） ==")
-html = urllib.request.urlopen(HOST + "/chat", timeout=30).read().decode("utf-8", "replace")
-check("/chat 页面仍返回", "runtime" in html or "chat" in html.lower() or len(html) > 5000,
-      f"{len(html)} bytes")
-
 print()
 print(f"== 结果: PASS {len(PASS)} / FAIL {len(FAIL)} ==")
 for label in FAIL:

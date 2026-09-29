@@ -7,7 +7,6 @@
 
 本文件只保留「前端宿主」职责（不再直接对话、不推 SSE、不碰会话库）：
   · /                           → 302 跳 /llama-ui/
-  · /chat、/runtime             → 301 跳 /llama-ui/（旧页面已下线）
   · /props /v1/* /tools /slots /models/*  → llama_bridge 的 OpenAI 兼容端点
   · /llama-ui                   → _SPAStaticFiles 托管 SvelteKit 构建产物
 
@@ -16,7 +15,7 @@
   全仓无 HTTP 消费者、唯一测试消费者 tests/test_webapp.py 处于冻结跳过；
   它是一套前端从未调用过的并行协议面，属无人消费的死表面。
   恢复点 —— git tag archive/api-routes-pre-delete-20260922（`git show <tag>:webapp.py`）。
-  审计依据 —— FORGE-API-LAYER-AUDIT-2026-09-22.md §17 与 §19。
+  审计依据 —— docs/archive/2026-09/FORGE-API-LAYER-AUDIT-2026-09-22.md §17 与 §19。
 
 运行（已开启冻结层时）：python webapp.py          # 默认 http://127.0.0.1:8765
 """
@@ -157,24 +156,12 @@ async def index_page(_request: Request) -> RedirectResponse:
     return RedirectResponse("/llama-ui/", status_code=302)
 
 
-async def runtime_page(_request: Request) -> RedirectResponse:
-    """旧 Runtime UI 入口已下线：统一跳转唯一前端 llama-ui。"""
-    return RedirectResponse("/llama-ui/", status_code=301)
-
-
-async def legacy_chat_page(_request: Request) -> RedirectResponse:
-    """旧版聊天页已下线：统一跳转唯一前端 llama-ui。"""
-    return RedirectResponse("/llama-ui/", status_code=301)
-
-
 app = Starlette(
     routes=[
         Route("/", index_page),
-        Route("/chat", legacy_chat_page),
-        Route("/runtime", runtime_page),
 
         # llama-ui 前端适配层（OpenAI 协议端点 + 静态资源）—— 唯一对外协议。
-        # 原 /api/* 63 条已归档删除，见文件头说明与 FORGE-API-LAYER-AUDIT-2026-09-22.md §17。
+        # 原 /api/* 63 条已归档删除，见文件头说明与归档审计 §17。
         *llama_bridge.build_llama_ui_routes(),
         Mount("/llama-ui", app=_SPAStaticFiles(
             directory=str(BASE_DIR / "web" / "llama-ui")),

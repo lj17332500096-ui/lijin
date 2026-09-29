@@ -23,6 +23,7 @@
 - 过期文档标记状态或迁入 `docs/archive/`；正在生成的日志和评测输出分别放到 `var/logs/`、`var/benchmark-runs/`，已结束批次再按归档约定整理到 `archive/`。
 - `docs/archive/README.md` 登记历史报告的新旧路径；移动报告时同步更新仓库内引用。
 - 新报告按以上主题分类放入对应子目录，不在 `docs/` 根目录继续平铺。
+- `docs/archive/2026-09/` 收纳被 2026-09-26/27 Runtime 审计、设计和验收替代的 Phase 0/1 记录，以及已退役网页 UI 的测试快照。
 
 ## 2026-09-26 Runtime / Layer 工作
 

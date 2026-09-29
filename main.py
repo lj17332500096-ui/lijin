@@ -20,7 +20,7 @@ from dotenv import load_dotenv
 from agent import build_assistant_agent, assistant_agent, gateway_assistant_agent
 from runtime.compact import maybe_compact
 from integrations.mcp_bridge import ensure_connected as ensure_mcp
-from runtime.observability import install_local_tracing, trace_log_path
+from runtime.observability import install_local_tracing
 from runtime.runner import AgentRuntime
 from runtime.task_manager import TaskManager
 from runtime.errors import FinalResponseFailed
@@ -323,102 +323,9 @@ def current_assistant_agent() -> object:
 
 
 
-def _print_banner(mode: str, session_name: str, history_limit: int | None, max_turns: int) -> None:
-    mode_hint = {"stream": "流式（实时事件）", "async": "异步（一次返回）", "sync": "同步（阻塞）"}
-    history_hint = f"（每轮最多回看 {history_limit} 条）" if history_limit else "（完整历史）"
-    print("=" * 52)
-    print("  全能助手（通用个人单 Agent）")
-    print(f"  会话: {session_name} ｜ 执行方式: {mode} ({mode_hint[mode]})")
-    print(f"  单轮循环上限: {max_turns} 次（--max-turns 可调）")
-    print(f"  对话记忆: {history_hint}   输入 exit / quit / 退出 结束")
-    if trace_log_path():
-        print(f"  🛰️ 追踪: {trace_log_path()}（每一步都会记录）")
-    print("=" * 52)
-
-
 def _print_artifacts(artifacts: list[dict]) -> None:
     for art in artifacts or []:
         print(f"🗂 产物已登记：{art.get('name', '?')}（{art.get('id', '?')}，{art.get('kind', '?')}）")
-
-
-async def chat_async(
-    session_name: str,
-    mode: str,
-    debug: bool,
-    max_turns: int,
-    history_limit: int | None,
-    auto_summary: bool = True,
-) -> None:
-    """聊天循环核心（stream / async / sync 三种模式共用，每轮登记为一个 Task）。"""
-    check_api_key()
-    runtime = AgentRuntime.get_default()
-    session = SQLiteSession(session_name, db_path=str(SESSIONS_DB))
-    _print_banner(mode, session_name, history_limit, max_turns)
-    try:
-        while True:
-            try:
-                user_input = input("\n你 > ").strip()
-            except (EOFError, KeyboardInterrupt):
-                print("\n再见，随时回来找我。")
-                return
-            if not user_input:
-                continue
-            if user_input.lower() in {"exit", "quit", "退出", "q"}:
-                print("再见，随时回来找我。")
-                return
-            print("\n助手 >")
-            try:
-                result = await runtime.run_turn(
-                    user_input,
-                    session=session,
-                    session_id=session_name,
-                    mode=mode,
-                    debug=debug,
-                    max_turns=max_turns,
-                    history_limit=history_limit,
-                    metadata={"channel": "chat"},
-                    raise_on_error=True,
-                    context_guard=auto_summary,
-                )
-            except (InputGuardrailTripwireTriggered, OutputGuardrailTripwireTriggered,
-                    FinalResponseFailed) as exc:
-                reason = exc.reason if isinstance(exc, FinalResponseFailed) else _guardrail_reason(exc)
-                print(f"\n🛡️ 安全校验未通过：{reason}")
-                continue
-            except Exception as exc:
-                print_run_error(exc)
-                continue
-            if result.waiting_approval:
-                result = await _resolve_approvals_interactive(
-                    runtime, result, session=session, mode=mode,
-                    debug=debug, max_turns=max_turns, history_limit=history_limit,
-                )
-                if result.waiting_approval:
-                    print("任务仍停留在「等待审批」，可以重新发起同样请求继续处理，或用 python -m runtime --task "
-                          + result.task.id + " 查看。")
-                    continue
-            outcome = str(getattr(result, "outcome", "completed") or "completed")
-            if outcome != "completed":
-                labels = {
-                    "needs_user": "需要补充信息",
-                    "partial": "部分完成，已有操作可能保留",
-                    "blocked": "任务受阻",
-                    "failed": "任务失败",
-                    "cancelled": "任务已取消",
-                }
-                print(f"\n【{labels.get(outcome, outcome)}】")
-            final_output = result.final_output
-            display_output(final_output)
-            _print_artifacts(getattr(result, "artifacts", []) or [])
-            await _auto_compact(session, auto_summary)
-    finally:
-        session.close()
-        try:
-            from integrations.mcp_bridge import close_servers as close_mcp_servers
-
-            await close_mcp_servers()
-        except Exception:
-            pass
 
 
 async def _resolve_approvals_interactive(
@@ -489,27 +396,6 @@ async def _resolve_approvals_interactive(
     return current
 
 
-def chat_sync(
-    session_name: str,
-    debug: bool,
-    max_turns: int,
-    history_limit: int | None,
-    auto_summary: bool = True,
-) -> None:
-    """同步聊天循环：与异步共用同一核心，只是执行方式为 sync（也登记 Task）。"""
-    check_api_key()
-    asyncio.run(
-        chat_async(
-            session_name,
-            "sync",
-            debug,
-            max_turns,
-            history_limit,
-            auto_summary=auto_summary,
-        )
-    )
-
-
 def _speech_text_of_output(final_output: object) -> str:
     """把 Agent 回复转成适合朗读的文本。"""
     reply = coerce_reply(final_output)
@@ -538,17 +424,16 @@ def chat_voice(
     if not voice.check_microphone():
         print("\n⚠️ 未检测到可用的麦克风/音频输入设备，语音输入不可用，已自动切换为键盘输入。")
         print("   想用语音对话：接好麦克风后重新运行 python main.py --voice。")
-        asyncio.run(
-            chat_async(
-                session_name,
-                fallback_mode,
-                debug,
-                max_turns,
-                history_limit,
-                auto_summary=auto_summary,
-            )
-        )
-        return
+        from cli.app import run_cli
+
+        raise SystemExit(run_cli(
+            session_name=session_name,
+            mode=fallback_mode,
+            debug=debug,
+            max_turns=max_turns,
+            history_limit=history_limit,
+            auto_summary=auto_summary,
+        ))
     session = SQLiteSession(session_name, db_path=str(SESSIONS_DB))
     print("=" * 52)
     print("  全能助手（语音对话模式）")
@@ -753,11 +638,6 @@ def main() -> None:
         default="stream",
         help="执行方式：stream=流式实时（默认）；async=异步一次返回；sync=同步阻塞",
     )
-    parser.add_argument(
-        "--classic",
-        action="store_true",
-        help="使用旧版裸 REPL（无命令体系）。默认已换成 CLI 消息平台（cli/ 包）",
-    )
     parser.add_argument("--debug", action="store_true", help="打印每轮 agent 内部循环记录（理解运行原理）")
     parser.add_argument("--max-turns", type=int, default=20, help="单轮最多执行 LLM+工具的循环次数")
     parser.add_argument("--history", type=int, default=None, help="每轮最多回看多少条历史消息（不填=全部）")
@@ -875,40 +755,19 @@ def main() -> None:
                 auto_summary=not args.no_auto_summary,
             )
         )
-    if not args.classic:
-        check_api_key()
-        from cli.app import run_cli
+    check_api_key()
+    from cli.app import run_cli
 
-        raise SystemExit(
-            run_cli(
-                session_name=args.session,
-                mode=args.mode,
-                debug=args.debug,
-                max_turns=args.max_turns,
-                history_limit=args.history,
-                auto_summary=not args.no_auto_summary,
-            )
-        )
-
-    if args.mode == "sync":
-        chat_sync(
-            args.session,
-            args.debug,
-            args.max_turns,
-            args.history,
+    raise SystemExit(
+        run_cli(
+            session_name=args.session,
+            mode=args.mode,
+            debug=args.debug,
+            max_turns=args.max_turns,
+            history_limit=args.history,
             auto_summary=not args.no_auto_summary,
         )
-    else:
-        asyncio.run(
-            chat_async(
-                args.session,
-                args.mode,
-                args.debug,
-                args.max_turns,
-                args.history,
-                auto_summary=not args.no_auto_summary,
-            )
-        )
+    )
 
 
 if __name__ == "__main__":

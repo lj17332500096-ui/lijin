@@ -18,8 +18,8 @@
 
 | 入口类型 | 当前代码路径 | 规范归类 | 边界 |
 |---|---|---|---|
-| 交互式 REPL/CLI | `main.py` / `cli/app.py` → `AgentRuntime.run_turn` | 生产 Runtime | 必须保留 Task/Run、包装器、证据和 terminalization |
-| Chat UI | `cli/ui/app.py` → runtime/chat handler → `run_turn` | 生产 Runtime | 与 CLI 共用同一 Run owner；渲染/stream callback 不另造执行链 |
+| CLI | `main.py` → `cli.app.ChatApp` → `AgentRuntime.run_turn` | 生产 Runtime | 必须保留 Task/Run、包装器、证据和 terminalization |
+| Textual TUI | `main.py --tui` → `cli.tui.app.ForgeTuiApp` → `ChatApp.submit` → `run_turn` | 生产 Runtime | 与 CLI 共用同一 Run owner；渲染/stream callback 不另造执行链 |
 | Scheduler | `scheduler.py` 创建任务并调用 Runtime | 生产 Runtime | channel policy 可以不同，Run owner 与执行门相同 |
 | `benchmark/microbenchmark.py`、`eval_runner.py` 部分路径 | 直接 `run_turn` | Runtime 集成评估 | 可代表相应配置下的 Run 主链；仍需核对模型、feature flags、外部依赖与生产 parity |
 | decision/checkpoint/exposure 等低层 benchmark | 可能调用 `route_agent` / `Runner.run` | Planner/Router 组件评估 | 不代表完整生产 Runtime；不得据此宣称审批、CompletionGate 或 terminalization 已通过 |

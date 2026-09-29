@@ -1,4 +1,4 @@
-"""CLI 消息平台：后端优化阶段唯一的交互入口。
+"""CLI 消息平台；Textual TUI 复用其会话和 Runtime 调用层。
 
 模块划分
 --------
@@ -10,7 +10,7 @@
     cli.theme        终端样式（无第三方依赖，不支持颜色时自动降级）
 
 本包不导入 webapp / llama_bridge（前端 UI 层已冻结，边界由 tests/test_ui_isolation.py 强制）。
-入口：`python main.py`（旧裸 REPL 用 `python main.py --classic`）。
+入口：`python main.py`，或用 `python main.py --tui` 启动 Textual 界面。
 """
 
 __all__ = ["app", "render", "commands", "store", "diagnostics", "theme"]
