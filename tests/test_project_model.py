@@ -129,12 +129,20 @@ class MemoryBoundaryTests(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="mbound_"))
         self.db = self._tmp / "agent.db"
         self.mgr = TaskManager(self.db)
+        self._orig_memory_db_path = tools_mod._MEMORY_DB_PATH
         tools_mod._MEMORY_DB_PATH = self.db
         self._orig_binding = dict(tools_mod._MEMORY_BINDING)
+        self._orig_binding_ctx = tools_mod._MEMORY_BINDING_CTX.get()
         tools_mod.clear_active_memory_binding()
 
     def tearDown(self) -> None:
+        binding = self._orig_binding_ctx
+        if binding and binding.get("task_id"):
+            tools_mod.set_active_memory_binding(binding.get("task_id"), binding.get("scope"))
+        else:
+            tools_mod.clear_active_memory_binding()
         tools_mod._MEMORY_BINDING.update(self._orig_binding)
+        tools_mod._MEMORY_DB_PATH = self._orig_memory_db_path
 
     def _project(self, name, scope):
         c = self.mgr.get_or_create_container("proj-" + name[:6] + "-x", title=name)

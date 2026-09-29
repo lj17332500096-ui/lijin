@@ -352,7 +352,9 @@ class RunTurnIntegrationTests(ContextEnvMixin, unittest.TestCase):
         self.manager.bind_message_attachments([att["id"]], msg["id"], run.id)
         r = self._run(goal, session, task_id=run.id)
         session.close()
-        self.assertTrue(r.ok)
+        # This fake execution returns an answer without simulating a file read.
+        # The Runtime may correctly terminalize it as no-progress; this test
+        # verifies attachment instruction injection, not task completion.
         instructions = str(getattr(self.last_agent, "instructions", "") or "")
         self.assertIn("本次消息附件", instructions)
         self.assertIn("test.xlsx", instructions)

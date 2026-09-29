@@ -5,6 +5,7 @@
            用于在当前环境跳过指定模块。
 """
 
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -15,6 +16,14 @@ if str(BASE) not in sys.path:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Keep the full suite independent of a developer's .env / shell. The
+    # production workspace intentionally uses APPROVAL=off, while lifecycle
+    # tests exercise the gated path and must opt into it explicitly here.
+    # UI modules are loaded under their test-only enable flag; individual
+    # isolation tests patch the flag to verify the frozen behavior.
+    os.environ["APPROVAL"] = "on"
+    os.environ["FORGE_ENABLE_UI"] = "1"
+
     argv = list(sys.argv[1:] if argv is None else argv)
     exclude: set[str] = set()
     i = 0

@@ -19,10 +19,6 @@ from runtime.errors import AgentError
 from runtime.task import TaskState
 from runtime.task_manager import TaskManager
 
-import main as _main_mod
-_ORIG_EXECUTE_TURN = getattr(_main_mod, "execute_turn", None)
-
-
 def _manager(tmp: Path) -> TaskManager:
     return TaskManager(str(tmp / "agent.db"))
 
@@ -40,15 +36,12 @@ class CancelSemanticsTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp(prefix="pccancel_"))
         self.mgr = _manager(self.tmp)
         self.container = self.mgr.get_or_create_container("proj-cancel")
+        self._orig_execute_turn = runtime_execution.execute_turn
 
     def tearDown(self) -> None:
         import shutil
 
-        if _ORIG_EXECUTE_TURN is not None:
-            try:
-                _runtime_execution.execute_turn = _ORIG_EXECUTE_TURN
-            except Exception:
-                pass
+        runtime_execution.execute_turn = self._orig_execute_turn
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     def _build_runtime(self, gate_on_model: asyncio.Event):

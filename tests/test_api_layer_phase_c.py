@@ -429,16 +429,22 @@ class LoopbackBindingAssertionTests(unittest.TestCase):
         import webapp
         from ui_frozen import ENABLE_FLAG
 
+        old_required = getattr(webapp.app.state, "require_ui_auth", False)
+        old_token = getattr(webapp.app.state, "ui_api_token", "")
         argv = ["webapp.py", "--metrics-port", "0", ENABLE_FLAG, "--host", host]
         env = ({"FORGE_ALLOW_NONLOCAL_UI": "1",
                 "FORGE_UI_API_TOKEN": "test-token-" + "x" * 32} if allow else {})
-        with mock.patch.object(sys, "argv", argv), \
-                mock.patch.dict(os.environ, env, clear=False), \
-                mock.patch("uvicorn.run") as mocked_run, \
-                mock.patch("webbrowser.open"):
-            if not allow:
-                os.environ.pop(webapp.ALLOW_NONLOCAL_ENV, None)
-            webapp.main()
+        try:
+            with mock.patch.object(sys, "argv", argv), \
+                    mock.patch.dict(os.environ, env, clear=False), \
+                    mock.patch("uvicorn.run") as mocked_run, \
+                    mock.patch("webbrowser.open"):
+                if not allow:
+                    os.environ.pop(webapp.ALLOW_NONLOCAL_ENV, None)
+                webapp.main()
+        finally:
+            webapp.app.state.require_ui_auth = old_required
+            webapp.app.state.ui_api_token = old_token
         return mocked_run
 
     def test_nonlocal_host_refused_without_optin(self) -> None:

@@ -147,8 +147,9 @@ class StructuredLogWiringTests(unittest.TestCase):
 
     def test_main_turn_creates_request_id(self):
         """runtime_execution.execute_turn 入口会调 new_request_id（grep 确认）。"""
+        execution_src = (BASE / "runtime" / "execution.py").read_text(encoding="utf-8")
         main_src = (BASE / "main.py").read_text(encoding="utf-8")
-        self.assertIn("new_request_id", main_src)
+        self.assertIn("new_request_id", execution_src)
         self.assertIn("install_structured_logging", main_src)
 
 
