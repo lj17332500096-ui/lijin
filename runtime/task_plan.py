@@ -16,6 +16,10 @@ _ACTION_CAPABILITY_RULES: tuple[tuple[str, re.Pattern[str], tuple[str, ...]], ..
     ("external_fact", re.compile(
         r"天气|气温|温度|天气预报|几点了|现在时间|当前时间|今天日期|当前日期", re.I,
     ), ("get_weather", "get_current_datetime")),
+    ("local_search", re.compile(
+        r"(?:项目|本地|工作区|指定)(?:文件夹|目录|资料|文档|文件).{0,16}(?:搜索|搜一下|查找|检索)|"
+        r"(?:搜索|搜一下|查找|检索).{0,16}(?:项目|本地|工作区)(?:文件夹|目录|资料|文档|文件)", re.I,
+    ), ("search_documents",)),
     ("external_research", re.compile(
         r"搜索|搜一下|联网查|检索最新|查找资料|查资料|最新(?:资料|信息|数据)|web.?search", re.I,
     ), ("web_search",)),
@@ -80,9 +84,22 @@ def infer_task_plan(query: str, available: list[str] | None = None) -> dict[str,
         capability_of = lambda name: "OTHER"
 
     matches: list[tuple[int, int, str, tuple[str, ...]]] = []
+    local_search = any(
+        phase == "local_search"
+        for phase, pattern, _names in _ACTION_CAPABILITY_RULES
+        if pattern.search(text)
+    )
+    explicit_online_search = bool(re.search(
+        r"联网|网上|网络|网页|在线|web\s*search|internet|online", text, re.I,
+    ))
     for order, (phase, pattern, names) in enumerate(_ACTION_CAPABILITY_RULES):
         match = pattern.search(text)
         if match:
+            # A project/workspace directory makes an otherwise generic "搜索"
+            # request local. Only add web search when the user explicitly asks
+            # for an online source as well.
+            if phase == "external_research" and local_search and not explicit_online_search:
+                continue
             matches.append((match.start(), order, phase, names))
 
     # Preserve the user's action order; stable rule order resolves ties.

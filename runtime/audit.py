@@ -173,6 +173,24 @@ class AuditCollector:
         """把一次 run 的明细写库；返回 {model_calls, tool_calls, input_tokens, output_tokens}。"""
         totals = {"model_calls": 0, "tool_calls": 0, "input_tokens": 0, "output_tokens": 0,
                   "cost_usd": 0.0, "priced_model_calls": 0}
+        # The SDK presents a blocked wrapper response as an ordinary tool output.
+        # Reconcile by the SDK invocation ID with Runtime's gate decision so
+        # prose such as a phase-order denial cannot become "succeeded" evidence.
+        invocation_status: dict[str, tuple[str, str]] = {}
+        try:
+            for event in self.manager.list_events(self.task_id, limit=5000):
+                if getattr(event, "event_type", None) != "tool.invocation":
+                    continue
+                payload = getattr(event, "payload", None) or {}
+                invocation_id = str(payload.get("invocation_id") or "")
+                status = str(payload.get("execution_status") or "").lower()
+                tool_name = str(payload.get("tool_name") or "")
+                if invocation_id and status:
+                    invocation_status[invocation_id] = (tool_name, status)
+        except Exception:
+            # Audit is best-effort; execution results still follow the existing
+            # output classifier if authoritative Runtime events are unavailable.
+            invocation_status = {}
         try:
             from runtime.runctx import current as _cur
             _ctx = _cur()
@@ -267,13 +285,20 @@ class AuditCollector:
                     # 这是「采集到了却丢掉」的典型：数据在手，只是没人写下去。
                     latency_ms = max(0, int((time.monotonic() - started) * 1000))
                     args = redact_value(_tool_args(call_raw))
+                    invocation_id = _tool_call_id(call_raw)
+                    status = status_for_tool_output(output)
+                    authoritative = invocation_status.get(str(invocation_id or ""))
+                    if authoritative and (not authoritative[0]
+                                          or authoritative[0] == _tool_name(call_raw)):
+                        status = ("succeeded" if authoritative[1] == "executed"
+                                  else authoritative[1])
                     self.manager.insert_tool_call(
                         task_id=self.task_id,
                         tool_name=_tool_name(call_raw),
                         arguments=args,
-                        status=status_for_tool_output(output),
+                        status=status,
                         result_excerpt=redact_text(output[:1000]),
-                        invocation_id=_tool_call_id(call_raw),
+                        invocation_id=invocation_id,
                         latency_ms=latency_ms,
                         turn_number=self._turn_number_snapshot(),
                         normalized_arguments=_args_fingerprint_text(args),

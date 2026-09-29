@@ -84,6 +84,37 @@ class AuditCollectorTests(unittest.TestCase):
         self.assertEqual(tools[0]["status"], "denied")
         self.assertEqual(tools[0]["arguments"]["code"], "print(1)")
 
+    def test_runtime_block_event_overrides_sdk_success_shaped_output(self) -> None:
+        invocation_id = "call_phase_blocked_1"
+        self.manager.add_event(self.task.id, "tool.invocation", {
+            "run_id": self.task.id,
+            "tool_name": "search_documents",
+            "invocation_id": invocation_id,
+            "execution_status": "blocked",
+            "blocked": True,
+            "blocked_reason": "当前阶段要求先执行本地搜索。",
+        })
+        result = types.SimpleNamespace(
+            raw_responses=[],
+            new_items=[
+                raw_item("function_call", call_id=invocation_id,
+                         name="search_documents", arguments='{"query":"韩海庆"}'),
+                raw_item("function_call_output", output="请直接使用已有结果回答。"),
+            ],
+        )
+
+        AuditCollector(self.manager, self.task.id).ingest(result)
+        row = self.manager.list_tool_calls(self.task.id)[0]
+
+        self.assertEqual(row["status"], "blocked")
+        from runtime.completion import ExecutionEvidence
+
+        evidence = ExecutionEvidence.from_records([{
+            "name": row["tool_name"], "status": row["status"],
+            "invocation_id": row["invocation_id"],
+        }])
+        self.assertEqual(evidence.executed_count(), 0)
+
 
 class ExecuteAuditWiringTests(unittest.TestCase):
     def test_runtime_passes_audit_collector(self) -> None:

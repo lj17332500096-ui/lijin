@@ -1074,7 +1074,10 @@ class AgentRuntime:
                     if not _phase_allowed:
                         _phase_reason = str(_phase_details.get("reason") or "phase_blocked")
                         _phase_message = str(_phase_details.get("message") or "当前阶段不允许执行此工具。")
-                        self._record_tool(name, arguments, TOOL_BLOCKED, _phase_message)
+                        self._record_tool(
+                            name, arguments, TOOL_BLOCKED, _phase_message,
+                            invocation_id=invocation_id,
+                        )
                         if _phase_reason == "previous_phase_outcome_unknown":
                             rctx.enter_needs_user_input([
                                 "前一多阶段步骤的执行结果不确定。请先核对该操作是否生效，再说明是否继续。"
