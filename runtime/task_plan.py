@@ -54,6 +54,23 @@ def infer_task_plan(query: str, available: list[str] | None = None) -> dict[str,
     permissions. Runtime execution gates remain authoritative.
     """
     text = query or ""
+    # Broad questions about whether the Agent can access local/workspace files
+    # are capability inquiries, not requests to read a particular file. Keep
+    # the planner's keyword rules from turning those questions into a required
+    # read_input phase.
+    try:
+        from runtime.capability_introspection import looks_like_capability_query
+        if looks_like_capability_query(text):
+            return {
+                "schema_version": 1,
+                "required_tools": [],
+                "required_capabilities": [],
+                "phases": [],
+            }
+    except Exception:
+        # Preserve ordinary planning if capability-introspection is unavailable.
+        pass
+
     candidates = set(available) if available is not None else None
     phases: list[dict[str, Any]] = []
     required: list[str] = []

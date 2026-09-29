@@ -41,6 +41,25 @@ class _FakeAgent:
 
 
 class CapabilityOriginAndStateTests(unittest.TestCase):
+    def test_local_file_access_question_is_not_a_read_task(self) -> None:
+        question = "你可以读取我电脑中的文档吗"
+
+        self.assertTrue(cap.looks_like_capability_query(question))
+
+        from runtime.task_plan import infer_task_plan
+
+        plan = infer_task_plan(question)
+        self.assertEqual(plan["phases"], [])
+        self.assertEqual(plan["required_tools"], [])
+
+    def test_explicit_file_read_still_creates_read_phase(self) -> None:
+        from runtime.task_plan import infer_task_plan
+
+        plan = infer_task_plan("请读取工作区里的 README.md 并总结")
+
+        self.assertEqual(plan["phases"][0]["phase"], "read_input")
+        self.assertIn("read_office_file", plan["required_tools"])
+
     def test_testcap01_mcp_query_only_returns_mcp(self) -> None:
         agent = _FakeAgent([
             _tool("web_search"),

@@ -3362,7 +3362,10 @@ class AgentRuntime:
                 _phase_ctx = _current_runctx()
                 phases = (_phase_ctx.capability_plan.get("phases") or []
                           if _phase_ctx is not None else [])
+                from runtime.capability_introspection import looks_like_capability_query
+                _is_capability_question = looks_like_capability_query(message)
                 if (phases
+                        and not _is_capability_question
                         and _phase_ctx.capability_phase_index < len(phases)
                         and str(reply.get("kind") or "answer") in ("answer", "done")):
                     _phase = phases[_phase_ctx.capability_phase_index]

@@ -151,6 +151,16 @@ _CAPABILITY_QUERY_SHAPE = re.compile(
     re.IGNORECASE,
 )
 
+# 泛化的本地文件能力咨询，例如“你可以读取我电脑中的文档吗”。
+# 这类问句没有指定要读取的具体文件，不能被 task_plan 的“读取”关键词
+# 误判为 read_input 执行阶段。
+_LOCAL_FILE_CAPABILITY_QUESTION_RE = re.compile(
+    r"你(?:能|可以|可不可以).{0,6}(?:读取|读|打开|查看|访问).{0,16}"
+    r"(?:我)?(?:的)?(?:电脑|计算机|本地|工作区|项目).{0,8}"
+    r"(?:文档|文件|资料).{0,4}(?:吗|么|不|？|\?)",
+    re.IGNORECASE,
+)
+
 _HISTORY_RE = re.compile(
     r"最近成功|实际成功(?:用过|调用)?|历史(?:成功|使用|记录)|成功(?:使用|调用)过|用过哪些|"
     r"previously|recent success|ever succeeded",
@@ -159,8 +169,11 @@ _HISTORY_RE = re.compile(
 
 
 def looks_like_capability_query(text: str) -> bool:
-    return (bool(text) and bool(_CAPABILITY_RE.search(text))
-            and bool(_CAPABILITY_QUERY_SHAPE.search(text)))
+    if not text:
+        return False
+    if _LOCAL_FILE_CAPABILITY_QUESTION_RE.search(text):
+        return True
+    return bool(_CAPABILITY_RE.search(text) and _CAPABILITY_QUERY_SHAPE.search(text))
 
 
 def looks_like_history_query(text: str) -> bool:
