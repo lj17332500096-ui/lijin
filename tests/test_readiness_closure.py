@@ -27,6 +27,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 import agent as agent_module
 import main as main_module
@@ -470,7 +471,7 @@ class ReadinessContextInheritanceTests(unittest.TestCase):
             return json.dumps(reply_json, ensure_ascii=False)
 
         orig = runtime_execution.execute_turn
-        runtime_execution.execute_turn = fake_execute
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute)
         try:
             result = asyncio.run(runtime.run_turn(message, session_id="unit",
                                                   mode="async"))

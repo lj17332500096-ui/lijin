@@ -16,6 +16,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 import main as main_module  # noqa: E402
 from runtime.readiness_gate import (  # noqa: E402
@@ -71,7 +72,7 @@ class DeterministicNeedsUserInputTests(unittest.TestCase):
         runtime_execution.execute_turn = self._orig
 
     def _run(self, message, fake):
-        runtime_execution.execute_turn = fake
+        runtime_execution.execute_turn = workflow_model_stub(fake)
         return asyncio.run(self.runtime.run_turn(message, session_id="unit", mode="async"))
 
     def test_deploy_prompt_pauses_waiting_user(self):

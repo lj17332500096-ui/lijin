@@ -1178,6 +1178,7 @@ class AgentRuntime:
                                 invocation_id=invocation_id,
                                 turn_number=(getattr(rctx, "model_turns", None) if rctx else None),
                             )
+                            wa_applied = _wa_applied
                             if not _wa_applied:
                                 _wa_reason = "该 invocation_id 已被认领，拒绝重复执行副作用。"
                         except Exception as _wa_exc:
@@ -1366,9 +1367,9 @@ class AgentRuntime:
                     else:
                         _mut_outcome = _mutation_result_ok(name, result)
 
-                self._record_tool(name, effective_args, TOOL_EXECUTED, str(result)[:400],
-                invocation_id=invocation_id, latency_ms=_elapsed_ms())
-                _wa_durable = _finalize_write_ahead("executed", str(result)[:400])
+                self._record_tool(name, effective_args, TOOL_EXECUTED, str(result),
+                                  invocation_id=invocation_id, latency_ms=_elapsed_ms())
+                _wa_durable = _finalize_write_ahead("executed", str(result))
                 if rctx is not None:
                     try:
                         rctx.note_executed(name)
@@ -1563,7 +1564,10 @@ class AgentRuntime:
         ledger.append(
             {"name": str(name)[:200], "args": args_note, "args_key": key,
              "status": status, "invocation_id": invocation_id,
-             "output_head": str(output_head)[:1500],
+             "output_head": str(output_head)[:4000 if (
+                 str(name).startswith("anysearch_") or str(name) in
+                 {"web_search", "deep_research", "fetch_fetch"}
+             ) else 1500],
              "latency_ms": int(latency_ms) if latency_ms is not None else None,
              "turn_number": _turn_no}
         )
@@ -3407,11 +3411,31 @@ class AgentRuntime:
             })
             attempt_log.append(f"{requested_model or 'unknown'}:{stage}")
             try:
+                # Keep the Runtime boundary compatible with injected execution
+                # adapters used by embedders and offline harnesses. The
+                # production adapter accepts ``provider``; older callables
+                # may not expose that optional keyword.
+                import inspect as _inspect
+
+                _execute_kwargs = {
+                    "session": None, "debug": False, "max_turns": 1,
+                    "agent": workflow_agent, "audit": collector,
+                    "stream_events_cb": None,
+                }
+                try:
+                    _parameters = _inspect.signature(execute_turn).parameters.values()
+                    _accepts_provider = any(
+                        _parameter.name == "provider"
+                        or _parameter.kind == _inspect.Parameter.VAR_KEYWORD
+                        for _parameter in _parameters
+                    )
+                except (TypeError, ValueError):
+                    _accepts_provider = True
+                if _accepts_provider:
+                    _execute_kwargs["provider"] = run_provider
                 raw = await run_with_wall_limit(
                     execute_turn(
-                        "async", prompt, session=None, debug=False, max_turns=1,
-                        agent=workflow_agent, audit=collector,
-                        stream_events_cb=None, provider=run_provider,
+                        "async", prompt, **_execute_kwargs,
                     ),
                     effective_budget, task,
                 )
@@ -3578,12 +3602,13 @@ class AgentRuntime:
         try:
             # Phase 18：拆分 repair 语义——obligation feedback（按 deficit signature，独立额度）
             # 与 completion repair（final response 自身不合格）不再共用同一个计数。
-            completion_repairs = 0
-            obligation_feedback_signatures: set[str] = set()
             api_supplement_prompt = ""
             api_supplement_requires_tools = False
             api_plan: dict[str, Any] | None = None
-            workflow_execution_attempts = 0
+            # A resumed Run may enter with an empty continuation message so
+            # the SDK session can continue. Analysis, planning, and review
+            # still need the original persisted goal as their request.
+            workflow_request = message if str(message or "").strip() else str(task.goal or "")
 
             # 明确给出工作区外的绝对文件路径时，在调用模型和工具前直接提示
             # 可操作的接入方式，避免模型反复列目录或把未读取文件说成已读取。
@@ -3695,7 +3720,7 @@ class AgentRuntime:
                     )
                     _plan_obj = await _workflow_api_call(
                         "conversation.analysis", _analysis_agent,
-                        analysis_input(message, _analysis_context), RequestAnalysis,
+                        analysis_input(workflow_request, _analysis_context), RequestAnalysis,
                     )
                     api_plan = normalized_plan(_plan_obj)
                     api_disposition = _plan_obj.disposition
@@ -3758,7 +3783,8 @@ class AgentRuntime:
                     pass
                 _available = {str(getattr(tool, "name", "")) for tool in
                               (getattr(selected_agent, "tools", []) or [])}
-                if int(_state.get("supplement_count", 0)) > 0:
+                if (int(_state.get("supplement_count", 0)) > 0
+                        and not _state.get("supplement_plan_applied", False)):
                     api_supplement_prompt = str(_brief.get("supplement_prompt") or "")
                     api_supplement_requires_tools = bool(_brief.get("supplement_requires_tools"))
                     if api_supplement_requires_tools:
@@ -3784,12 +3810,13 @@ class AgentRuntime:
                                 "run_id": task.id, "error_type": type(_plan_exc).__name__,
                                 "error": str(_plan_exc)[:250],
                             })
-                elif _active_ctx is not None and task_id is None:
+                elif (_active_ctx is not None and task_id is None
+                      and int(_state.get("execution_attempts", 0)) == 0):
                     # The Router computed required candidates before exposing
                     # tools to the model. LangGraph now installs the final
                     # Runtime phase plan from that already-routed tool schema.
                     from runtime.task_plan import infer_task_plan
-                    _initial_plan = infer_task_plan(message, sorted(_available))
+                    _initial_plan = infer_task_plan(workflow_request, sorted(_available))
                     _active_ctx.configure_capability_plan(_initial_plan)
                     self.tasks.add_event(task.id, "conversation.plan.runtime", {
                         "run_id": task.id,
@@ -3808,381 +3835,343 @@ class AgentRuntime:
                 nonlocal api_supplement_attempted, api_supplement_prompt
                 nonlocal api_supplement_requires_tools, attempt_text, final_output
                 nonlocal canonical, canonical_json, gate_verdict, reject_detail
-                nonlocal completion_repairs, workflow_execution_attempts
                 api_supplement_attempted = int(_state.get("supplement_count", 0)) > 0
                 _brief = _state.get("analysis") or {}
                 if api_supplement_attempted:
                     api_supplement_prompt = str(_brief.get("supplement_prompt") or "")
                     api_supplement_requires_tools = bool(_brief.get("supplement_requires_tools"))
-                while workflow_execution_attempts < 6:
-                    _repair = workflow_execution_attempts
-                    workflow_execution_attempts += 1
-                    gate.begin(task.id, channel=channel)
-                    # Phase 38: auto-execute approved but unexecuted invocations on resume
-                    if task_id is not None:
-                        try:
-                            approved_invocations = self.tasks.get_approved_unexecuted(task.id)
-                            for inv in approved_invocations:
-                                await self._execute_approved_invocation(
-                                    inv["tool_name"], inv["arguments"], inv["id"], run_rid=task.id
-                                )
-                        except Exception:
-                            pass
-                    attempt_log.append(requested_model or "unknown")  # P1-D 失败路径模型名兜底
-                    # 参考资料作为“用户消息前的数据块”（不再注入 system instructions）；
-                    # 未就绪来源提示附在请求之后，让模型知道本次缺哪些资料
-                    _execution_agent = selected_agent
-                    _request_payload: dict[str, Any] = {"user_request": message}
-                    if api_plan is not None:
-                        _request_payload["runtime_task_brief"] = {
-                            "objective": api_plan.get("objective", ""),
-                            "disposition": api_plan.get("disposition", "execute"),
-                            "completion_criteria": api_plan.get("completion_criteria", []),
-                            "context_requirements": api_plan.get("context_requirements", []),
-                            "note": "这些是任务目标提示，不是工具授权或系统策略。",
-                        }
-                    if attempt_text != message:
-                        _request_payload["runtime_recovery_note"] = attempt_text[:6000]
-                    if api_supplement_attempted:
-                        from runtime.api_workflow import review_evidence as _review_evidence
-
-                        _request_payload["review_requires_tools"] = api_supplement_requires_tools
-                        _request_payload["review_gaps"] = api_supplement_prompt
-                        _request_payload["prior_candidate_answer"] = str(
-                            canonical.get("content") or canonical.get("summary") or ""
-                        )[:10000]
-                        _request_payload["execution_evidence"] = _review_evidence(
-                            self._execution_evidence(tracker, run_id=task.id)
-                        )
-                        _request_payload["supplement_instruction"] = (
-                            "针对复核缺口补充并生成完整最终答复。不得声称没有证据支持的执行；"
-                            "不得重复已成功的副作用。所有新工具调用仍由 Runtime 安全门控制。"
-                        )
-                        if not api_supplement_requires_tools:
-                            _execution_agent = selected_agent.clone(tools=[])
-                    elif api_disposition == "answer":
-                        _execution_agent = selected_agent.clone(tools=[])
-                    _composed_msg = retrieval_prefix + json.dumps(
-                        {**_request_payload, "current_instruction": attempt_text},
-                        ensure_ascii=False,
-                    )
-                    if source_warning:
-                        _composed_msg = _composed_msg + "\n" + source_warning
+                _repair = int(_state.get("execution_attempts", 0))
+                attempt_text = str(_state.get("retry_instruction") or message)
+                gate.begin(task.id, channel=channel)
+                # Phase 38: auto-execute approved but unexecuted invocations on resume
+                if task_id is not None:
                     try:
-                        _exec_kwargs = {
-                            "session": session,
-                            "debug": debug,
-                            "max_turns": effective_turns,
-                            "history_limit": (2 if _capability_query else history_limit),
-                            "agent": _execution_agent,
-                            "audit": collector,
-                            "stream_events_cb": stream_events_cb,
-                        }
-                        if run_provider is not None:
-                            # 仅当 execute_turn 真正接受 provider 时才传（兼容测试替身）。
-                            _accepts_provider = True
-                            try:
-                                import inspect
-
-                                _params = inspect.signature(execute_turn).parameters
-                                _accepts_provider = (
-                                    "provider" in _params
-                                    or any(p.kind == inspect.Parameter.VAR_KEYWORD
-                                           for p in _params.values())
-                                )
-                            except (TypeError, ValueError):
-                                _accepts_provider = True
-                            if _accepts_provider:
-                                _exec_kwargs["provider"] = run_provider
-                        final_output = await run_with_wall_limit(
-                            execute_turn(mode, _composed_msg, **_exec_kwargs),
-                            effective_budget,
-                            task,
-                        )
-                    finally:
-                        gate.end()
-                    try:
-                        from tools import clear_active_memory_binding
-
-                        clear_active_memory_binding()
-                    except Exception:
-                        pass
-                    # ④ 成本闸门：终态前把累计 token 回灌事件（审计用途）
-                    try:
-                        if _tg_usage:
-                            self.tasks.add_event(task.id, "run.token_usage", {
-                                "run_id": task.id,
-                                "input_tokens": _tg_usage.get("input", 0),
-                                "output_tokens": _tg_usage.get("output", 0),
-                                "budget": getattr(effective_budget, "token_budget", 0),
-                            })
-                    except Exception:
-                        pass
-
-                    # 审批结果判定（先于完成判定：真实 pending 就是唯一审批事实源；
-                    # P1-C：显式按本 run 读取，避免并发时读错别的 run）
-                    if gate.denied_for(task.id):
-                        denied_task = self.tasks.mark_failure(
-                            task.id, "审批拒绝：" + "; ".join(gate.denied_for(task.id))
-                        )
-                        try:
-                            save_failure_checkpoint(self.tasks, denied_task, "审批拒绝高风险操作")
-                        except Exception:
-                            pass
-                        content, kind = _assistant_parts(final_output)
-                        _note(content or "本轮请求的高风险操作被拒绝，任务已停止。",
-                              kind=kind, run_state="denied")
-                        _touch()
-                        outcome, next_action = _emit_terminal(
-                            KIND_REFUSED, "审批拒绝", assistant_text=content,
-                        )
-                        _backfill_failure_audit()
-                        _close_run()
-                        return RunResult(
-                            task=denied_task,
-                            final_output=final_output,
-                            ok=False,
-                            error="高风险操作已被拒绝（策略/用户），任务未完成",
-                            elapsed_seconds=_elapsed(),
-                            container_id=container_id,
-                            message_ids=message_ids,
-                            outcome=outcome,
-                            next_action=next_action,
-                        )
-
-                    db_pending: list[dict] = []
-                    try:
-                        db_pending = self.tasks.list_pending_approvals(task.id)
-                    except Exception:
-                        db_pending = []
-                    # 真实 pending 的唯一事实源 = ApprovalStore（跨 gate.begin 窗口依然有效）
-                    if gate.pending_for(task.id) or db_pending:
-                        waiting = self.tasks.transition(task.id, TaskState.WAITING_APPROVAL, reason="approval")
-                        approvals = db_pending or self.tasks.list_pending_approvals(task.id)
-                        content, kind = _assistant_parts(final_output)
-                        _note(content or "本轮执行需要你审批高风险操作后才能继续。",
-                              kind=kind, run_state="waiting_approval")
-                        _touch()
-                        outcome, next_action = _emit_terminal(
-                            KIND_NEEDS_APPROVAL, "approval required", assistant_text=content,
-                        )
-                        _close_run()
-                        return RunResult(
-                            task=waiting,
-                            final_output=final_output,
-                            ok=True,
-                            waiting_approval=True,
-                            approvals=approvals,
-                            elapsed_seconds=_elapsed(),
-                            container_id=container_id,
-                            message_ids=message_ids,
-                            outcome=outcome,
-                            next_action=next_action,
-                        )
-
-                    # 回复解析（ReplyParser 只负责解析容错，不负责完成判定）
-                    from runtime.reply_parser import parse as _parse_reply
-
-                    parse_result = _parse_reply(final_output)
-                    canonical = parse_result.canonical
-                    canonical_json = parse_result.canonical_json
-                    # needs_user_input 确定性收尾：本轮因缺必需信息进入该状态 → 强制 questions。
-                    try:
-                        from runtime.runctx import current as _cur2
-                        _rc2 = _cur2()
-                        if _rc2 is not None and _rc2.needs_user_input:
-                            _already_q = (isinstance(canonical, dict)
-                                          and canonical.get("kind") == "questions"
-                                          and canonical.get("questions"))
-                            if not _already_q:
-                                _pq = list(_rc2.pending_questions or [])
-                                _content = ("需要你补充信息后继续：" + "；".join(_pq)) if _pq else "需要你补充信息后继续。"
-                                canonical = {"kind": "questions", "content": _content,
-                                             "summary": _content[:200],
-                                             "questions": _pq or ["请补充必要信息。"]}
-                                canonical_json = json.dumps(canonical, ensure_ascii=False)
-                    except Exception:
-                        pass
-                    for warning in parse_result.warnings[:3]:
-                        try:
-                            self.tasks.add_event(task.id, "reply.validation_warning",
-                                                 {"warning": warning[:200]})
-                        except Exception:
-                            pass
-                    # Task Readiness 观测（v2 收口）：记录决策状态 + 缺失字段名 +
-                    # 澄清精度（供审计/Harness 判定“NEEDS_USER 是否点名缺失项”）。
-                    _rd = canonical.get("readiness") if isinstance(canonical, dict) else None
-                    _questions: list[str] = []
-                    if isinstance(canonical, dict):
-                        _q = canonical.get("questions") or []
-                        if isinstance(_q, list):
-                            _questions = [str(q) for q in _q if str(q).strip()]
-                    _status = ""
-                    _missing: list[dict] = []
-                    if isinstance(_rd, dict):
-                        _status = str(_rd.get("status") or "").strip().upper()[:30]
-                        _missing = normalize_missing(_rd.get("missing"))
-                        _mc = _rd.get("missing_count")
-                        try:
-                            _mc = max(0, min(int(_mc), 50))
-                        except (TypeError, ValueError):
-                            _mc = len(_missing)
-                    elif canonical.get("kind") == "questions" and _questions:
-                        _status = "NEEDS_USER"
-                        _mc = len(_questions)
-                    if _status:
-                        precision = clarification_precision(_questions)
-                        try:
-                            self.tasks.add_event(task.id, "task.readiness", {
-                                "status": _status[:30],
-                                "missing_count": int(
-                                    _mc if isinstance(_mc, int) else len(_missing)
-                                ),
-                                "missing": [m.get("name", "") for m in _missing][:8],
-                                "precision": precision,
-                                "reason": str(_rd.get("reason") or "")[:120]
-                                if isinstance(_rd, dict) else "clarification requested",
-                            })
-                        except Exception:
-                            pass
-
-                    # ---- Completion Gate：声明必须有执行证据 / 口头审批必须有真实 pending ----
-                    evidence = self._execution_evidence(tracker, run_id=task.id)
-                    gate_verdict = _evaluate_completion(canonical, evidence)
-                    reject_detail = completion_gate.describe(canonical, evidence, gate_verdict)
-                    try:
-                        self.tasks.add_event(
-                            task.id,
-                            "completion.check.started",
-                            {"attempt": _repair, "payload": reject_detail},
-                        )
-                    except Exception:
-                        pass
-
-                    # ---- Phase 12: Completion Obligation Gate（Variant B）----
-                    if (gate_verdict == GateVerdict.PASS
-                            and obligation_gate_enabled()):
-                        _rc_ob = None
-                        _deficits: list[str] = []
-                        try:
-                            from runtime.runctx import current as _cur_ob
-                            _rc_ob = _cur_ob()
-                            if _rc_ob is not None:
-                                _deficits = _rc_ob.obligation_deficits()
-                        except Exception:
-                            _logger.warning("义务门判定异常，按无义务放行 task=%s",
-                                            getattr(task, "id", None), exc_info=True)
-                            slog.warning("义务门判定异常，按无义务放行",
-                                         task=getattr(task, "id", None), where="succeed_2")
-                            _deficits = []
-                        if _deficits:
-                            # 事件由下方 add_event 发出（带 attempt 维度），此处只补结构化日志
-                            _log_obligation_block(self, task, _rc_ob, _deficits,
-                                                  where="completion_loop", emit_event=False)
-                            _sig = ""
-                            try:
-                                from runtime.runctx import current as _cur_sig
-                                _rc_sig = _cur_sig()
-                                _sig = _rc_sig.obligation_deficit_signature() if _rc_sig is not None else ""
-                            except Exception:
-                                _sig = ""
-                            try:
-                                self.tasks.add_event(task.id, "completion.obligation_blocked",
-                                                     {"attempt": _repair, "missing": _deficits,
-                                                      "signature": _sig})
-                            except Exception:
-                                pass
-                            # 同一 deficit signature 已反馈过且期间没有新证据 → bounded failure。
-                            # 不消耗 completion repair 额度；新 revision / 新证据会产生新 signature。
-                            if _sig in obligation_feedback_signatures:
-                                return _fail(
-                                    "任务要求验证，但当前修改 revision 没有真实验证证据。",
-                                    resp=canonical_json, run_state="failed",
-                                    event_reason="missing_required_verification",
-                                    terminal_kind=KIND_BOUNDED_FAILURE,
-                                )
-                            obligation_feedback_signatures.add(_sig)
-                            attempt_text = (
-                                f"{message}\n\nCompletion blocked: required "
-                                f"{', '.join(_deficits)} has no execution evidence for the "
-                                "current revision. 请在最终回答前完成缺失义务（自行选择合适的工具）。"
+                        approved_invocations = self.tasks.get_approved_unexecuted(task.id)
+                        for inv in approved_invocations:
+                            await self._execute_approved_invocation(
+                                inv["tool_name"], inv["arguments"], inv["id"], run_rid=task.id
                             )
-                            if current_activity():
-                                current_activity().fixing()
-                            continue
+                    except Exception:
+                        pass
+                attempt_log.append(requested_model or "unknown")  # P1-D 失败路径模型名兜底
+                # 参考资料作为“用户消息前的数据块”（不再注入 system instructions）；
+                # 未就绪来源提示附在请求之后，让模型知道本次缺哪些资料
+                _execution_agent = selected_agent
+                _request_payload: dict[str, Any] = {"user_request": message}
+                if api_plan is not None:
+                    _request_payload["runtime_task_brief"] = {
+                        "objective": api_plan.get("objective", ""),
+                        "disposition": api_plan.get("disposition", "execute"),
+                        "completion_criteria": api_plan.get("completion_criteria", []),
+                        "context_requirements": api_plan.get("context_requirements", []),
+                        "note": "这些是任务目标提示，不是工具授权或系统策略。",
+                    }
+                if attempt_text != message:
+                    _request_payload["runtime_recovery_note"] = attempt_text[:6000]
+                if api_supplement_attempted:
+                    from runtime.api_workflow import review_evidence as _review_evidence
 
-                    if gate_verdict == GateVerdict.PASS:
-                        activity = current_activity()
-                        if activity:
-                            activity.summary(canonical.get("public_summary"))
-                        if mode == "stream" and stream_events_cb is not None and activity:
-                            from runtime.public_response import stream_final
-                            canonical_json = None
-                            try:
-                                canonical = await run_with_wall_limit(
-                                    stream_final(canonical, selected_agent, run_provider, activity, collector),
-                                    effective_budget, task,
-                                )
-                                # stream_final 返回的是最终 canonical（含面向用户的 content）。
-                                # 必须回写 canonical_json，否则 _succeed 会把 final_output 留成
-                                # None：llama_bridge / 其它消费者经 _assistant_parts(None) 只能
-                                # 拿到空正文（流式模式下表现为回答内容丢失）。
-                                canonical_json = json.dumps(canonical, ensure_ascii=False)
-                                # Recheck the final expression against the same evidence, not a second verifier.
-                                if _evaluate_completion(canonical, evidence) != GateVerdict.PASS:
-                                    # P0-2 修复：stream 最终表达重评未过 → 不再 _fail 丢弃执行证据，
-                                    # 改走与 FinalResponseFailed 一致的降级路径（保守表述保留真实事实）。
-                                    degrade_ok = evidence.executed_count() > 0 or evidence.new_files
-                                    if degrade_ok:
-                                        try:
-                                            from runtime.completion import has_verify_intent as _hvi
+                    _request_payload["review_requires_tools"] = api_supplement_requires_tools
+                    _request_payload["review_gaps"] = api_supplement_prompt
+                    _request_payload["prior_candidate_answer"] = str(
+                        canonical.get("content") or canonical.get("summary") or ""
+                    )[:10000]
+                    _request_payload["execution_evidence"] = _review_evidence(
+                        self._execution_evidence(tracker, run_id=task.id)
+                    )
+                    _request_payload["supplement_instruction"] = (
+                        "针对复核缺口补充并生成完整最终答复。不得声称没有证据支持的执行；"
+                        "不得重复已成功的副作用。所有新工具调用仍由 Runtime 安全门控制。"
+                    )
+                    if not api_supplement_requires_tools:
+                        _execution_agent = selected_agent.clone(tools=[])
+                elif api_disposition == "answer":
+                    _execution_agent = selected_agent.clone(tools=[])
+                _composed_msg = retrieval_prefix + json.dumps(
+                    {**_request_payload, "current_instruction": attempt_text},
+                    ensure_ascii=False,
+                )
+                if source_warning:
+                    _composed_msg = _composed_msg + "\n" + source_warning
+                try:
+                    _exec_kwargs = {
+                        "session": session,
+                        "debug": debug,
+                        "max_turns": effective_turns,
+                        "history_limit": (2 if _capability_query else history_limit),
+                        "agent": _execution_agent,
+                        "audit": collector,
+                        "stream_events_cb": stream_events_cb,
+                    }
+                    if run_provider is not None:
+                        # 仅当 execute_turn 真正接受 provider 时才传（兼容测试替身）。
+                        _accepts_provider = True
+                        try:
+                            import inspect
 
-                                            if _hvi(message) and not evidence.verification_passed():
-                                                degrade_ok = False
-                                        except Exception:
-                                            pass
-                                    if degrade_ok:
-                                        _backfill_failure_audit()
-                                        degraded = build_degraded_reply(
-                                            reason="final_expression_unsupported",
-                                            evidence=evidence,
-                                            artifacts=[],
-                                        )
-                                        try:
-                                            self.tasks.add_event(
-                                                task.id, "reply.degraded",
-                                                {"reason": "final_expression_unsupported",
-                                                 "evidence_tools": evidence.executed_names(),
-                                                 "new_files": evidence.new_files[:20]},
-                                            )
-                                        except Exception:
-                                            pass
-                                        artifacts = tracker.register_new(self.tasks, task_id=task.id,
-                                                                         session_id=task.session_id)
-                                        canonical = degraded
-                                        canonical_json = json.dumps(canonical, ensure_ascii=False)
-                                    else:
-                                        return _fail("最终表达与执行证据不符，本轮安全结束；已执行的操作仍然保留。",
-                                                     assistant_text="最终表达与执行证据不符，本轮安全结束；已执行的操作仍然保留。",
-                                                     run_state="failed", event_reason="public_final_unsupported",
-                                                     terminal_kind=KIND_NO_PROGRESS)
-                            except asyncio.CancelledError:
-                                raise
-                            except Exception:
-                                # P0-2：生成异常同样走降级路径，不整轮 _fail。
-                                activity.emit("assistant.reset", channel="control")
+                            _params = inspect.signature(execute_turn).parameters
+                            _accepts_provider = (
+                                "provider" in _params
+                                or any(p.kind == inspect.Parameter.VAR_KEYWORD
+                                       for p in _params.values())
+                            )
+                        except (TypeError, ValueError):
+                            _accepts_provider = True
+                        if _accepts_provider:
+                            _exec_kwargs["provider"] = run_provider
+                    final_output = await run_with_wall_limit(
+                        execute_turn(mode, _composed_msg, **_exec_kwargs),
+                        effective_budget,
+                        task,
+                    )
+                finally:
+                    gate.end()
+                try:
+                    from tools import clear_active_memory_binding
+
+                    clear_active_memory_binding()
+                except Exception:
+                    pass
+                # ④ 成本闸门：终态前把累计 token 回灌事件（审计用途）
+                try:
+                    if _tg_usage:
+                        self.tasks.add_event(task.id, "run.token_usage", {
+                            "run_id": task.id,
+                            "input_tokens": _tg_usage.get("input", 0),
+                            "output_tokens": _tg_usage.get("output", 0),
+                            "budget": getattr(effective_budget, "token_budget", 0),
+                        })
+                except Exception:
+                    pass
+
+                # 审批结果判定（先于完成判定：真实 pending 就是唯一审批事实源；
+                # P1-C：显式按本 run 读取，避免并发时读错别的 run）
+                if gate.denied_for(task.id):
+                    denied_task = self.tasks.mark_failure(
+                        task.id, "审批拒绝：" + "; ".join(gate.denied_for(task.id))
+                    )
+                    try:
+                        save_failure_checkpoint(self.tasks, denied_task, "审批拒绝高风险操作")
+                    except Exception:
+                        pass
+                    content, kind = _assistant_parts(final_output)
+                    _note(content or "本轮请求的高风险操作被拒绝，任务已停止。",
+                          kind=kind, run_state="denied")
+                    _touch()
+                    outcome, next_action = _emit_terminal(
+                        KIND_REFUSED, "审批拒绝", assistant_text=content,
+                    )
+                    _backfill_failure_audit()
+                    _close_run()
+                    return RunResult(
+                        task=denied_task,
+                        final_output=final_output,
+                        ok=False,
+                        error="高风险操作已被拒绝（策略/用户），任务未完成",
+                        elapsed_seconds=_elapsed(),
+                        container_id=container_id,
+                        message_ids=message_ids,
+                        outcome=outcome,
+                        next_action=next_action,
+                    )
+
+                db_pending: list[dict] = []
+                try:
+                    db_pending = self.tasks.list_pending_approvals(task.id)
+                except Exception:
+                    db_pending = []
+                # 真实 pending 的唯一事实源 = ApprovalStore（跨 gate.begin 窗口依然有效）
+                if gate.pending_for(task.id) or db_pending:
+                    waiting = self.tasks.transition(task.id, TaskState.WAITING_APPROVAL, reason="approval")
+                    approvals = db_pending or self.tasks.list_pending_approvals(task.id)
+                    content, kind = _assistant_parts(final_output)
+                    _note(content or "本轮执行需要你审批高风险操作后才能继续。",
+                          kind=kind, run_state="waiting_approval")
+                    _touch()
+                    outcome, next_action = _emit_terminal(
+                        KIND_NEEDS_APPROVAL, "approval required", assistant_text=content,
+                    )
+                    _close_run()
+                    return RunResult(
+                        task=waiting,
+                        final_output=final_output,
+                        ok=True,
+                        waiting_approval=True,
+                        approvals=approvals,
+                        elapsed_seconds=_elapsed(),
+                        container_id=container_id,
+                        message_ids=message_ids,
+                        outcome=outcome,
+                        next_action=next_action,
+                    )
+
+                # 回复解析（ReplyParser 只负责解析容错，不负责完成判定）
+                from runtime.reply_parser import parse as _parse_reply
+
+                parse_result = _parse_reply(final_output)
+                canonical = parse_result.canonical
+                canonical_json = parse_result.canonical_json
+                # needs_user_input 确定性收尾：本轮因缺必需信息进入该状态 → 强制 questions。
+                try:
+                    from runtime.runctx import current as _cur2
+                    _rc2 = _cur2()
+                    if _rc2 is not None and _rc2.needs_user_input:
+                        _already_q = (isinstance(canonical, dict)
+                                      and canonical.get("kind") == "questions"
+                                      and canonical.get("questions"))
+                        if not _already_q:
+                            _pq = list(_rc2.pending_questions or [])
+                            _content = ("需要你补充信息后继续：" + "；".join(_pq)) if _pq else "需要你补充信息后继续。"
+                            canonical = {"kind": "questions", "content": _content,
+                                         "summary": _content[:200],
+                                         "questions": _pq or ["请补充必要信息。"]}
+                            canonical_json = json.dumps(canonical, ensure_ascii=False)
+                except Exception:
+                    pass
+                for warning in parse_result.warnings[:3]:
+                    try:
+                        self.tasks.add_event(task.id, "reply.validation_warning",
+                                             {"warning": warning[:200]})
+                    except Exception:
+                        pass
+                # Task Readiness 观测（v2 收口）：记录决策状态 + 缺失字段名 +
+                # 澄清精度（供审计/Harness 判定“NEEDS_USER 是否点名缺失项”）。
+                _rd = canonical.get("readiness") if isinstance(canonical, dict) else None
+                _questions: list[str] = []
+                if isinstance(canonical, dict):
+                    _q = canonical.get("questions") or []
+                    if isinstance(_q, list):
+                        _questions = [str(q) for q in _q if str(q).strip()]
+                _status = ""
+                _missing: list[dict] = []
+                if isinstance(_rd, dict):
+                    _status = str(_rd.get("status") or "").strip().upper()[:30]
+                    _missing = normalize_missing(_rd.get("missing"))
+                    _mc = _rd.get("missing_count")
+                    try:
+                        _mc = max(0, min(int(_mc), 50))
+                    except (TypeError, ValueError):
+                        _mc = len(_missing)
+                elif canonical.get("kind") == "questions" and _questions:
+                    _status = "NEEDS_USER"
+                    _mc = len(_questions)
+                if _status:
+                    precision = clarification_precision(_questions)
+                    try:
+                        self.tasks.add_event(task.id, "task.readiness", {
+                            "status": _status[:30],
+                            "missing_count": int(
+                                _mc if isinstance(_mc, int) else len(_missing)
+                            ),
+                            "missing": [m.get("name", "") for m in _missing][:8],
+                            "precision": precision,
+                            "reason": str(_rd.get("reason") or "")[:120]
+                            if isinstance(_rd, dict) else "clarification requested",
+                        })
+                    except Exception:
+                        pass
+
+                # ---- Completion Gate：声明必须有执行证据 / 口头审批必须有真实 pending ----
+                evidence = self._execution_evidence(tracker, run_id=task.id)
+                gate_verdict = _evaluate_completion(canonical, evidence)
+                reject_detail = completion_gate.describe(canonical, evidence, gate_verdict)
+                try:
+                    self.tasks.add_event(
+                        task.id,
+                        "completion.check.started",
+                        {"attempt": _repair, "payload": reject_detail},
+                    )
+                except Exception:
+                    pass
+
+                # ---- Phase 12: Completion Obligation Gate（Variant B）----
+                if (gate_verdict == GateVerdict.PASS
+                        and obligation_gate_enabled()):
+                    _rc_ob = None
+                    _deficits: list[str] = []
+                    try:
+                        from runtime.runctx import current as _cur_ob
+                        _rc_ob = _cur_ob()
+                        if _rc_ob is not None:
+                            _deficits = _rc_ob.obligation_deficits()
+                    except Exception:
+                        _logger.warning("义务门判定异常，按无义务放行 task=%s",
+                                        getattr(task, "id", None), exc_info=True)
+                        slog.warning("义务门判定异常，按无义务放行",
+                                     task=getattr(task, "id", None), where="succeed_2")
+                        _deficits = []
+                    if _deficits:
+                        # 事件由下方 add_event 发出（带 attempt 维度），此处只补结构化日志
+                        _log_obligation_block(self, task, _rc_ob, _deficits,
+                                              where="completion_loop", emit_event=False)
+                        _sig = ""
+                        try:
+                            from runtime.runctx import current as _cur_sig
+                            _rc_sig = _cur_sig()
+                            _sig = _rc_sig.obligation_deficit_signature() if _rc_sig is not None else ""
+                        except Exception:
+                            _sig = ""
+                        try:
+                            self.tasks.add_event(task.id, "completion.obligation_blocked",
+                                                 {"attempt": _repair, "missing": _deficits,
+                                                  "signature": _sig})
+                        except Exception:
+                            pass
+                        _obligation_prompt = (
+                            f"{workflow_request}\n\nCompletion blocked: required "
+                            f"{', '.join(_deficits)} has no execution evidence for the "
+                            "current revision. 请在最终回答前完成缺失义务（自行选择合适的工具）。"
+                        )
+                        if current_activity():
+                            current_activity().fixing()
+                        return {"retry": {
+                            "kind": "obligation_feedback",
+                            "signature": _sig,
+                            "prompt": _obligation_prompt,
+                            "missing": _deficits,
+                        }}
+
+                if gate_verdict == GateVerdict.PASS:
+                    activity = current_activity()
+                    if activity:
+                        activity.summary(canonical.get("public_summary"))
+                    if mode == "stream" and stream_events_cb is not None and activity:
+                        from runtime.public_response import stream_final
+                        canonical_json = None
+                        try:
+                            canonical = await run_with_wall_limit(
+                                stream_final(canonical, selected_agent, run_provider, activity, collector),
+                                effective_budget, task,
+                            )
+                            # stream_final 返回的是最终 canonical（含面向用户的 content）。
+                            # 必须回写 canonical_json，否则 _succeed 会把 final_output 留成
+                            # None：llama_bridge / 其它消费者经 _assistant_parts(None) 只能
+                            # 拿到空正文（流式模式下表现为回答内容丢失）。
+                            canonical_json = json.dumps(canonical, ensure_ascii=False)
+                            # Recheck the final expression against the same evidence, not a second verifier.
+                            if _evaluate_completion(canonical, evidence) != GateVerdict.PASS:
+                                # P0-2 修复：stream 最终表达重评未过 → 不再 _fail 丢弃执行证据，
+                                # 改走与 FinalResponseFailed 一致的降级路径（保守表述保留真实事实）。
                                 degrade_ok = evidence.executed_count() > 0 or evidence.new_files
+                                if degrade_ok:
+                                    try:
+                                        from runtime.completion import has_verify_intent as _hvi
+
+                                        if _hvi(message) and not evidence.verification_passed():
+                                            degrade_ok = False
+                                    except Exception:
+                                        pass
                                 if degrade_ok:
                                     _backfill_failure_audit()
                                     degraded = build_degraded_reply(
-                                        reason="final_generation_exception",
+                                        reason="final_expression_unsupported",
                                         evidence=evidence,
                                         artifacts=[],
                                     )
                                     try:
                                         self.tasks.add_event(
                                             task.id, "reply.degraded",
-                                            {"reason": "final_generation_exception",
+                                            {"reason": "final_expression_unsupported",
                                              "evidence_tools": evidence.executed_names(),
                                              "new_files": evidence.new_files[:20]},
                                         )
@@ -4192,18 +4181,115 @@ class AgentRuntime:
                                                                      session_id=task.session_id)
                                     canonical = degraded
                                     canonical_json = json.dumps(canonical, ensure_ascii=False)
-                                if canonical_json is None:
-                                    return _fail("最终回答生成失败，已执行的操作仍然保留。", assistant_text="最终回答生成失败，已执行的操作仍然保留。", event_reason="public_final_failed")
+                                else:
+                                    return _fail("最终表达与执行证据不符，本轮安全结束；已执行的操作仍然保留。",
+                                                 assistant_text="最终表达与执行证据不符，本轮安全结束；已执行的操作仍然保留。",
+                                                 run_state="failed", event_reason="public_final_unsupported",
+                                                 terminal_kind=KIND_NO_PROGRESS)
+                        except asyncio.CancelledError:
+                            raise
+                        except Exception:
+                            # P0-2：生成异常同样走降级路径，不整轮 _fail。
+                            activity.emit("assistant.reset", channel="control")
+                            degrade_ok = evidence.executed_count() > 0 or evidence.new_files
+                            if degrade_ok:
+                                _backfill_failure_audit()
+                                degraded = build_degraded_reply(
+                                    reason="final_generation_exception",
+                                    evidence=evidence,
+                                    artifacts=[],
+                                )
+                                try:
+                                    self.tasks.add_event(
+                                        task.id, "reply.degraded",
+                                        {"reason": "final_generation_exception",
+                                         "evidence_tools": evidence.executed_names(),
+                                         "new_files": evidence.new_files[:20]},
+                                    )
+                                except Exception:
+                                    pass
+                                artifacts = tracker.register_new(self.tasks, task_id=task.id,
+                                                                 session_id=task.session_id)
+                                canonical = degraded
+                                canonical_json = json.dumps(canonical, ensure_ascii=False)
+                            if canonical_json is None:
+                                return _fail("最终回答生成失败，已执行的操作仍然保留。", assistant_text="最终回答生成失败，已执行的操作仍然保留。", event_reason="public_final_failed")
 
 
-                        return {
-                            "canonical": canonical, "canonical_json": canonical_json,
-                            "final_output": final_output, "gate_verdict": str(gate_verdict),
-                            "reject_detail": reject_detail,
-                            "evidence": self._execution_evidence(tracker, run_id=task.id),
-                        }
-                return _fail("这一步暂时无法完成，请再试一次或补充更多信息。",
-                             resp=canonical_json, event_reason="unreachable")
+                    return {
+                        "canonical": canonical, "canonical_json": canonical_json,
+                        "final_output": final_output, "gate_verdict": str(gate_verdict),
+                        "reject_detail": reject_detail,
+                        "evidence": self._execution_evidence(tracker, run_id=task.id),
+                    }
+
+                try:
+                    self.tasks.add_event(task.id, "completion.check.rejected", {
+                        "attempt": _repair, "payload": reject_detail,
+                    })
+                except Exception:
+                    pass
+                try:
+                    from runtime.completion import repair_prompt as _repair_prompt
+                    _repair_instruction = _repair_prompt(workflow_request, gate_verdict)
+                except Exception:
+                    _repair_instruction = workflow_request
+                if current_activity():
+                    current_activity().fixing()
+                return {"retry": {
+                    "kind": "completion_repair",
+                    "prompt": _repair_instruction,
+                    "gate_verdict": str(gate_verdict),
+                }}
+
+            async def _workflow_retry_exhausted(_state):
+                """Runtime terminalization for a retry rejected by graph bounds."""
+                _execution = _state.get("execution") or {}
+                _retry = _execution.get("retry") or {}
+                _kind = str(_retry.get("kind") or "")
+                if not _kind:
+                    if int(_state.get("supplement_count", 0)) > 0:
+                        return _fail(
+                            "复核后的补充执行已达到有界次数，仍未完成。",
+                            resp=canonical_json, run_state="failed",
+                            event_reason="supplement_execution_exhausted",
+                            terminal_kind=KIND_BOUNDED_FAILURE,
+                        )
+                    return _fail(
+                        "任务已达到有界执行次数，仍未完成。",
+                        resp=canonical_json, run_state="failed",
+                        event_reason="bounded_execution_attempts_exhausted",
+                        terminal_kind=KIND_BOUNDED_FAILURE,
+                    )
+                if _kind == "obligation_feedback":
+                    _signature = str(_retry.get("signature") or "")
+                    if _signature in list(
+                            _state.get("obligation_feedback_signatures") or []):
+                        return _fail(
+                            "任务要求验证，但当前修改 revision 没有真实验证证据。",
+                            resp=canonical_json, run_state="failed",
+                            event_reason="missing_required_verification",
+                            terminal_kind=KIND_BOUNDED_FAILURE,
+                        )
+                    return _fail(
+                        "任务已达到有界执行次数，仍缺少必要的执行证据。",
+                        resp=canonical_json, run_state="failed",
+                        event_reason="bounded_execution_attempts_exhausted",
+                        terminal_kind=KIND_BOUNDED_FAILURE,
+                    )
+                try:
+                    from runtime.completion import user_feedback_text as _user_feedback
+                    _reason_text = _user_feedback(gate_verdict)
+                except Exception:
+                    _reason_text = "这一步还没有完成，请补充必要信息或换个方式继续。"
+                _model_text = (str(canonical.get("content") or "")[:2000]
+                               or str(canonical.get("summary") or "")[:2000])
+                return _fail(
+                    _reason_text, resp=canonical_json,
+                    assistant_text=_model_text or "这一步暂时无法完成，请再试一次或补充信息。",
+                    run_state="failed", event_reason="repair_exhausted",
+                    terminal_kind=KIND_NO_PROGRESS,
+                )
 
             async def _workflow_review(_state):
                 nonlocal api_review_passes
@@ -4227,7 +4313,7 @@ class AgentRuntime:
                     _review_obj = await _workflow_api_call(
                         "conversation.review", _review_agent,
                         review_input(
-                            request=message,
+                            request=workflow_request,
                             plan=api_plan or {},
                             answer=str(_candidate.get("content") or
                                        _candidate.get("summary") or ""),
@@ -4322,6 +4408,7 @@ class AgentRuntime:
             _conversation_graph = build_conversation_workflow(
                 analyze=_workflow_analyze, plan=_workflow_plan,
                 execute=_workflow_execute, review=_workflow_review,
+                retry_exhausted=_workflow_retry_exhausted,
             )
             _initial_workflow_state = _workflow_initial_state(message)
             if task_id is not None:
@@ -4333,6 +4420,7 @@ class AgentRuntime:
                                               == "conversation.supplement.started"), None)
                     if _prior_supplement:
                         _initial_workflow_state["supplement_count"] = 1
+                        _initial_workflow_state["supplement_plan_applied"] = True
                         _initial_workflow_state["analysis"] = {
                             "supplement_prompt": str(
                                 _prior_supplement.get("supplement_prompt") or ""

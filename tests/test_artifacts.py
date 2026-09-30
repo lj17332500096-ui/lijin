@@ -9,6 +9,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 from runtime.artifacts import ArtifactTracker, kind_for, sha256_of
 from runtime.task import TaskState
@@ -93,8 +94,7 @@ class RuntimeArtifactIntegrationTests(unittest.TestCase):
                 (self.out_dir / "报告.md").write_text("# 报告", encoding="utf-8")
             return '{"kind":"note","summary":"ok","content":"x"}'
 
-        runtime_execution.execute_turn = fake_execute_turn
-
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute_turn)
     def test_success_registers_artifacts_in_result(self) -> None:
         self._install_fake(make_file=True)
         result = asyncio.run(self.runtime.run_turn("写份报告", session_id="unit"))
@@ -115,7 +115,7 @@ class RuntimeArtifactIntegrationTests(unittest.TestCase):
         async def fake_fail(mode, message, session=None, debug=False, max_turns=20, history_limit=None, agent=None, audit=None, stream_events_cb=None):
             raise RuntimeError("中途挂了")
 
-        runtime_execution.execute_turn = fake_fail
+        runtime_execution.execute_turn = workflow_model_stub(fake_fail)
         (self.out_dir / "半成品.md").write_text("partial", encoding="utf-8")
         result = asyncio.run(self.runtime.run_turn("慢产出", session_id="unit"))
         self.assertFalse(result.ok)

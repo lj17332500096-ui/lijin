@@ -15,6 +15,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 import main as main_module
 from runtime.approval import ApprovalGate
@@ -117,8 +118,7 @@ class BoundedRunnerTests(unittest.TestCase):
             os.environ["TOOL_ROUTER"] = self._saved
 
     def _fake(self, fn):
-        runtime_execution.execute_turn = fn
-
+        runtime_execution.execute_turn = workflow_model_stub(fn)
     def test_no_progress_twice_fails_bounded(self):
         calls = {"n": 0}
 

@@ -11,6 +11,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 from runtime.runner import AgentRuntime
 from runtime.task import TaskState
@@ -30,7 +31,7 @@ class TMRModelTests(unittest.TestCase):
                                     history_limit=None, agent=None, audit=None, stream_events_cb=None):
             return output
 
-        self._patcher = patch.object(runtime_execution, "execute_turn", new=fake_execute_turn)
+        self._patcher = patch.object(runtime_execution, "execute_turn", new=workflow_model_stub(fake_execute_turn))
         self._patcher.start()
         self.addCleanup(self._patcher.stop)
 

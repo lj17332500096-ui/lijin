@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 os.environ.setdefault("FORGE_TEST_MODE", "1")
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 from runtime import public_activity as pa
 from runtime.approval import GATED_DEFAULT, SIDE_EFFECT_EXEMPT
@@ -276,9 +277,16 @@ class ToolValidationLedgerTests(unittest.TestCase):
             mode, message, session=None, debug=False, max_turns=20, history_limit=None,
             agent=None, audit=None, stream_events_cb=None, **kwargs,
         ):
+            from runtime.runctx import current as _cur
+
+            rid = getattr(_cur(), "run_id", None)
+            if any(call.get("name") == tool_name
+                   for call in rt._ledgers.get(rid, [])):
+                captured["run_id"] = rid
+                captured["ledger"] = list(rt._ledgers.get(rid, []))
+                return '{"kind":"answer","summary":"x","content":"done"}'
             from agent import assistant_agent
             from agents.tool import ToolContext
-            from runtime.runctx import current as _cur
 
             tool = next(
                 (t for t in (getattr(assistant_agent, "tools", []) or [])
@@ -295,12 +303,11 @@ class ToolValidationLedgerTests(unittest.TestCase):
                 out = await out
             captured["out"] = out
             # 账本在 run_turn 收尾时会被 pop 掉，必须在 Run 内取快照
-            rid = getattr(_cur(), "run_id", None)
             captured["run_id"] = rid
             captured["ledger"] = list(rt._ledgers.get(rid, []))
             return '{"kind":"answer","summary":"x","content":"done"}'
 
-        runtime_execution.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute_turn)
         return captured
 
     def test_missing_required_argument_is_recorded_as_error(self) -> None:
@@ -378,7 +385,7 @@ class ToolArgumentRedactionTests(unittest.TestCase):
             )
             return '{"kind":"answer","summary":"x","content":"done"}'
 
-        runtime_execution.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute_turn)
         asyncio.run(rt.run_turn("跑段代码", session_id="phase_a_redact"))
 
         rid = captured.get("run_id")
@@ -406,7 +413,7 @@ class ToolArgumentRedactionTests(unittest.TestCase):
             captured["ledger"] = list(rt._ledgers.get(rid, []))
             return '{"kind":"answer","summary":"x","content":"done"}'
 
-        runtime_execution.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute_turn)
         asyncio.run(rt.run_turn("跑段代码", session_id="phase_a_redact2"))
 
         entries = captured.get("ledger") or []
@@ -453,8 +460,7 @@ class AbnormalExitTests(unittest.TestCase):
             seen["run_id"] = getattr(_cur(), "run_id", None)
             raise SystemExit(3)
 
-        runtime_execution.execute_turn = fake_execute_turn
-
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute_turn)
         async def _run():
             asyncio.get_running_loop().set_exception_handler(lambda _loop, _ctx: None)
             return await self.runtime.run_turn("做 A", session_id="phase_a_exit")
@@ -504,8 +510,7 @@ class AbnormalExitTests(unittest.TestCase):
             seen["run_id"] = getattr(_cur(), "run_id", None)
             raise KeyboardInterrupt
 
-        runtime_execution.execute_turn = fake_execute_turn
-
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute_turn)
         async def _run():
             asyncio.get_running_loop().set_exception_handler(lambda _loop, _ctx: None)
             try:

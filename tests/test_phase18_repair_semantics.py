@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 import main as main_module  # noqa: E402
 from runtime.completion import TOOL_EXECUTED  # noqa: E402
@@ -45,7 +46,7 @@ class _Harness:
             self.calls += 1
             return self.script[idx](rt, rc)
 
-        runtime_execution.execute_turn = fake
+        runtime_execution.execute_turn = workflow_model_stub(fake)
         return self
 
     def __exit__(self, *exc):

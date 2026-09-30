@@ -25,6 +25,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 from agents.tool_context import ToolContext
 
@@ -109,7 +110,8 @@ class ConcurrentRunStressTests(unittest.TestCase):
         # invocation before re-entering execute_turn with an empty user message.
         # This driver has no SDK session replay, so return the continuation
         # response instead of inventing a second forget_memory tool call.
-        if not message and marker == "@forget":
+        if ((not message or '"user_request": ""' in message)
+                and marker == "@forget"):
             return _canonical("删除记忆调用结束", "批准的 forget_memory 调用已完成。")
         try:
             if marker == "@calc":
@@ -151,7 +153,7 @@ class ConcurrentRunStressTests(unittest.TestCase):
 
     def test_mixed_parallel_runs_approval_and_filescope_isolation(self):
         async def run():
-            runtime_execution.execute_turn = self._fake_execute
+            runtime_execution.execute_turn = workflow_model_stub(self._fake_execute)
             tm = self.rt.tasks
 
             # 4 个普通容器（2 计算 + 2 纯回答）
@@ -247,7 +249,7 @@ class ConcurrentRunStressTests(unittest.TestCase):
 
     def test_single_active_run_rejects_concurrent_second_run(self):
         async def run():
-            runtime_execution.execute_turn = self._fake_execute
+            runtime_execution.execute_turn = workflow_model_stub(self._fake_execute)
             first = asyncio.create_task(
                 self.rt.run_turn("@sleep 慢任务", session_id="stress-single",
                                  mode="async", max_turns=3))

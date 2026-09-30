@@ -22,6 +22,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 import main as main_module
 from runtime.approval import ApprovalGate
@@ -162,8 +163,7 @@ class VerificationRunTurnTests(unittest.TestCase):
             self.runtime._run_ledger.append(run_call(EVID_FAIL))
             return json.dumps(reply(content=content), ensure_ascii=False)
 
-        runtime_execution.execute_turn = fake
-
+        runtime_execution.execute_turn = workflow_model_stub(fake)
     def test_verify_intent_with_failing_run_never_completes(self):
         self._install("修改已经完成，但测试仍然失败。")
         result = asyncio.run(self.runtime.run_turn(

@@ -17,6 +17,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 import main as main_module
 from runtime.approval import ApprovalGate
@@ -82,7 +83,7 @@ class _Harness:
         return await self.fn(message)
 
     def __enter__(self):
-        runtime_execution.execute_turn = self._execute
+        runtime_execution.execute_turn = workflow_model_stub(self._execute)
         return self
 
     def __exit__(self, *exc):

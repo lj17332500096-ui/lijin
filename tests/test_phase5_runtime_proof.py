@@ -15,6 +15,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 import main as main_module  # noqa: E402
 from runtime.errors import ConvergenceTerminated, NeedsUserInputTerminated  # noqa: E402
@@ -84,7 +85,7 @@ class NeedsUserInputBreaksLoopTests(unittest.TestCase):
         tmp = Path(tempfile.mkdtemp(prefix="p5_nui_"))
         runtime = AgentRuntime(db_path=str(tmp / "agent.db"))
         orig = runtime_execution.execute_turn
-        runtime_execution.execute_turn = fake
+        runtime_execution.execute_turn = workflow_model_stub(fake)
         try:
             result = asyncio.run(runtime.run_turn("帮我查明天去上海的航班", session_id="unit",
                                                   mode="async"))
@@ -182,8 +183,7 @@ class RunTurnConvergenceTerminalizationTests(unittest.TestCase):
         runtime_execution.execute_turn = self._orig
 
     def _install(self, fn):
-        runtime_execution.execute_turn = fn
-
+        runtime_execution.execute_turn = workflow_model_stub(fn)
     def test_convergence_terminated_becomes_bounded_failure(self):
         async def fake(mode, message, **kwargs):
             raise ConvergenceTerminated("TERMINALIZE")

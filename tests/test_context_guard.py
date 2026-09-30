@@ -25,6 +25,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 from runtime import compact
 import main as main_module
@@ -296,8 +297,7 @@ class RunTurnIntegrationTests(ContextEnvMixin, unittest.TestCase):
             return json.dumps({"kind": "answer", "summary": "ok", "content": reply_text,
                                "questions": [], "saved_file": None, "next_step": None},
                               ensure_ascii=False)
-        runtime_execution.execute_turn = fake_execute
-
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute)
     def _run(self, message: str, session, **kw) -> RunResult:
         return self.go(self.runtime.run_turn(message, session=session, session_id="unit",
                                               mode="sync", **kw))

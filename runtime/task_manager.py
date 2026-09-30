@@ -1105,7 +1105,7 @@ class TaskManager:
             cursor = conn.execute(
                 "UPDATE tool_calls SET status = ?, result_excerpt = ? "
                 "WHERE task_id = ? AND invocation_id = ? AND status = 'pending'",
-                (status, (result_excerpt or "")[:1000], task_id, invocation_id),
+                (status, (result_excerpt or "")[:4000], task_id, invocation_id),
             )
             return cursor.rowcount == 1
 

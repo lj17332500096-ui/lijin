@@ -405,6 +405,14 @@ class ApprovedExecutionContextTest(unittest.TestCase):
             )
             self.assertEqual(invocation.get("status"), "executed")
             self.assertIn("5", invocation.get("output_head", ""))
+            durable = self.rt.tasks.list_tool_calls(self.task.id, limit=100)
+            matching = [row for row in durable
+                        if row.get("invocation_id") == invocation.get("invocation_id")]
+            self.assertEqual(len(matching), 1)
+            self.assertEqual(
+                matching[0].get("status"), "executed",
+                "successful side effects must close the write-ahead row as executed",
+            )
             events = self.rt.tasks.list_events(self.task.id)
             self.assertTrue(any(
                 event.event_type == "task.approval.execution_committed"

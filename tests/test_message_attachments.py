@@ -15,6 +15,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 from runtime.runner import AgentRuntime
 from runtime.task_manager import TaskManager
@@ -181,7 +182,7 @@ class AttachmentContextTests(unittest.TestCase):
                        provider=None):
             self.captured.append(str(getattr(agent, "instructions", "") or ""))
             return '{"kind":"answer","summary":"s","content":"ok"}'
-        self._patcher = patch.object(runtime_execution, "execute_turn", new=fake)
+        self._patcher = patch.object(runtime_execution, "execute_turn", new=workflow_model_stub(fake))
         self._patcher.start()
         self.addCleanup(self._patcher.stop)
 

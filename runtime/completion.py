@@ -572,7 +572,7 @@ class ExecutionEvidence:
                     previous["evidence_sources"].append(source)
                 old_status, new_status = previous["status"], call["status"]
                 if old_status == new_status:
-                    if not previous.get("output_head") and call.get("output_head"):
+                    if len(call.get("output_head") or "") > len(previous.get("output_head") or ""):
                         previous["output_head"] = call["output_head"]
                     continue
                 old_terminal, new_terminal = old_status in terminal, new_status in terminal

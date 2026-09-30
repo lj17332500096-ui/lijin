@@ -8,6 +8,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 from runtime.errors import AgentError
 from runtime.runner import AgentRuntime
@@ -100,6 +101,21 @@ class TaskManagerTests(unittest.TestCase):
         self.assertEqual(restored.usage.turns, 3)
         self.assertEqual(restored.usage.tool_calls, 5)
         self.assertEqual(restored.usage.input_tokens, 100)
+
+    def test_write_ahead_result_retains_bounded_search_evidence(self) -> None:
+        task = self.manager.create_task("s1", "external search")
+        self.assertTrue(self.manager.begin_side_effect_tool_call(
+            task_id=task.id, tool_name="anysearch_search", arguments={},
+            invocation_id="call_search_evidence",
+        ))
+        excerpt = "x" * 3500
+        self.assertTrue(self.manager.update_tool_call_status(
+            task.id, "call_search_evidence", status="executed", result_excerpt=excerpt,
+        ))
+
+        row = self.manager.list_tool_calls(task.id, limit=10)[0]
+        self.assertEqual(row["status"], "executed")
+        self.assertEqual(row["result_excerpt"], excerpt)
 
     def test_run_latency_keeps_monotonic_sample_for_subsecond_run(self) -> None:
         task = self.manager.create_task("s1", "快速 Run")
@@ -300,8 +316,7 @@ class RuntimeRunTurnTests(unittest.TestCase):
                 raise error
             return result
 
-        runtime_execution.execute_turn = fake_execute_turn
-
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute_turn)
     def test_success_creates_completed_task(self) -> None:
         self._install_fake(result='{"kind":"answer","summary":"好","content":"OK"}')
         result = asyncio.run(self.runtime.run_turn("帮我算 1+1", session_id="unit"))

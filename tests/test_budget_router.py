@@ -9,6 +9,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 from agent import assistant_agent
 from runtime import budget as budget_mod
@@ -219,7 +220,7 @@ class RuntimeBudgetIntegrationTests(unittest.TestCase):
             await asyncio.sleep(0.5)
             return "ok-ignored"
 
-        runtime_execution.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute_turn)
         result = asyncio.run(
             self.runtime.run_turn(
                 "慢任务",
@@ -238,7 +239,7 @@ class RuntimeBudgetIntegrationTests(unittest.TestCase):
         ):
             return "fast-ok"
 
-        runtime_execution.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute_turn)
         result = asyncio.run(self.runtime.run_turn("快任务", session_id="unit"))
         self.assertTrue(result.ok)
         # 新契约：纯文本输出被 canonical 化为 answer AgentReply JSON

@@ -12,6 +12,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 import main as main_module
 from runtime.approval import ApprovalGate
@@ -54,8 +55,7 @@ class ModelSelectHarness:
                                "questions": [], "saved_file": None, "next_step": None},
                               ensure_ascii=False)
 
-        runtime_execution.execute_turn = fake_execute
-
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute)
     def close(self):
         runtime_execution.execute_turn = self._orig_exec
         for k, v in self._saved_env.items():

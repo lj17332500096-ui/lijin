@@ -121,14 +121,31 @@ def structured_output(value: object, schema: type[BaseModel]) -> BaseModel:
                 except ValueError:
                     continue
     if isinstance(value, dict):
-        # Some compatible gateways serialize a one-item list field as a
-        # scalar string despite the requested JSON schema. Normalize only the
-        # known list fields; keep all other schema violations explicit.
+        # Compatible gateways sometimes serialize optional structured fields
+        # as null, a scalar, or a small object despite the requested schema.
+        # Normalize only fields with declared defaults and list[str] fields;
+        # required fields and decision enums remain strict.
         value = dict(value)
         for field_name, field in schema.model_fields.items():
-            if (field_name in value and isinstance(value[field_name], str)
-                    and getattr(field.annotation, "__origin__", None) is list):
-                value[field_name] = [value[field_name]] if value[field_name].strip() else []
+            if field_name not in value:
+                continue
+            field_value = value[field_name]
+            if field_value is None and not field.is_required():
+                value[field_name] = field.get_default(call_default_factory=True)
+                continue
+            if getattr(field.annotation, "__origin__", None) is list:
+                if isinstance(field_value, str):
+                    value[field_name] = [field_value] if field_value.strip() else []
+                elif isinstance(field_value, dict):
+                    normalized: list[str] = []
+                    for key, item in field_value.items():
+                        values = item if isinstance(item, list) else [item]
+                        for entry in values:
+                            if isinstance(entry, (str, int, float, bool)):
+                                rendered = str(entry).strip()
+                                if rendered:
+                                    normalized.append(f"{key}: {rendered}"[:500])
+                    value[field_name] = normalized[:12]
         return schema.model_validate(value)
     if hasattr(value, "model_dump"):
         return schema.model_validate(value.model_dump())
@@ -142,11 +159,22 @@ def normalized_plan(plan: RequestAnalysis) -> dict:
 def review_evidence(evidence: object) -> dict:
     """Build a bounded, argument-free evidence view for the reviewer API."""
     calls = []
+    remaining_chars = 10_000
     for call in list(getattr(evidence, "tool_calls", []) or [])[:40]:
+        name = str(call.get("name") or "?")[:100]
+        if remaining_chars <= 0:
+            break
+        external_search = (
+            name.startswith("anysearch_")
+            or name in {"web_search", "deep_research", "fetch_fetch"}
+        )
+        result_limit = 2600 if external_search else 700
+        result = str(call.get("output_head") or "")[:min(result_limit, remaining_chars)]
+        remaining_chars -= len(result)
         calls.append({
-            "tool": str(call.get("name") or "?")[:100],
+            "tool": name,
             "status": str(call.get("status") or "unknown")[:40],
-            "result": str(call.get("output_head") or "")[:700],
+            "result": result,
         })
     return {
         "tool_calls": calls,

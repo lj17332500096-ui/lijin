@@ -8,6 +8,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 from runtime.audit import AuditCollector
 from runtime.task_manager import TaskManager
@@ -133,7 +134,7 @@ class ExecuteAuditWiringTests(unittest.TestCase):
             return "ok"
 
         orig = runtime_execution.execute_turn
-        runtime_execution.execute_turn = fake_execute_turn
+        runtime_execution.execute_turn = workflow_model_stub(fake_execute_turn)
         try:
             runtime = AgentRuntime(db_path=str(self._tmp_path()))
             result = asyncio.run(runtime.run_turn("短任务", session_id="unit"))

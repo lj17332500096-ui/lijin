@@ -28,6 +28,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 import runtime.execution as runtime_execution
+from tests.workflow_model_stub import workflow_model_stub
 
 import main as main_module
 from runtime.approval import ApprovalGate
@@ -70,6 +71,18 @@ class CompletionGateUnitTests(unittest.TestCase):
 
     def setUp(self) -> None:
         self.gate = CompletionGate()
+
+    def test_same_invocation_keeps_richer_result_across_evidence_sources(self) -> None:
+        evidence = ExecutionEvidence.from_records([
+            {"name": "anysearch_batch_search", "status": "executed",
+             "invocation_id": "call_same", "output_head": "short event summary"},
+            {"name": "anysearch_batch_search", "status": "executed",
+             "invocation_id": "call_same", "output_head": "full result https://docs.langchain.com/oss/python/langgraph/graph-api"},
+        ])
+
+        self.assertEqual(evidence.tool_calls[0]["status"], "executed")
+        self.assertIn("https://docs.langchain.com/oss/python/langgraph/graph-api",
+                      evidence.tool_calls[0]["output_head"])
 
     def test_weather_answer_cannot_deny_forecast_present_in_execution_evidence(self) -> None:
         from runtime.completion import contradicts_successful_weather_evidence
@@ -342,7 +355,7 @@ class _FakeHarness:
         return await self.fn(mode, message)
 
     def __enter__(self):
-        runtime_execution.execute_turn = self._execute
+        runtime_execution.execute_turn = workflow_model_stub(self._execute)
         return self
 
     def __exit__(self, *exc) -> None:
