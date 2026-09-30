@@ -132,6 +132,26 @@ def infer_task_plan(query: str, available: list[str] | None = None) -> dict[str,
             "depends_on": [phases[-1]["phase"]] if phases else [],
         })
 
+    # Current-information lists often need page content after search snippets.
+    # Keep extraction as a later phase so it cannot run before discovery.
+    has_research = any(phase.get("phase") == "external_research" for phase in phases)
+    wants_current_listing = bool(re.search(
+        r"今天|今日|目前|现在|最新|清单|榜单|热门(?:项目|仓库)?|排名|star|stars|趋势", text, re.I,
+    ))
+    if has_research and wants_current_listing and candidates is not None:
+        extract_tools = [name for name in ("anysearch_extract", "fetch_fetch")
+                         if name in candidates]
+        if extract_tools:
+            phases.append({
+                "phase": "source_extract",
+                "tools": extract_tools[:1],
+                "capabilities": list(dict.fromkeys(
+                    capability_of(name) for name in extract_tools[:1]
+                )),
+                "depends_on": [phases[-1]["phase"]],
+            })
+            required.extend(name for name in extract_tools[:1] if name not in required)
+
     return {
         "schema_version": 1,
         "required_tools": required,

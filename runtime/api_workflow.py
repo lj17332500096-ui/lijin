@@ -121,6 +121,14 @@ def structured_output(value: object, schema: type[BaseModel]) -> BaseModel:
                 except ValueError:
                     continue
     if isinstance(value, dict):
+        # Some compatible gateways serialize a one-item list field as a
+        # scalar string despite the requested JSON schema. Normalize only the
+        # known list fields; keep all other schema violations explicit.
+        value = dict(value)
+        for field_name, field in schema.model_fields.items():
+            if (field_name in value and isinstance(value[field_name], str)
+                    and getattr(field.annotation, "__origin__", None) is list):
+                value[field_name] = [value[field_name]] if value[field_name].strip() else []
         return schema.model_validate(value)
     if hasattr(value, "model_dump"):
         return schema.model_validate(value.model_dump())

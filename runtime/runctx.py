@@ -183,6 +183,58 @@ class RunContext:
         self.capability_phase_inflight = None
         self.capability_plan_uncertain = False
 
+    def append_capability_plan(
+        self, plan: dict[str, Any] | None, *, allowed_tools: set[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        """Append validated phases after the current plan is complete.
+
+        This is used only for the single Runtime-bounded review supplement.
+        It adds phase-order constraints, never tool authorization: names must
+        already be present in the tool schema selected for this Run, and every
+        invocation still passes through the normal broker/security gates.
+        """
+        current = self.capability_plan.get("phases") or []
+        if (self.capability_phase_index < len(current)
+                or self.capability_phase_inflight is not None
+                or self.capability_plan_uncertain):
+            return []
+        proposed = plan.get("phases") if isinstance(plan, dict) else None
+        if not isinstance(proposed, list):
+            return []
+        allowed = allowed_tools or set()
+        appended: list[dict[str, Any]] = []
+        previous = (str(current[-1].get("phase")) if current else "")
+        for raw in proposed[:8]:
+            if not isinstance(raw, dict):
+                continue
+            names = [str(name) for name in (raw.get("tools") or [])
+                     if str(name) in allowed]
+            if not names:
+                continue
+            phase_name = str(raw.get("phase") or f"supplement_{len(appended) + 1}")[:80]
+            if any(str(existing.get("phase")) == phase_name for existing in current + appended):
+                phase_name = f"supplement_{len(current) + len(appended) + 1}:{phase_name}"
+            appended.append({
+                "phase": phase_name,
+                "tools": names[:8],
+                "capabilities": list(dict.fromkeys(
+                    str(value) for value in (raw.get("capabilities") or [])
+                )),
+                "depends_on": [previous] if previous else [],
+            })
+            previous = phase_name
+        if appended:
+            self.capability_plan = {
+                **self.capability_plan,
+                "required_tools": list(dict.fromkeys(
+                    list(self.capability_plan.get("required_tools") or [])
+                    + [name for phase in appended for name in phase["tools"]]
+                )),
+                "phases": list(current) + appended,
+            }
+            self.capability_plan_uncertain = False
+        return appended
+
     def claim_capability_phase_tool(self, tool_name: str) -> tuple[bool, dict[str, Any]]:
         """Atomically reserve the only tool allowed in the current plan phase."""
         phases = self.capability_plan.get("phases") or []
