@@ -404,6 +404,7 @@ _MCP_SERVER_DOMAIN: dict[str, str] = {
     "chrome": "browser",
     "youtube": "media",
     "fetch": "web",
+    "anysearch": "web",
     "obsidian": "notes",
     "sqlite": "database",
 }
@@ -426,7 +427,9 @@ _DOMAIN_INTENT: dict[str, "re.Pattern[str]"] = {
     "media": re.compile(r"视频|字幕|transcript|youtube|油管", re.IGNORECASE),
     "database": re.compile(r"数据库|sqlite|\bsql\b|表结构|查询表", re.IGNORECASE),
     "notes": re.compile(r"obsidian|笔记库|vault", re.IGNORECASE),
-    "web": re.compile(r"抓取网页|网页抓取|fetch", re.IGNORECASE),
+    "web": re.compile(
+        r"搜索|联网|网页|抓取网页|网页抓取|查找资料|anysearch|fetch|search|browse",
+        re.IGNORECASE),
 }
 
 #: MCP 写/操作语义（只有明确 mutation 意图或点名时才暴露 mutation MCP 工具）

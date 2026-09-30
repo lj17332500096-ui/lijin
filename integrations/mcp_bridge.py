@@ -28,10 +28,11 @@
 import json
 import logging
 import os
+import re
 import time
 from typing import Any
 
-from agents.mcp import MCPServerStdio
+from agents.mcp import MCPServerStdio, MCPServerStreamableHttp
 from agents.tool import FunctionTool
 
 from agent import assistant_agent
@@ -49,7 +50,7 @@ _config_errors: list[str] = []
 _connected_names: list[str] = []
 _failed_at: dict[str, float] = {}
 _skip_reasons: list[str] = []
-_servers: list[MCPServerStdio] = []
+_servers: list[Any] = []
 _mounted_names: list[str] = []
 _policy_summary: dict[str, int] = {"allow": 0, "approval": 0, "deny": 0}
 
@@ -82,8 +83,26 @@ def parse_specs(text: str) -> tuple[list[dict], list[str]]:
     seen: set[str] = set()
     for i, item in enumerate(raw):
         where = f"MCP 服务器第 {i + 1} 项"
-        if not isinstance(item, dict) or not item.get("name") or not item.get("command"):
-            errors.append(f"{where}缺少 name/command")
+        if not isinstance(item, dict) or not item.get("name"):
+            errors.append(f"{where}缺少 name")
+            continue
+        transport = str(item.get("transport") or item.get("type") or "stdio").strip().lower()
+        if transport in ("http", "streamable_http", "streamable-http", "remote"):
+            transport = "streamable-http"
+            if not str(item.get("url") or "").strip():
+                errors.append(f"{where}缺少 Streamable HTTP url")
+                continue
+            raw_headers = item.get("headers") or {}
+            if not isinstance(raw_headers, dict):
+                errors.append(f"{where} headers 应为对象")
+                continue
+        elif transport == "stdio":
+            if not item.get("command"):
+                errors.append(f"{where}缺少 stdio command")
+                continue
+            raw_headers = {}
+        else:
+            errors.append(f"{where} transport 不支持（{transport}）")
             continue
         name = str(item["name"]).strip()
         if name in seen:
@@ -110,7 +129,10 @@ def parse_specs(text: str) -> tuple[list[dict], list[str]]:
         specs.append(
             {
                 "name": name,
-                "command": str(item["command"]),
+                "transport": transport,
+                "url": str(item.get("url") or "").strip(),
+                "headers": {str(k): str(v) for k, v in raw_headers.items()},
+                "command": str(item.get("command") or ""),
                 "args": [str(a) for a in (item.get("args") or [])],
                 "env": {str(k): str(v) for k, v in (item.get("env") or {}).items()},
                 "tool_policy": tool_policy,
@@ -122,6 +144,28 @@ def parse_specs(text: str) -> tuple[list[dict], list[str]]:
             }
         )
     return specs, errors
+
+
+_ENV_TEMPLATE_RE = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
+
+
+def _resolve_env_templates(value: str) -> str:
+    """Resolve ${NAME} in trusted local MCP config without printing secret values."""
+    missing: list[str] = []
+
+    def replace(match: re.Match[str]) -> str:
+        name = match.group(1)
+        resolved = os.getenv(name)
+        if resolved is None:
+            missing.append(name)
+            return ""
+        return resolved
+
+    result = _ENV_TEMPLATE_RE.sub(replace, value)
+    if missing:
+        raise ValueError("MCP headers reference unset environment variable(s): "
+                         + ", ".join(sorted(set(missing))))
+    return result
 
 
 def filter_allowlist(specs: list[dict], allowlist: str | None = None) -> tuple[list[dict], list[str]]:
@@ -197,7 +241,7 @@ def format_mcp_result(display_name: str, result: Any, max_len: int = 6000) -> st
     return tag(f"MCP 工具输出({display_name})", None, joined[:max_len])
 
 
-def _make_mcp_invoke(server: MCPServerStdio, remote_name: str, display_name: str,
+def _make_mcp_invoke(server: Any, remote_name: str, display_name: str,
                      *, idempotent: bool = False):
     import json as _json
 
@@ -252,7 +296,7 @@ def _make_mcp_invoke(server: MCPServerStdio, remote_name: str, display_name: str
     return invoke
 
 
-def _build_tool(server: MCPServerStdio, spec: dict, remote_tool: Any, policy: str) -> FunctionTool:
+def _build_tool(server: Any, spec: dict, remote_tool: Any, policy: str) -> FunctionTool:
     remote_name = getattr(remote_tool, "name", "")
     display_name = tool_full_name(spec["name"], remote_name)
     idempotent = remote_name in set(spec.get("idempotent_tools") or [])
@@ -272,7 +316,7 @@ def _build_tool(server: MCPServerStdio, spec: dict, remote_tool: Any, policy: st
     return tool
 
 
-async def attach_server_tools(server: MCPServerStdio, spec: dict) -> tuple[list[FunctionTool], list[str]]:
+async def attach_server_tools(server: Any, spec: dict) -> tuple[list[FunctionTool], list[str]]:
     """列出一个已连接服务器的工具并按策略挂载；返回 (挂载的工具, 跳过原因)。"""
     try:
         remote_tools = await server.list_tools()
@@ -373,13 +417,33 @@ async def ensure_connected() -> bool:
         if failed_at is not None and now - failed_at < retry_interval:
             continue
         attempted = True
-        env = dict(os.environ)
-        env.update(spec["env"])
-        server = MCPServerStdio(
-            name=spec["name"],
-            params={"command": spec["command"], "args": spec["args"], "env": env},
-            client_session_timeout_seconds=_conn_timeout_s,
-        )
+        if spec["transport"] == "streamable-http":
+            try:
+                headers = {
+                    key: _resolve_env_templates(value)
+                    for key, value in spec["headers"].items()
+                }
+            except ValueError as exc:
+                _failed_at[server_name] = time.monotonic()
+                _skip_reasons.append(f"{server_name} 连接配置不完整（{exc}）")
+                continue
+            server = MCPServerStreamableHttp(
+                name=spec["name"],
+                params={"url": spec["url"], "headers": headers},
+                # Remote HTTP handshakes are not cold-starting a local process;
+                # keep the session timeout modest instead of inheriting the 60s
+                # stdio/npx startup allowance.
+                client_session_timeout_seconds=min(_conn_timeout_s, 10.0),
+                cache_tools_list=True,
+            )
+        else:
+            env = dict(os.environ)
+            env.update(spec["env"])
+            server = MCPServerStdio(
+                name=spec["name"],
+                params={"command": spec["command"], "args": spec["args"], "env": env},
+                client_session_timeout_seconds=_conn_timeout_s,
+            )
         try:
             await server.connect()
         except Exception as exc:
