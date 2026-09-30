@@ -240,6 +240,7 @@ def test_existing_event_store_replay(tmp_path):
 
 def test_sdk_reasoning_tool_args_and_content_isolation():
     import main
+    import runtime.execution as runtime_execution
     events = []
     for kind, value in [("response.reasoning_text.delta", "PRIVATE_REASON"),
                         ("response.function_call_arguments.delta", "PRIVATE_ARGS"),
@@ -253,10 +254,10 @@ def test_sdk_reasoning_tool_args_and_content_isolation():
 
     async def scenario():
         public = []
-        with patch.object(main.Runner, "run_streamed", return_value=Stream()):
+        with patch.object(runtime_execution.Runner, "run_streamed", return_value=Stream()):
             await main._run_attempt("stream", "question", None, None, 5, agent=NS(_public_final=False), stream_events_cb=lambda n, p: public.append(p))
         assert public == []
-        with patch.object(main.Runner, "run_streamed", return_value=Stream()):
+        with patch.object(runtime_execution.Runner, "run_streamed", return_value=Stream()):
             await main._run_attempt("stream", "question", None, None, 5, agent=NS(_public_final=True), stream_events_cb=lambda n, p: public.append(p))
         assert public == [{"text": "PRIVATE_INTERMEDIATE"}]
     asyncio.run(scenario())

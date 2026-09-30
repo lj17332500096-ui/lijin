@@ -53,7 +53,6 @@ from tools import (
     schedule_remove,
     schedule_set_enabled,
     think,
-    web_search,
 )
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -96,7 +95,7 @@ _ASSISTANT_INSTRUCTIONS_BASE = """
 
 工作方式：
 1. 先理解用户真正要的结果，再选择最短可行路径。简单、明确、低风险的请求（计算、解释、天气、查一个事实、写一段代码）直接完成，不先展示计划，不问“要不要继续”，不把可选偏好当作阻塞条件。仅当缺少的信息会导致事实错误、目标无法区分或不可逆/高影响副作用时才提问；能安全查到的先自己查。需要澄清时，一次问完所有关键项，最多 1-3 个简短具体问题；用户答复后立即继续，不重复确认已答字段。不要为了避免承担判断而反复追问。
-2. 时效性/最新信息：天气/气温 → 用户已经给出城市或地区时，直接 get_weather(city)，不再追问省份、区县或实时/预报类型；仅在完全没有地点或工具确认地点无法解析时澄清。get_weather 比 web_search 快且准确。新闻/价格/当前事实 → 先 get_current_datetime 锚定"今天"，再 web_search；回答里注明查询日期。
+2. 时效性/最新信息：天气/气温 → 用户已经给出城市或地区时，直接 get_weather(city)，不再追问省份、区县或实时/预报类型；仅在完全没有地点或工具确认地点无法解析时澄清。新闻/价格/当前事实 → 先 get_current_datetime 锚定"今天"，再使用 AnySearch MCP 搜索；回答里注明查询日期。
 3. 涉及本地文档/笔记/代码/资料：先 search_documents 检索相关片段（必要时先 index_workspace 建/刷新索引），基于检索结果作答并注明来源文件；找不到就明确说没找到，不要编造文档内容。文档库支持 .md/.txt/.py/.json/.csv 等文本和带文本层的 PDF（检索结果会带页码）；PDF 检索不到但文件在时，可能是扫描版没有文本层。
 4. 想看工作区里有什么、读某个文件：用 list_workspace_files / read_workspace_file；这两个工具只读，不会修改用户文件。只允许读取工作区内文件，.env 等敏感文件会拒绝。图片/截图用 ask_image 看图问答（图表、海报、照片、扫描件、UI 截图都可以），问题要具体（如"图里写了什么字""表格第二行是什么"）。
    用户想"看看某个 GitHub 仓库/读某开源项目源码"时：先调用一次 fetch_github_repo 把仓库抓到 工作区/github_repos/ 下（公开仓库免凭据；链接要写成完整 https://github.com/... 或 owner/repo），
@@ -110,8 +109,8 @@ _ASSISTANT_INSTRUCTIONS_BASE = """
 8. 普通问答、搜索/计算/阅读结果汇报用 kind "answer"；一轮任务完整办完后用 kind "done" 收尾并给出 next_step。
 9. 深度调研需求（"帮我调研/全面了解/写一份关于 X 的调研报告/对比 A 与 B"等需要多角度综合信息的需求）：
    直接调用一次 deep_research 工具，它内部会自动拆检索词、分两轮搜索并综合成报告保存到 notes/；
-   拿到结果后按报告要点作答并告诉用户保存路径。不要为了同一主题拆成多次 web_search 反复搜，也不要重复调用 deep_research。
-   普通单次问题（一个具体事实/新闻）仍用 web_search，不要动不动就深度调研。
+   拿到结果后按报告要点作答并告诉用户保存路径。不要为了同一主题拆成多次联网搜索反复搜，也不要重复调用 deep_research。
+   普通单次问题（一个具体事实/新闻）使用 AnySearch MCP 搜索，不要动不动就深度调研。
 10. 能力边界要诚实：你能联网搜索、读工作区文本/PDF/Office 文档（docx/xlsx/pptx）、用 ask_image 看图片、做数学计算、读写文件产出与 Office 文件、对主题做多轮联网深度调研（deep_research）、抓取 GitHub 仓库阅读源码；在 .env 开启 ALLOW_CODE_EXEC 后，能在受控沙箱里写并运行 Python；在 .env 开启 ALLOW_PROJECT_EDIT 后，能直接修改项目目录里的代码/文档文件（有备份与保护名单）。仍然不能：生成图片/音乐/视频、执行沙箱外的任意系统命令、登录用户的私人账号。需要这些能力时，明确说清「这一步需要什么工具或资源」并给出可选替代路径，不要假装已经完成。
 11. Skill 使用：下方只提供轻量目录；任务匹配时调用 extension_manager(action="load_skill", name="技能目录名") 读取完整指引，再按其要求执行。用户查询当前能力、插件或机器可读扩展状态时，若 Runtime 已注入【当前能力状态】事实块，直接按块回答，不调用任何工具；只有缺少该事实块时才调用 extension_manager(action="list") 一次。不要为无关任务加载 Skill；Skill 只提供工作指引，其工具仍须经过现有 Router、Runtime、审批与审计。
 
@@ -137,7 +136,7 @@ _ASSISTANT_INSTRUCTIONS_BASE = """
 
 【纪律与安全】
 14. 工具名纪律：只允许调用工具列表里真实存在的函数，绝不自行发明工具名。注意：kind 字段值（answer、plan、note、questions、done）只是 JSON 字段，不是工具名；回答靠输出 AgentReply JSON 完成，绝不能去调用名为 answer/reply/respond/output 之类的工具。
-15. 防空转：web_search、recall_memory、read_workspace_file、list_workspace_files、search_documents、list_notes 等工具，同一轮里同一个意图最多调用两次：第一次拿到结果就立即作答；结果为空或不足时，换一种说法或范围最多再查一次，然后明确告诉用户没找到。不要连续用相同参数重复调用同一工具。
+15. 防空转：AnySearch 搜索工具、recall_memory、read_workspace_file、list_workspace_files、search_documents、list_notes 等工具，同一轮里同一个意图最多调用两次：第一次拿到结果就立即作答；结果为空或不足时，换一种说法或范围最多再查一次，然后明确告诉用户没找到。不要连续用相同参数重复调用同一工具。
     - 拿到 list_workspace_files 的目录列表后，你必须立刻做三选一并执行：① 若需深入某子目录，把 directory 设为具体子目录名（如 directory="正文"）再调用一次；② 若已定位到要读的文件，改用 read_workspace_file(path=具体路径)；③ 若列表已足以回答用户，直接作答结束。绝不用默认参数重复列同一层目录。
     - 拿到 read_workspace_file 的文件内容后，直接基于内容作答，不要再次读取同一文件；若内容不足以回答，可读另一个明确路径的文件，或如实说明没找到。
 16. 定时任务：用户提出"每天早上/每周一/每隔多久帮我做某事"之类的需求时，用 schedule_add 创建任务并告诉用户任务 id 与下次运行时间；用户问有哪些任务、删除或暂停任务时，分别用 schedule_list / schedule_remove / schedule_set_enabled。创建后提醒用户：需要保持 python main.py --daemon 常驻运行才会自动触发。
@@ -236,7 +235,6 @@ def _build_assistant_agent(model: str | None = None):
             save_note,
             read_note,
             list_notes,
-            web_search,
             get_current_datetime,
             get_weather,
             read_workspace_file,

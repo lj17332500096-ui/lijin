@@ -92,7 +92,8 @@ def public_summary(value: object) -> str | None:
 
 class ToolActivityPresenter:
     READ = {"read_workspace_file", "read_code_file", "read_note", "read_office_file", "read_spreadsheet", "read_file"}
-    SEARCH = {"search_documents", "list_workspace_files", "list_code_files", "search_files", "grep", "web_search"}
+    SEARCH = {"search_documents", "list_workspace_files", "list_code_files", "search_files", "grep",
+              "web_search", "anysearch_search", "anysearch_batch_search", "anysearch_extract"}
     QUIET = {"get_current_datetime", "index_workspace", "recall_memory", "sandbox_snapshot", "list_sandbox_snapshots"}
 
     @classmethod
@@ -109,7 +110,7 @@ class ToolActivityPresenter:
 
     @classmethod
     def running(cls, name: str) -> str:
-        if name == "web_search":
+        if name in {"web_search", "anysearch_search", "anysearch_batch_search"}:
             return "正在搜索资料"
         if name in cls.SEARCH:
             return "正在搜索相关代码和文件"

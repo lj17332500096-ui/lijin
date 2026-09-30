@@ -22,7 +22,7 @@ _ACTION_CAPABILITY_RULES: tuple[tuple[str, re.Pattern[str], tuple[str, ...]], ..
     ), ("search_documents",)),
     ("external_research", re.compile(
         r"搜索|搜一下|联网查|检索最新|查找资料|查资料|最新(?:资料|信息|数据)|web.?search", re.I,
-    ), ("web_search",)),
+    ), ("anysearch_search", "anysearch_batch_search")),
     ("read_input", re.compile(
         r"读取|读入|打开|分析(?:这个|这份|一下)?(?:文件|表格|csv|excel)|"
         r"(?:csv|excel|表格).{0,12}(?:分析|读取|计算|求平均)|"
@@ -118,6 +118,15 @@ def infer_task_plan(query: str, available: list[str] | None = None) -> dict[str,
             ) else ("get_current_datetime",)
             selected = [name for name in preferred
                         if candidates is None or name in candidates]
+        elif phase == "external_research" and candidates is not None:
+            # AnySearch MCP is the only exposed provider for ordinary web search.
+            if re.search(r"anysearch_batch_search", text, re.I):
+                preferred = ("anysearch_batch_search", "anysearch_search")
+            elif re.search(r"anysearch_search", text, re.I):
+                preferred = ("anysearch_search", "anysearch_batch_search")
+            else:
+                preferred = ("anysearch_search", "anysearch_batch_search")
+            selected = [name for name in preferred if name in candidates][:1]
         else:
             selected = [name for name in names
                         if candidates is None or name in candidates]

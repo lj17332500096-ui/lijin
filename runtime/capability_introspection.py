@@ -25,7 +25,6 @@ from typing import Any
 
 DISPLAY_NAMES: dict[str, str] = {
     "extension_manager": "扩展清单与 Skill 加载",
-    "web_search": "联网搜索",
     "deep_research": "深度调研",
     "get_current_datetime": "获取当前时间",
     "calculate": "数学计算",

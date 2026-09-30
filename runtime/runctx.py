@@ -60,6 +60,9 @@ _DEFAULT_PER_TOOL_BUDGETS: dict[str, int] = {
 #: 保留 SEARCH_BUDGET_PROFILE 扩展接口，后续可接任务分类器切换档位。
 _SEARCH_SOFT_DEFAULT = 3
 _SEARCH_HARD_DEFAULT = 5  # 与历史 TOOL_BUDGET_WEB_SEARCH 默认值对齐
+_WEB_SEARCH_TOOL_NAMES = frozenset({
+    "web_search", "anysearch_search", "anysearch_batch_search",
+})
 
 
 def _search_soft_limit() -> int:
@@ -381,7 +384,7 @@ class RunContext:
         ⚠️ web_search 是两级：hard 是拒绝线，soft 只给 feedback。
         per_tool_budget 返回 hard 用于拒绝判断；soft 线请用 search_budget_state()。
         """
-        if name == "web_search":
+        if name in _WEB_SEARCH_TOOL_NAMES:
             return self.max_web_search_hard
         if name in self.max_per_tool_executions:
             return self.max_per_tool_executions[name]
@@ -401,7 +404,8 @@ class RunContext:
         通过 SEARCH_BUDGET_PROFILE 环境变量切换 soft/hard 档位。
         当前默认 simple+normal=3/5，multi-part=4/6 走 TOOL_BUDGET_WEB_SEARCH 覆盖。
         """
-        used = self.tool_execution_counts.get("web_search", 0)
+        used = sum(self.tool_execution_counts.get(name, 0)
+                    for name in _WEB_SEARCH_TOOL_NAMES)
         soft, hard = self.max_web_search_soft, self.max_web_search_hard
         if used >= hard:
             return "hard_reached", used, soft, hard
@@ -437,7 +441,7 @@ class RunContext:
             if used >= cap:
                 # web_search 两级：拒绝（达到 hard 上限）时走硬上限文案，
                 # 与 search_budget_state() 的 hard_reached 语义对齐。
-                if name == "web_search":
+                if name in _WEB_SEARCH_TOOL_NAMES:
                     return False, _SEARCH_HARD_FEEDBACK
                 return False, (
                     f"{name} 已执行 {used} 次，达到本任务上限。请不要再重复调用同一工具，"
@@ -627,7 +631,8 @@ class RunContext:
         t.redundant_guard_hits += 1
         if name in ("read_workspace_file", "read_code_file", "read_note"):
             t.suppressed_read += 1
-        elif name in ("web_search", "search_documents", "search_sources",
+        elif name in ("web_search", "anysearch_search", "anysearch_batch_search",
+                      "search_documents", "search_sources",
                       "list_workspace_files", "list_code_files", "index_workspace"):
             t.suppressed_search += 1
         elif name in ("run_python", "code_loop"):

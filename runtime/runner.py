@@ -663,7 +663,10 @@ class AgentRuntime:
                     # 同意图 + 同参数 + 无新信息连续超过 2 次 → 第 3 次起阻止。
                     # 语义搜索类始终启用（即使 READY），防止 web_search 换词死循环；
                     # 其它只读探索仍只在非 READY 下启用，避免误伤正常多步探索。
-                        _sem_search = name in ("web_search", "search_documents", "search_sources")
+                        _sem_search = name in (
+                            "web_search", "anysearch_search", "anysearch_batch_search",
+                            "anysearch_extract", "search_documents", "search_sources",
+                        )
                         if (rctx is not None and effect == DISCOVERY_SAFE
                                 and (_sem_search or rctx.readiness_status != STATUS_READY)):
                             if rctx.discovery_hard_stopped():
@@ -1432,7 +1435,9 @@ class AgentRuntime:
                 # 达到 soft 线（默认 3）：不拒绝，返回 policy feedback 让模型自判
                 # 是否值得继续搜索（要求新证据 + 不同目的，禁止换词重复）。
                 # 达到 hard 线（默认 5）：由 can_execute_tool 拒绝，不进此处。
-                if (rctx is not None and name == "web_search"
+                if (rctx is not None and name in {
+                        "web_search", "anysearch_search", "anysearch_batch_search"
+                }
                         and isinstance(result, str)):
                     try:
                         _fb = rctx.search_budget_feedback()

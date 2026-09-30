@@ -14,6 +14,22 @@ from runtime import tool_router as tr
 from runtime.runner import AgentRuntime
 
 ALL = [t.name for t in assistant_agent.tools]
+_ANYSEARCH_NAMES = ["anysearch_search", "anysearch_batch_search"]
+_ANYSEARCH_CATALOG = {
+    name: {"source": "MCP", "server": "anysearch", "domain": "web"}
+    for name in _ANYSEARCH_NAMES
+}
+
+
+def _production_search_route(query: str) -> list[str]:
+    from runtime.task_plan import infer_task_plan, plan_required_tools
+
+    available = ALL + _ANYSEARCH_NAMES
+    plan = infer_task_plan(query, available)
+    return tr.select_tool_names(
+        query, available, catalog=_ANYSEARCH_CATALOG,
+        plan_required_tools=plan_required_tools(plan),
+    )
 
 
 class ToolRouterSelectionTests(unittest.TestCase):
@@ -98,6 +114,37 @@ class ToolRouterSelectionTests(unittest.TestCase):
         self.assertIn("calculate", names)
         self.assertNotIn("gitee_list_user_repos", names)
 
+    def test_connected_anysearch_is_the_only_ordinary_web_search_tool(self) -> None:
+        mcp_names = ["anysearch_search", "anysearch_batch_search"]
+        available = ALL + mcp_names
+        catalog = {
+            name: {"source": "MCP", "server": "anysearch", "domain": "web"}
+            for name in mcp_names
+        }
+
+        names = tr.select_tool_names(
+            "联网搜索 LangGraph 官方文档", available,
+            catalog=catalog, plan_required_tools=["anysearch_search"],
+        )
+
+        self.assertIn("anysearch_search", names)
+        self.assertNotIn("anysearch_batch_search", names)
+        self.assertNotIn("web_search", names)
+
+    def test_anysearch_weather_query_keeps_weather_tool(self) -> None:
+        available = ALL + ["anysearch_search"]
+        catalog = {
+            "anysearch_search": {
+                "source": "MCP", "server": "anysearch", "domain": "web",
+            }
+        }
+
+        names = tr.select_tool_names("锦州今天的天气怎么样", available, catalog=catalog)
+
+        self.assertIn("get_weather", names)
+        self.assertNotIn("anysearch_search", names)
+        self.assertNotIn("web_search", names)
+
     def test_router_off_returns_all(self) -> None:
         os.environ["TOOL_ROUTER"] = "off"
         names = tr.select_tool_names("随便", ALL)
@@ -123,7 +170,7 @@ class Phase7IntentScopeTests(unittest.TestCase):
             os.environ["TOOL_ROUTER"] = self._saved
 
     def _names(self, q):
-        return tr.select_tool_names(q, ALL)
+        return _production_search_route(q)
 
     def test_read_only_no_mutation_or_execution_tools(self):
         names = self._names("看一下 auth.py，告诉我登录流程怎么工作的，不要修改代码。")
@@ -140,8 +187,9 @@ class Phase7IntentScopeTests(unittest.TestCase):
         for query in ("北京现在天气怎么样？", "锦州今天的天气怎么样"):
             with self.subTest(query=query):
                 names = self._names(query)
-                self.assertIn("web_search", names)
                 self.assertIn("get_weather", names)
+                self.assertNotIn("web_search", names)
+                self.assertNotIn("anysearch_search", names)
                 self.assertFalse(set(names) & _MUTATION, names)
 
     def test_direct_text_rewrite_zero_tools(self):
@@ -412,7 +460,7 @@ class RealQueryRegressionTests(unittest.TestCase):
             os.environ["TOOL_ROUTER"] = self._saved
 
     def _names(self, q):
-        return tr.select_tool_names(q, ALL)
+        return _production_search_route(q)
 
     # 1. coding 意图：必须能拿到写代码/运行类工具
     def test_writing_sorting_algorithm_exposes_coding_tools(self) -> None:
@@ -420,10 +468,12 @@ class RealQueryRegressionTests(unittest.TestCase):
         self.assertIn("write_code_file", names)
         self.assertIn("run_python", names)
 
-    # 2. 实时查询：web_search 必进
-    def test_weather_query_exposes_web_search(self) -> None:
+    # 2. 天气使用专用查询工具，不暴露通用联网搜索
+    def test_weather_query_exposes_weather_tool_only(self) -> None:
         names = self._names("今天天气怎么样")
-        self.assertIn("web_search", names)
+        self.assertIn("get_weather", names)
+        self.assertNotIn("web_search", names)
+        self.assertNotIn("anysearch_search", names)
 
     # 3. 计算：calculate 必进
     def test_calculate_query_exposes_calculate(self) -> None:
@@ -548,7 +598,7 @@ class RouterEvaluationSetTests(unittest.TestCase):
             os.environ["TOOL_ROUTER"] = self._saved
 
     def _names(self, q):
-        return tr.select_tool_names(q, ALL)
+        return _production_search_route(q)
 
     # === 正常（30 条）：高频意图族，期望命中目标工具 ===
     def test_normal_coding_queries(self) -> None:
@@ -579,8 +629,10 @@ class RouterEvaluationSetTests(unittest.TestCase):
             "联网搜下2026年的科技趋势",
         ]:
             names = self._names(q)
-            # web 族或 github 族至少命中一个（"查下GitHub"可能命中 fetch_github_repo 而非 web_search）
-            web_hit = any(n in names for n in ("web_search", "fetch_github_repo"))
+            # 联网查询由 AnySearch、天气专用工具或 GitHub 仓库工具承接。
+            web_hit = any(n in names for n in (
+                "anysearch_search", "get_weather", "fetch_github_repo",
+            ))
             self.assertTrue(web_hit, f"{q!r} 没进 web/github 族: {names}")
 
     def test_normal_memory_queries(self) -> None:
@@ -725,7 +777,7 @@ class RouterEvaluationSetTests(unittest.TestCase):
 
     def test_boundary_name_mention_forces_inclusion(self) -> None:
         # 点名工具名 → 必选
-        for tool_name in ("save_note", "run_python", "web_search", "recall_memory"):
+        for tool_name in ("save_note", "run_python", "recall_memory"):
             names = self._names(f"用 {tool_name} 帮我做某事")
             self.assertIn(tool_name, names, tool_name)
 
@@ -820,7 +872,7 @@ class RouterEvaluationSetTests(unittest.TestCase):
         # 只点名工具，无动词 → 应包含点名的工具
         names = self._names("save_note web_search")
         self.assertIn("save_note", names)
-        self.assertIn("web_search", names)
+        self.assertNotIn("web_search", names)
 
     def test_adversarial_multiline_input(self) -> None:
         q = "第一行：帮我写代码\n第二行：查天气\n第三行：保存笔记"
@@ -832,7 +884,7 @@ class RouterEvaluationSetTests(unittest.TestCase):
         # 中文+英文工具名混排 → 不抛异常
         names = self._names("用 save_note 保存，再用 web_search 查下")
         self.assertIn("save_note", names)
-        self.assertIn("web_search", names)
+        self.assertNotIn("web_search", names)
 
     def test_adversarial_numeric_only_queries(self) -> None:
         for q in ["12345", "0", "42", "999999999999"]:

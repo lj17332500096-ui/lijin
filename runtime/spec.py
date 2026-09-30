@@ -140,6 +140,8 @@ TOOL_CATALOG: dict[str, tuple[str, str, bool, bool, bool]] = {
 #: Phase 11：工具能力分类（复用现有 category/name 元数据，不新建 Registry）。
 _CAPABILITY_BY_NAME: dict[str, str] = {
     "web_search": "EXTERNAL_FACT", "deep_research": "EXTERNAL_FACT",
+    "anysearch_search": "EXTERNAL_FACT", "anysearch_batch_search": "EXTERNAL_FACT",
+    "anysearch_extract": "EXTERNAL_FACT",
     "search_documents": "DISCOVERY", "search_sources": "DISCOVERY",
     "list_workspace_files": "DISCOVERY", "list_code_files": "DISCOVERY",
     "index_workspace": "DISCOVERY", "list_notes": "DISCOVERY",

@@ -184,7 +184,6 @@ TOOL_TERMS: dict[str, tuple[str, ...]] = {
                           "短篇拆解", "长篇拆解", "周报", "周总结", "依赖体检",
                           "依赖检查", "requirements", "文章", "文案", "创作",
                           "网页设计", "网页改版", "日计划"),
-    "web_search": ("搜索", "查一下", "查询", "联网", "网页", "最新", "新闻", "资讯", "天气", "是什么", "what", "news"),
     "deep_research": ("调研", "研究报告", "全面了解", "对比", "报告", "深度", "研究", "综述", "research"),
     "get_current_datetime": ("今天", "明天", "日期", "几点", "现在时间", "星期", "时间", "date"),
     "get_weather": ("天气", "气温", "温度", "下雨", "下雪", "穿什么", "冷不冷", "热不热", "雾霾", "紫外线", "humidity", "weather"),
@@ -324,7 +323,7 @@ _WEB_INTENT = re.compile(
 #: 且 `source_chunks` 当前为 0 行（库空，调用必然返回空）。
 #: 用户明确提"参考资料/查资料/资料里"时仍由 TOOL_TERMS 词条派发，功能不丢。
 _WEB_SUPPORT = {
-    "web_search", "get_current_datetime", "deep_research",
+    "get_current_datetime", "deep_research",
     "search_documents",
 }
 
@@ -1085,6 +1084,37 @@ def select_tool_names(
         for n in _select_mcp_tools(text, ordered, catalog, mentioned):
             if n in available_set and n not in result:
                 result.append(n)
+        # AnySearch is the sole ordinary web-search provider. Keep only the
+        # endpoint selected by the Runtime task plan in this turn's tool set.
+        anysearch_tools = [
+            name for name in ordered
+            if (catalog.get(name, {}).get("source") == "MCP"
+                and str(catalog.get(name, {}).get("server") or "").lower() == "anysearch"
+                and "search" in name.lower()
+                and "extract" not in name.lower())
+        ]
+        is_weather_lookup = bool(re.search(
+            r"天气|气温|温度|下雨|下雪|雾霾|紫外线|风力|湿度|穿什么|冷不冷|热不热|weather|forecast",
+            query or "", re.IGNORECASE,
+        ))
+        if anysearch_tools and _WEB_INTENT.search(query or ""):
+            result = [name for name in result if name not in anysearch_tools]
+            # Weather has a dedicated provider. Only route weather questions to
+            # AnySearch when the user explicitly asks to search the web.
+            if not is_weather_lookup or re.search(r"联网|网上|网页|搜索|search", query or "", re.I):
+                planned_search = [
+                    name for name in required_action_tools if name in anysearch_tools
+                ]
+                # Keep one concrete provider endpoint in the model's tool set;
+                # otherwise search and batch_search can compete with each other
+                # even though the Runtime plan already selected one.
+                chosen_search = planned_search[:1] or [
+                    next((name for name in anysearch_tools
+                          if name.lower().endswith("_search")
+                          and not name.lower().endswith("_batch_search")),
+                         anysearch_tools[0])
+                ]
+                result.extend(name for name in chosen_search if name not in result)
     # 只读意图：从结果中剔除写入类工具（第二层由 intent gate / constraint 兜底）。
     if _READONLY_INTENT.search(text):
         result = [n for n in result if n not in _WRITE_TOOLS_SET]
