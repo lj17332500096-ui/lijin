@@ -94,23 +94,6 @@ class GordenPptTests(unittest.TestCase):
         prs = Presentation(str(path))
         self.assertGreaterEqual(len(list(prs.slides)), 1)
 
-    def test_router_exposes_gorden_on_ppt_language(self):
-        from runtime.tool_router import select_tool_names
-        from agent import assistant_agent
-
-        # gorden-ppt 技能工具不在基座 agent.tools 中（SKILLS 未配置时），
-        # 模拟技能已启用场景，将 gorden 工具名加入 available 列表。
-        base_names = [t.name for t in assistant_agent.tools]
-        ppt_tools = ("gorden_ppt_templates", "gorden_ppt_build",
-                     "gorden_ppt_apply_custom", "gorden_ppt_template_intro")
-        available = base_names + list(ppt_tools)
-        for q in ("帮我做一份季度汇报PPT", "用模板做一个演示文稿", "做一份PPT用内置模板",
-                  "简约商务总结汇报", "做一份检验科基础培训的PPT",
-                  "把刚才的大纲做成简约商务风格的PPT"):
-            sel = select_tool_names(q, available)
-            self.assertIn("gorden_ppt_templates", sel, q)
-            self.assertIn("gorden_ppt_build", sel, q)
-
     def test_custom_template_requires_run_context(self):
         tmp = Path(tempfile.mkdtemp(prefix="gorden_"))
         fake = tmp / "my.pptx"

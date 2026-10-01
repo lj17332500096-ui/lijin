@@ -1,4 +1,4 @@
-"""Convergence hardening —— 多问题收敛 / Tool Router eligibility / DiscoveryTracker
+"""Convergence hardening —— 多问题收敛 / DiscoveryTracker
 semantic intent / Run budget / rejected-action memory / Completion partial 的确定性测试。
 
 不依赖模型额度：全部是纯函数 + 轻量状态机的单元测试。
@@ -13,28 +13,13 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-os.environ["TOOL_ROUTER"] = "on"
 
 from runtime.readiness_gate import (
     DiscoveryTracker,
     semantic_search_intent,
     discovery_signature,
 )
-from runtime.tool_router import select_tool_names, _MEMORY_NOTE_TOOLS
 from runtime.runctx import RunContext
-
-
-def _all_tools():
-    try:
-        from agent import assistant_agent
-        return [t.name for t in assistant_agent.tools]
-    except Exception:
-        # 保底：覆盖本套件依赖的核心工具名
-        return ["web_search", "read_workspace_file", "list_workspace_files",
-                "calculate", "get_current_datetime", "read_note", "list_notes",
-                "save_note", "remember", "recall_memory", "forget_memory",
-                "search_documents", "run_python", "write_code_file",
-                "read_code_file", "list_code_files", "edit_project_file"]
 
 
 class SemanticIntentTests(unittest.TestCase):
@@ -110,25 +95,6 @@ class DiscoveryConvergenceTests(unittest.TestCase):
             ok, _ = dt.note("web_search", {"query": q})
             self.assertTrue(ok)
         self.assertEqual(dt.blocked(), [])
-
-
-class ToolRouterEligibilityTests(unittest.TestCase):
-    """Test 5 — 天气/能力介绍请求不得暴露 note/memory 工具。"""
-
-    def test_weather_request_omits_note_memory(self):
-        names = select_tool_names("介绍你能做什么有哪些技能并告诉我北京天气", _all_tools())
-        leak = [n for n in names if n in _MEMORY_NOTE_TOOLS]
-        self.assertEqual(leak, [], f"note/memory 工具不应暴露: {leak}")
-
-    def test_plain_weather_omits_memory(self):
-        names = select_tool_names("北京天气", _all_tools())
-        self.assertNotIn("save_note", names)
-        self.assertNotIn("recall_memory", names)
-
-    def test_explicit_save_request_keeps_save_note(self):
-        names = select_tool_names("帮我记住我家的地址", _all_tools())
-        # 明确保存/记忆意图 → 允许相应工具
-        self.assertTrue(any(n in names for n in ("remember", "save_note")))
 
 
 class RunBudgetTests(unittest.TestCase):

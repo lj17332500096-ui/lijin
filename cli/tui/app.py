@@ -1140,7 +1140,6 @@ class ForgeTuiApp(App):
         # Spinner 80ms 动画定时器（参照 dsh-TUI SpinnerAnimationRow）
         self._spinner_timer = self.set_interval(0.08, self._tick_spinner)
         self._banner()
-        self._start_laya_warmup()
         self._run_async(self._restore_active_container())
         self._update_footer("idle")
 
@@ -1157,42 +1156,6 @@ class ForgeTuiApp(App):
                     self._render_container_history(container_id)
         except Exception as exc:
             self._msglog().add_meta(f"无法恢复当前对话信息：{type(exc).__name__}: {exc}")
-
-    def _start_laya_warmup(self) -> None:
-        """Start the paired GGUF server and warm its head before accepting chat input."""
-        import os
-
-        if os.getenv("PYTEST_CURRENT_TEST"):
-            return
-        from runtime.laya_tui_startup import tui_laya_autostart_enabled
-
-        if not tui_laya_autostart_enabled():
-            return
-        self._bar().input.disabled = True
-        self._msglog().add_meta("正在启动并预热 Laya 图形处理器模型，请稍候…")
-        self._run_async(self._prepare_laya_backend())
-
-    async def _prepare_laya_backend(self) -> None:
-        import asyncio
-
-        try:
-            from runtime.laya_tui_startup import prepare_laya_for_tui
-
-            _ready, message = await asyncio.to_thread(prepare_laya_for_tui)
-            if self._app_state is not None:
-                self._msglog().add_meta(message)
-        except Exception as exc:
-            if self._app_state is not None:
-                self._msglog().add_meta(
-                    f"Laya 预热失败：{type(exc).__name__}: {exc}；对话将继续走主 Agent。"
-                )
-        finally:
-            if self._app_state is not None:
-                try:
-                    self._bar().input.disabled = False
-                    self._bar().focus_input()
-                except (NoActiveAppError, NoScreen):
-                    pass
 
     def _tick_spinner(self) -> None:
         """每 80ms 驱动 Spinner 动画帧推进。"""
@@ -2573,15 +2536,9 @@ def run_tui(
             try:
                 await app.run_async()
             finally:
-                try:
-                    import asyncio
-                    from runtime.laya_tui_startup import stop_tui_owned_laya_server
+                from integrations.mcp_bridge import close_servers
 
-                    await asyncio.to_thread(stop_tui_owned_laya_server)
-                finally:
-                    from integrations.mcp_bridge import close_servers
-
-                    await close_servers()
+                await close_servers()
 
         import asyncio
 

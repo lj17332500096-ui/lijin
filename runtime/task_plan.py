@@ -1,9 +1,8 @@
 """Runtime-owned task plan inference for explicit multi-action requests.
 
-This module defines ordered phases and required tool candidates. It does not
-select the model's visible tool set and does not authorize tool execution;
-Tool Router applies candidate and intent policy, while Runner/RunContext enforce
-phase order and execution gates.
+This module defines ordered phases and required tool candidates for the
+LangGraph workflow. It does not authorize tool execution; Runner/RunContext
+enforce phase order and all execution gates.
 """
 
 from __future__ import annotations

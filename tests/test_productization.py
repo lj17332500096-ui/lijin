@@ -103,8 +103,6 @@ class BoundedRunnerTests(unittest.TestCase):
         self.runtime.approval = ApprovalGate(self.manager)
         self.runtime.broker = object()
         self._orig = runtime_execution.execute_turn
-        self._saved = os.environ.get("TOOL_ROUTER")
-        os.environ["TOOL_ROUTER"] = "off"
         # 集成层只测异常收口；义务门判定由 tests/test_obligation_gate.py 独立覆盖。
         gate_off = mock.patch.dict(os.environ, {"FORGE_OBLIGATION_GATE": "off"})
         gate_off.start()
@@ -112,10 +110,6 @@ class BoundedRunnerTests(unittest.TestCase):
 
     def tearDown(self):
         runtime_execution.execute_turn = self._orig
-        if self._saved is None:
-            os.environ.pop("TOOL_ROUTER", None)
-        else:
-            os.environ["TOOL_ROUTER"] = self._saved
 
     def _fake(self, fn):
         runtime_execution.execute_turn = workflow_model_stub(fn)

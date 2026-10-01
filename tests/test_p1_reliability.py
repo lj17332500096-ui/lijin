@@ -270,15 +270,9 @@ class AuditBackfillTests(unittest.TestCase):
         self.runtime.approval = ApprovalGate(self.manager)
         self.runtime.broker = object()
         self._orig_execute = runtime_execution.execute_turn
-        self._saved_router = os.environ.get("TOOL_ROUTER")
-        os.environ["TOOL_ROUTER"] = "off"
 
     def tearDown(self) -> None:
         runtime_execution.execute_turn = self._orig_execute
-        if self._saved_router is None:
-            os.environ.pop("TOOL_ROUTER", None)
-        else:
-            os.environ["TOOL_ROUTER"] = self._saved_router
 
     def test_failed_run_keeps_tool_and_model_trace(self) -> None:
         """P1-D：真实执行后失败 → tool_calls/model_calls 都可追踪。"""

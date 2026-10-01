@@ -212,15 +212,9 @@ class RunnerProviderFailureTests(unittest.TestCase):
         self.runtime.approval = ApprovalGate(self.manager)
         self.runtime.broker = object()
         self._orig = runtime_execution.execute_turn
-        self._router = os.environ.get("TOOL_ROUTER")
-        os.environ["TOOL_ROUTER"] = "off"
 
     def tearDown(self):
         runtime_execution.execute_turn = self._orig
-        if self._router is None:
-            os.environ.pop("TOOL_ROUTER", None)
-        else:
-            os.environ["TOOL_ROUTER"] = self._router
 
     def _install(self, exc):
         async def fake(mode, message, session=None, debug=False, max_turns=20,

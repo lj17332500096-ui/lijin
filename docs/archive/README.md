@@ -45,3 +45,14 @@
 | `web/index.html.legacy.archive` | [`2026-09/legacy-web-ui/index.html.legacy.archive`](2026-09/legacy-web-ui/index.html.legacy.archive) | 已下线网页渲染器的历史副本，不再位于 Web 源码目录 |
 
 2026-09-26 将基线和实验报告从 `docs/` 根目录移入本目录。2026-09-29 将已被新 Runtime 文档替代的 Phase 0/1 审计快照及旧 Web UI 验收资产移入本目录；归档正文与验收原始数据未改写，活动代码和文档中的链接已更新。
+
+## 2026-10
+
+| 原路径 | 当前路径 | 内容 |
+| --- | --- | --- |
+| `docs/architecture/ADR_RUNTIME_ENTRY_AND_LAYER_ROUTER_BOUNDARIES_2026-09-26.md` | [`ADR_RUNTIME_ENTRY_AND_LAYER_ROUTER_BOUNDARIES_2026-09-26.md`](2026-10/ADR_RUNTIME_ENTRY_AND_LAYER_ROUTER_BOUNDARIES_2026-09-26.md) | 退役前的 Pipeline、Tool Router 或 Laya 设计、验收与运维记录 |
+| `docs/acceptance/PIPELINE_OFFLINE_BOUNDARY_2026-09-27.md` | [`PIPELINE_OFFLINE_BOUNDARY_2026-09-27.md`](2026-10/PIPELINE_OFFLINE_BOUNDARY_2026-09-27.md) | 退役前的 Pipeline、Tool Router 或 Laya 设计、验收与运维记录 |
+| `docs/acceptance/TUI_LAYA_COLD_START_2026-09-27.md` | [`TUI_LAYA_COLD_START_2026-09-27.md`](2026-10/TUI_LAYA_COLD_START_2026-09-27.md) | 退役前的 Pipeline、Tool Router 或 Laya 设计、验收与运维记录 |
+| `docs/architecture/LAYA_ROUTE_HINT_CONTRACT.md` | [`LAYA_ROUTE_HINT_CONTRACT.md`](2026-10/LAYA_ROUTE_HINT_CONTRACT.md) | 退役前的 Pipeline、Tool Router 或 Laya 设计、验收与运维记录 |
+| `docs/operations/laya-gguf-backend.md` | [`laya-gguf-backend.md`](2026-10/laya-gguf-backend.md) | 退役前的 Pipeline、Tool Router 或 Laya 设计、验收与运维记录 |
+| `docs/architecture/AGENT_RUNTIME_TARGET_ARCHITECTURE_AND_WORKFLOW_2026-09-26.md` | [`AGENT_RUNTIME_TARGET_ARCHITECTURE_AND_WORKFLOW_2026-09-26.md`](2026-10/AGENT_RUNTIME_TARGET_ARCHITECTURE_AND_WORKFLOW_2026-09-26.md) | 已由 2026-10 当前工作流说明取代的目标架构草案 |

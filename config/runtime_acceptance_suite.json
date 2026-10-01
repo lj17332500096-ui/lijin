@@ -30,11 +30,6 @@
     "code_loop": [
       "tests/test_phase26_codeloop_dual.py"
     ],
-    "router": [
-      "tests/test_tool_router.py",
-      "tests/test_phase22_router_authority.py",
-      "tests/test_budget_router.py"
-    ],
     "approval": [
       "tests/test_approval.py"
     ],

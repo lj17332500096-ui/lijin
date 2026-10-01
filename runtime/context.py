@@ -2,7 +2,7 @@
 
 解决 P0：Web / Project 对话历史在 sessions.sqlite 无限增长、每轮全量送模型。
 
-职责（只做 Session History，不做 Project Context / Prompt / Tool Router）：
+职责（只做 Session History，不做 Project Context、Prompt 或工具筛选）：
 1. 廉价统计（直接 SQL 数行/量字节，普通短对话零模型成本）；
 2. Soft Limit：复用 compact.py 的 AUTO_SUMMARY_* 判定，真正调用同一套 compact
    （compact_history 支持超长历史分块摘要，不重造第二套 compact）；

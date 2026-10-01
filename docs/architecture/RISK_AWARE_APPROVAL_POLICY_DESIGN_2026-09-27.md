@@ -2,12 +2,12 @@
 
 **Status:** Design proposal for review
 **Scope:** Runtime tool execution, native tools, MCP/plugin tools, approval and unattended channels
-**Code baseline:** `runtime/spec.py`, `runtime/approval.py`, `runtime/runner.py`, `runtime/readiness_gate.py`, `runtime/tool_router.py`
+**Code baseline:** `runtime/spec.py`, `runtime/approval.py`, `runtime/runner.py`, `runtime/readiness_gate.py`
 **Configuration constraint:** Preserve the current user-selected `APPROVAL=off`; this proposal does not change `.env` or runtime behavior.
 
 ## 1. Goal
 
-Make the agent choose the least disruptive safe outcome for each proposed tool call. The policy must distinguish ordinary reads, user-directed internal edits, code execution, external actions, and destructive actions. The model, Layer, and Router may supply evidence or candidate tools, but none of them grants permission.
+Make the agent choose the least disruptive safe outcome for each proposed tool call. The policy must distinguish ordinary reads, user-directed internal edits, code execution, external actions, and destructive actions. The API workflow and LangGraph selector may supply evidence or candidate tools, but neither grants permission.
 
 The policy must produce one deterministic decision for each invocation and make that decision explainable in the Run trace.
 
@@ -33,7 +33,7 @@ The main gap is not a missing prompt. It is the lack of one policy decision that
 | Risk Policy | Deterministic `allow`, `require_approval`, `ask_user`, or `deny` decision and rationale | Executing tools or changing Run state |
 | Approval Store / Gate | Recording and checking a user decision bound to one invocation | Reclassifying risk or widening the approved target |
 | Tool wrapper | Enforcing the policy decision and independent FileScope/network/credential/WAL gates | Inferring authorization from model confidence or tool visibility |
-| Router / Layer | Narrowing candidate tools and contributing intent evidence | Approving a side effect |
+| API workflow / LangGraph | Suggesting intent and candidate tools | Approving a side effect |
 | TaskManager / ExecutionEvidence | Durable decision and execution facts | Reinterpreting policy after execution |
 
 ## 4. Risk facts
@@ -153,7 +153,7 @@ Replace informal bypass lists over time with a versioned policy manifest. Every 
 
 1. **Inventory and shadow mode:** enrich ToolSpec and MCP metadata; compute decisions without changing execution. Log proposed class/reason and compare with current ApprovalGate behavior.
 2. **Reconcile catalog:** classify every native, MCP, and plugin tool. Unknown tools remain fail-closed. Require owner, effect, destructive/reversibility, data access, idempotency, and provider mapping.
-3. **Wire single policy owner:** have the wrapper request one decision before ApprovalGate/WAL; preserve FileScope and all execution constraints. Router and Layer remain advisory.
+3. **Wire single policy owner:** have the wrapper request one decision before ApprovalGate/WAL; preserve FileScope and all execution constraints. LangGraph remains advisory; Runtime gates remain authoritative.
 4. **Make approval invocation-bound:** migrate approval records with a compatibility path for existing pending rows; ensure resume and at-most-once behavior.
 5. **Adopt explicit modes:** document `interactive`, `off-profile`, and `strict` semantics; preserve current `APPROVAL=off` until the user explicitly adopts new behavior.
 6. **Enforce and observe:** compare effective policy in capability introspection, API/TUI approval cards, and run traces. Add mismatch alerts for catalog vs provider metadata.

@@ -11,8 +11,6 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-os.environ["TOOL_ROUTER"] = "on"
-
 from runtime.readiness_gate import (  # noqa: E402
     CONVERGENCE_CAUTION,
     CONVERGENCE_CONVERGENCE,

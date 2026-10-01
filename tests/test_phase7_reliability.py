@@ -2,7 +2,7 @@
 
 覆盖：
 - 缺关键参数（部署环境 / 破坏性删除 / 发送收件人）→ 强制 needs_user_input；
-- 只读意图 → 不暴露 mutation/执行工具（Router 层，见 test_tool_router）；
+- 只读意图 → 不暴露 mutation/执行工具（Runtime 执行安全门）；
 - 实时事实 → 暴露实时检索工具；
 - 明确无需工具 → 0 工具。
 """

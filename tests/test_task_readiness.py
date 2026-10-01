@@ -75,8 +75,6 @@ class _Harness:
         self.runtime.artifact_dirs = (self.tmp / "notes",)
         (self.tmp / "notes").mkdir(exist_ok=True)
         self._orig = runtime_execution.execute_turn
-        self._saved_router = os.environ.get("TOOL_ROUTER")
-        os.environ["TOOL_ROUTER"] = "off"
         self.fn = None
 
     async def _execute(self, mode, message, **kwargs):
@@ -88,10 +86,6 @@ class _Harness:
 
     def __exit__(self, *exc):
         runtime_execution.execute_turn = self._orig
-        if self._saved_router is None:
-            os.environ.pop("TOOL_ROUTER", None)
-        else:
-            os.environ["TOOL_ROUTER"] = self._saved_router
 
     def run(self, msg):
         return asyncio.run(self.runtime.run_turn(msg, session_id="unit", mode="async"))

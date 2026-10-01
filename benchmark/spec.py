@@ -80,7 +80,7 @@ def git_commit() -> str:
 def config_hash() -> str:
     """对影响 Runtime 行为的关键环境变量做哈希（不含 secret 值）。"""
     keys = (
-        "TOOL_ROUTER", "TOOL_BUDGET_TOTAL", "TOOL_BUDGET_WEB_SEARCH",
+        "TOOL_BUDGET_TOTAL", "TOOL_BUDGET_WEB_SEARCH",
         "FORGE_RUN_WALL_TIMEOUT_SECONDS", "FORGE_RUN_MAX_LIFETIME_SECONDS",
         "FORGE_STREAM_FIRST_TOKEN_TIMEOUT_SECONDS", "FORGE_STREAM_IDLE_TIMEOUT_SECONDS",
         "ALLOW_CODE_EXEC", "ALLOW_PROJECT_EDIT", "FORGE_TRUSTED_CODE_ROOTS",

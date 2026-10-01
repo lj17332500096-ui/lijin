@@ -9,10 +9,7 @@
 3. 退出码：0 = 放行；1 = 有未登记的失败；2 = 用法/解析错误。
 
 用法：
-    # 显式给测试文件（老接口，ci_router_gate.py 走这条）
-    python scripts/ci_gate.py --tests tests/test_tool_router.py
     # 按改动文件选子集
-    python scripts/ci_gate.py --changed runtime/tool_router.py --changed main.py
     # 从 stdin 读改动文件列表（pre-commit 钩子走这条）
     git diff --cached --name-only | python scripts/ci_gate.py --stdin
 """
@@ -29,9 +26,6 @@ BASELINE_FILE = PROJECT_ROOT / ".ci" / "known_failures.txt"
 
 #: 改动文件（精确路径）→ 需要跑的测试文件。顺序即去重后的执行顺序。
 CHANGE_TEST_MAP: list[tuple[tuple[str, ...], list[str]]] = [
-    (("runtime/tool_router.py", "runtime/runner.py", "runtime/laya_router.py",
-      "tests/test_tool_router.py", "agent.py", "main.py"),
-     ["tests/test_tool_router.py"]),
     (("cli/tui/app.py", "cli/tui/panels.py", "cli/tui/models.py"),
      ["tests/test_tui.py"]),
     (("runtime/approval.py", "runtime/errors.py"),
@@ -76,7 +70,7 @@ def load_baseline() -> dict[tuple[str, str], str]:
         if "::" not in body:
             raise SystemExit(
                 f"{BASELINE_FILE}:{lineno} 基线格式错误（需 path::test_name）：{raw!r}\n"
-                f"   示例：tests/test_tool_router.py::test_x  原因：xxx"
+                f"   示例：tests/test_runtime.py::test_x  原因：xxx"
             )
         if not comment:
             raise SystemExit(
@@ -106,7 +100,6 @@ def collect_failures(junit_path: Path) -> list[tuple[str, str]]:
             continue
         cls = case.get("classname") or ""
         name = case.get("name") or ""
-        # classname 形如 tests.test_tool_router.RuntimeRouteAgentTests
         parts = cls.split(".")
         path = "/".join(parts[:2]) + ".py" if len(parts) >= 2 else cls
         out.append((path, name))

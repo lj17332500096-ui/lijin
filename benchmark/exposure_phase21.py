@@ -3,8 +3,8 @@
 只在 benchmark 层工作，不修改生产 runtime。
 
 回答：
-- Tool Router 输出后，谁又把额外工具 materialize 进最终模型请求？
-- E0（full 120）/ E1（router-authoritative）/ E2（verification-focused）/ E3（verification-only）
+- 模型工具筛选策略如何影响最终可见工具集？
+- E0（full 120）/ E1（selected set）/ E2（verification-focused）/ E3（verification-only）
   对 verification action selection 的因果贡献。
 
 用法：

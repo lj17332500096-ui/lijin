@@ -20,7 +20,6 @@ from runtime.episode_store import EpisodeStore
 from runtime.runner import AgentRuntime
 from runtime.task import TaskState
 from runtime.task_manager import TaskManager
-from runtime.tool_router import select_tool_names
 
 
 def call_tool(tool, **kwargs) -> str:
@@ -56,7 +55,7 @@ class MemoryContractTests(unittest.TestCase):
         tools_mod.clear_active_memory_binding()
         self.temp.cleanup()
 
-    def test_global_switch_blocks_memory_tools_and_router(self) -> None:
+    def test_global_switch_blocks_memory_tools(self) -> None:
         self.manager.memory_upsert_row(
             {"id": "mem_seed", "text": "用户偏好深色主题", "tags": ["偏好"]}
         )
@@ -64,10 +63,6 @@ class MemoryContractTests(unittest.TestCase):
             self.assertIn("已关闭", call_tool(tools_mod.remember, text="新的偏好内容测试"))
             self.assertIn("已关闭", call_tool(tools_mod.recall_memory, keyword="深色"))
             self.assertIn("已关闭", call_tool(tools_mod.forget_memory, entry_id="mem_seed"))
-            selected = select_tool_names(
-                "查看我的记忆", ["remember", "recall_memory", "forget_memory"]
-            )
-        self.assertEqual(selected, [])
         self.assertEqual(len(self.manager.memory_rows()), 1)
 
     def test_global_project_scope_writes_one_project_copy_and_updates_tags(self) -> None:

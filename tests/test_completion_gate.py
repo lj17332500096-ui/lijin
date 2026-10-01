@@ -342,8 +342,6 @@ class _FakeHarness:
         self.agent_tool_counts: list[int] = []
         self._main = main_module
         self._orig_execute = runtime_execution.execute_turn
-        self._saved_router = os.environ.get("TOOL_ROUTER")
-        os.environ["TOOL_ROUTER"] = "off"  # 绕过工具子集克隆，让 fake 场景更确定
 
     def install(self, fn) -> None:
         self.fn = fn
@@ -360,10 +358,6 @@ class _FakeHarness:
 
     def __exit__(self, *exc) -> None:
         runtime_execution.execute_turn = self._orig_execute
-        if self._saved_router is None:
-            os.environ.pop("TOOL_ROUTER", None)
-        else:
-            os.environ["TOOL_ROUTER"] = self._saved_router
 
     def run(self, message: str, **kw) -> RunResult:
         return asyncio.run(self.runtime.run_turn(message, session_id="unit", **kw))
@@ -414,13 +408,11 @@ class RunTurnCompletionGateTests(unittest.TestCase):
             self.assertEqual(h.agent_tool_counts, [0])
             route = next(
                 event for event in h.manager.list_events(result.task.id)
-                if event.event_type == "routing.decision"
+                if event.event_type == "routing.profile_selected"
             )
-            self.assertEqual(route.payload["route_mode"],
+            self.assertEqual(route.payload["mode"],
                              "capability_inventory_context_only")
-            self.assertEqual(route.payload["allowed_tools"], [])
-            self.assertEqual(route.payload["layer"]["authority"], "coarse_intent_only")
-            self.assertEqual(route.payload["router_authority"], "runtime_capability_inventory")
+            self.assertEqual(route.payload["available_tool_count"], 0)
 
     def test_compound_request_cannot_complete_before_planned_phases(self) -> None:
         with _FakeHarness(self) as h:

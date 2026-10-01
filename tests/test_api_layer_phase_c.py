@@ -432,7 +432,7 @@ class LoopbackBindingAssertionTests(unittest.TestCase):
 
         old_required = getattr(webapp.app.state, "require_ui_auth", False)
         old_token = getattr(webapp.app.state, "ui_api_token", "")
-        argv = ["webapp.py", "--metrics-port", "0", ENABLE_FLAG, "--host", host]
+        argv = ["webapp.py", ENABLE_FLAG, "--host", host]
         env = ({"FORGE_ALLOW_NONLOCAL_UI": "1",
                 "FORGE_UI_API_TOKEN": "test-token-" + "x" * 32} if allow else {})
         try:
@@ -460,7 +460,7 @@ class LoopbackBindingAssertionTests(unittest.TestCase):
         import webapp
         from ui_frozen import ENABLE_FLAG
 
-        argv = ["webapp.py", "--metrics-port", "0", ENABLE_FLAG, "--host", "0.0.0.0"]
+        argv = ["webapp.py", ENABLE_FLAG, "--host", "0.0.0.0"]
         with mock.patch.object(sys, "argv", argv), \
                 mock.patch.dict(os.environ, {webapp.ALLOW_NONLOCAL_ENV: "1"}, clear=False), \
                 mock.patch("uvicorn.run") as mocked_run:
@@ -505,7 +505,7 @@ class LoopbackBindingAssertionTests(unittest.TestCase):
         import webapp
         from ui_frozen import ENABLE_FLAG
 
-        argv = ["webapp.py", "--metrics-port", "0", ENABLE_FLAG, "--host", "0.0.0.0"]
+        argv = ["webapp.py", ENABLE_FLAG, "--host", "0.0.0.0"]
         with mock.patch.object(sys, "argv", argv), \
                 mock.patch.dict(os.environ, {}, clear=False), \
                 mock.patch("uvicorn.run") as mocked_run:

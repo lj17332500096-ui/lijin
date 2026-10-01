@@ -278,16 +278,10 @@ class RunTurnIntegrationTests(ContextEnvMixin, unittest.TestCase):
         self.runtime.approval = ApprovalGate(self.manager)
         self.runtime.broker = object()
         self._orig_execute = runtime_execution.execute_turn
-        self._saved_router = os.environ.get("TOOL_ROUTER")
-        os.environ["TOOL_ROUTER"] = "off"
         self.last_agent = None
 
     def tearDown(self) -> None:
         runtime_execution.execute_turn = self._orig_execute
-        if self._saved_router is None:
-            os.environ.pop("TOOL_ROUTER", None)
-        else:
-            os.environ["TOOL_ROUTER"] = self._saved_router
         super().tearDown()
 
     def _install_fake(self, reply_text: str):

@@ -36,8 +36,7 @@ class ModelSelectHarness:
         self._orig_exec = runtime_execution.execute_turn
         self._saved_env = {k: os.environ.get(k) for k in (
             "FORGE_LOCAL_MODEL_NAME", "FORGE_LOCAL_MODEL_BASE_URL",
-            "FORGE_LOCAL_MODEL_API_KEY", "FORGE_MODEL_PREF", "TOOL_ROUTER")}
-        os.environ["TOOL_ROUTER"] = "off"
+            "FORGE_LOCAL_MODEL_API_KEY", "FORGE_MODEL_PREF")}
         # 测试必须从无本地模型配置的状态开始，避免读取开发者 .env 后把
         # “默认远程”场景误判为已配置本地模型。
         for k in ("FORGE_LOCAL_MODEL_NAME", "FORGE_LOCAL_MODEL_BASE_URL",

@@ -1,7 +1,7 @@
 """Phase 19：Decision Qualification Harness（checkpoint-based decision probe）。
 
 不跑完整 coding run：重建"mutation 已完成、verification_due=true"的真实 checkpoint
-（真实 RunContext / Tool Router / tool definitions / system prompt / 真实 mutation 工具结果 /
+（真实 RunContext / tool definitions / system prompt / 真实 mutation 工具结果 /
 真实 obligation feedback），然后让**真实模型**做一次真实 decision turn，只观察第一项动作。
 
 不是 Mock：使用真实 agent（route_agent）、真实工具、真实模型、真实 obligation 文本。

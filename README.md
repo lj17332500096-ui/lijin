@@ -35,8 +35,6 @@ my_creative_agent/
 ├── evaluate.py       # 端到端场景评估（真实调用模型）
 ├── main.py           # 终端聊天入口（含多轮记忆）
 ├── tests/            # 离线回归测试（报告写入 var/test-reports/）
-├── laya/             # Laya route-head：训练数据构建、评测脚本、XPU 训练环境说明
-├── annotation/       # 标注集构建与校验脚本
 ├── archive/          # 已结束的历史运行与交付快照（非活动代码）
 ├── requirements.txt
 ├── .env.example      # 环境变量样例
@@ -131,7 +129,7 @@ python -m venv .venv
 | `schedule_add` / `schedule_list` / `schedule_remove` / `schedule_set_enabled` | 定时任务管理 | 登记到 `config/tasks.json`，配合 `python main.py --daemon` 常驻执行 |
 | `scan_dependencies` | 依赖体检（dep_doctor 技能） | 只读分析 requirements/pyproject，给锁定/去重建议，不自动改文件 |
 
-> 说明：上表共 41 个注册工具；每轮实际只会给模型配相关子集（Tool Router，≤16）。另可叠加 MCP 外部工具。
+> 说明：上表为内置注册工具。LangGraph 工作流按请求筛选候选工具，MCP 与 Skill 工具也会加入运行时清单；Runtime 继续执行权限、审批和副作用检查。
 > OpenAI Agents SDK 自带的托管 `WebSearchTool` 只在 OpenAI Responses 接口下可用；
 > 本项目走第三方 OpenAI 兼容网关（chat/completions），所以联网搜索是用本地函数工具实现的，
 > 不依赖特定模型能力，换网关也能用。
@@ -551,7 +549,7 @@ runtime/
 ├── filescope.py        # FileScope：工具/目录授权（未登记工具默认 DENY，fail-closed）
 ├── netpolicy.py        # run_python 网络策略（deny/approval/allow + 事件审计）
 ├── router.py           # Model Router：按任务渠道/元数据切模型档位（cheap/reasoning/default）
-├── tool_router.py      # Tool Router：每轮动态配工具子集（41→8~16，点名必选）
+├── api_workflow.py     # API 请求分析、LangGraph 工具候选筛选与结果复核
 ├── budget.py           # 任务级预算：max_turns + 墙钟超时护栏（BudgetExceeded）
 ├── context.py          # Session Preparation：compact / 硬窗口 / 长历史分块摘要
 ├── provider_errors.py  # Provider 错误分类（429/5xx/timeout/context_overflow…）
@@ -663,23 +661,9 @@ run_turn(..., budget=RunBudget(max_turns=10, max_wall_seconds=120))
 - 档位模型没配时原样放行（单模型现状，零行为变化）；
 - token/成本精确维度待内循环钩子接入后启用（本轮强制维度：轮数与墙钟）。
 
-### 动态工具选择（Tool Router，默认开启）
+### LangGraph 工作流工具筛选
 
-每轮请求只给模型配**相关工具**（41 个 → 8~16 个），规则可离线验证、零模型成本：
-
-1. **点名必选**：提示里出现工具名（save_note、run_python…）直接保留；
-2. **关键词分组**：中英文别名表命中（"做 Excel"→save_excel、…"运行 python 代码"→run_python…）；
-3. **常驻基础集**：web_search/时间/计算/保存备忘/工作区读 永不裁（防误伤日常请求）；
-4. **上限 16**：超了按相关度裁掉最不相关的，基础集例外。
-
-- 工具子集克隆在模型档位克隆之后（两层可叠加）；
-- 审批包装不失效：代码请求的关键词一定带上被门包装的 run_python；
-- `TOOL_ROUTER=off` 恢复全量 41 工具（调试/对比用）；网页、终端、语音、定时全部生效。
-
-```powershell
-python -c "from runtime.tool_router import select_tool_names; from agent import assistant_agent; \
-print(select_tool_names('把月支出做成 Excel', [t.name for t in assistant_agent.tools]))"
-```
+每个 Run 先由 API 分析用户目标和完成标准，再由 LangGraph 节点从当前注册工具清单中选择候选工具。工具选择只是模型可见范围建议；Runtime 会再次校验注册名称、文件范围、权限、风险、审批和执行证据。筛选失败时保留完整工具清单继续执行，不因辅助筛选故障丢失能力。
 
 ### 工具层韧性（退避重试 + 并发限流 + 幂等键，2026-09-19）
 
@@ -784,9 +768,7 @@ FORGE Runtime Core 已于 2026-09-07 冻结（详见
    再 `python -m benchmark evaluate --runs runs_eval --label BASELINE --out runs_eval/report.json`。
    把 Behavior Pass Rate、Safety Violation Rate、E2E Success Rate 三个数记进
    `delivery/baselines/<date>-<change>.json`。
-2. **灰度 10% 流量**：新策略只挂到 `FORGE_MCP_ALLOWLIST` / `APPROVAL_GATED_TOOLS` /
-   `TOOL_ROUTER` 等可独立开关的 env，**先在 10% 会话上启用**（按 session_id hash 取模
-   10），同跑 50 case 评测集，指标全等或更优才进下一步；任何 Safety Violation
+2. **上线验证**：新策略先在受控环境验收，行为与安全指标达到基线后再部署；任何 Safety Violation
    回退 0 容忍（出现 1 次即回滚）。
 3. **全量放行**：灰度 48h 无 P0 事件（runtime_p0、approval_bypass、false_completion
    任一 > 0 即停），指标 ≥ 基线 95% 才全量。
@@ -821,7 +803,7 @@ python -m benchmark stability --a runs_A.json --b runs_B.json --c runs_C.json
 
 ## MCP 外部工具接入
 
-除了内置 41 个注册工具（每轮按 Tool Router 只配 ≤16，可按 SKILLS 技能再扩展），还支持把外部 MCP（Model Context Protocol）服务器的工具挂到同一个 Agent 上，
+除了内置工具，LangGraph 还会把已启用 Skill 与外部 MCP（Model Context Protocol）服务器的注册工具纳入当前 Run 的候选筛选，
 模型能直接调用（GitHub 仓库操作、Notion 读写、浏览器自动化等）。接入只改 `.env`：
 
 ```
@@ -1083,7 +1065,7 @@ Completion Gate 误报回归覆盖：能力描述中的“修复建议/修改方
 本轮写完成声明；能力清单中的“笔记与产出”等名词小标题不再被误判为“已产出”，
 “文档读写生成”这类能力描述中的动作夹层也不再误判为已完成声明；
 而真实“文档已修复/报告已生成/报告已产出/文档已生成”仍要求执行/产物证据。
-Tool Router 能力盘点回归：问“有哪些 MCP/技能/能力”时给每台已接入服务器派发代表工具，
+能力盘点回归：问“有哪些 MCP/技能/能力”时由 Runtime 基于已连接清单提供事实，
 不再默认派发列目录/翻笔记/搜文档等探索工具（避免模型靠翻文件找能力清单造成多轮空转）。
 Capability Introspection 回归：来源（builtin/mcp/plugin）来自真实注册标记；enabled/connected/
 available 状态独立且不互相冒充；MCP 查询只返回真实 MCP；未知状态不会说成“没有”；用户默认看到
@@ -1097,7 +1079,7 @@ Completion Gate 能力盘点描述性回答（0 工具）不再误报 CLAIM_UNSU
 YouTube MCP 下载了字幕”这类直接完成声明仍必须拦截；NEEDS_USER 空泛澄清（只写“请补充更多信息”）
 由 CLARIFICATION_VAGUE 确定性拦截并触发一次精度修复；容器级未决 NEEDS_USER 跨 Run 继承，
 READY/普通回答不继承（防止旧任务状态污染新请求）。
-能力问题给全量工具回归：避免超长历史中模型误调本轮未挂载旧工具造成 “Tool not found” 空转。
+能力问题使用 Runtime 当前能力清单回答，避免将连接状态不明的服务说成可用。
 
 > 旧 Web Runtime 的主题 CDP 与前端冒烟测试已从活动测试目录归档；当前回归命令不再启动旧网页或 Edge。
 

@@ -253,7 +253,6 @@ def _is_missing_tool_call_id_error(exc: BaseException) -> bool:
     message = str(exc).casefold()
     return ("tool invocations require a non-empty string call id" in message
             or "non-empty string call_id" in message)
-from runtime.tool_router import router_enabled, select_tool_names
 from runtime.public_activity import RunActivityProjector, current_activity, public_text
 
 
@@ -380,7 +379,6 @@ class AgentRuntime:
     _patched_agent_ids: set[int] = field(default_factory=set)
     #: B8：本地追踪是否已按需安装（幂等标记，避免重复替换 SDK 的 trace processors）
     _tracing_ready: bool = False
-    _agent_cache: dict = field(default_factory=dict)
     # Run-scoped routing decision correlation (consumed when its RunContext is bound).
     _route_decisions: dict[str, str] = field(default_factory=dict)
     _route_plans: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -395,10 +393,6 @@ class AgentRuntime:
     _run_tasks: dict[str, asyncio.Task] = field(default_factory=dict)
     _cancel_requested: set[str] = field(default_factory=set)
 
-    # C2 熔断升级：会话级"命中 0 目标工具"连续次数（>3 次 → 自动升级全量工具重试）
-    _router_zero_streak: dict[str, int] = field(default_factory=dict)
-    _router_escalated: set[str] = field(default_factory=set)
-    _router_session_keys: dict[str, str] = field(default_factory=dict)
 
     @property
     def _run_ledger(self) -> list[dict]:
@@ -417,7 +411,7 @@ class AgentRuntime:
     def _ensure(self) -> None:
         if self._initialized:
             # A model switch may construct a fresh cached Agent object at runtime.
-            # Wrap its tools before Router exposes them on the next Run.
+            # Wrap tools before the next Run begins.
             self._patch_agent_tools()
             return
         self._initialized = True
@@ -1480,7 +1474,7 @@ class AgentRuntime:
                 )
                 setattr(clone, "_gate_wrapper", True)
                 setattr(clone, "_wrapped_original", tool)
-                # 保留来源标签；Router 和能力盘点以它区分插件/MCP/内置工具。
+                # 保留来源标签；能力盘点以它区分插件、MCP 与内置工具。
                 for _attr in (
                     "_mcp_source", "_mcp_server", "_mcp_remote", "_mcp_policy",
                     "_tool_origin",
@@ -1505,7 +1499,6 @@ class AgentRuntime:
             self.registry = discover_from_agent(assistant_agent)
             if self.broker is not None:
                 self.broker.registry = self.registry
-            self._agent_cache.clear()
 
     # ---------- 真实执行账本（Completion Gate 证据源） ----------
 
@@ -1675,8 +1668,8 @@ class AgentRuntime:
         Falls back to minimal context only if the original is unavailable.
 
         Tool identity (Phase 40): looks up the wrapper from the currently-routed agent
-        (selected_agent) rather than the global assistant_agent, to respect Router
-        tool exposure decisions made for this specific turn.
+        (selected_agent) rather than the global assistant_agent, to respect the tool set
+        selected for this specific turn by LangGraph.
 
         Evidence exactly-once: the wrapper's internal _record_tool is the single
         authoritative record. We do NOT call _record_tool again here.
@@ -1945,311 +1938,82 @@ class AgentRuntime:
         profile: str | None = None,
         base_agent: Any | None = None,
         run_id: str | None = None,
-        defer_tool_selection: bool = False,
     ) -> Any:
-        """Choose the model/profile; production Runs defer tool filtering to LangGraph."""
+        """Choose the model/profile; LangGraph owns request-specific tool selection."""
         self._ensure()
-        from agent import current_assistant_agent  # provider-facing agent factory
+        from agent import current_assistant_agent
 
-        route_decision_id = str(__import__("uuid").uuid4())
+        decision_id = str(__import__("uuid").uuid4())
         message_hash = __import__("hashlib").sha256(
             str(message or "").encode("utf-8", "replace")
         ).hexdigest()
-        layer_trace: dict[str, Any] = {
-            "enabled": False, "decision": None, "confidence": None,
-            "threshold": None, "fallback": None, "skipped": False,
-            "authority": "coarse_intent_only",
-            "decision_power": "advisory_only",
-            "concrete_tool_routing": False,
-        }
-        capability_plan: dict[str, Any] = {"schema_version": 1, "required_tools": [], "required_capabilities": [], "phases": []}
 
-        def _finish(agent: Any, *, route_mode: str, names: list[str] | None = None) -> Any:
-            """Write a redacted route decision to the canonical Run event stream."""
-            selected_tools = list(names if names is not None else
-                                   [getattr(t, "name", "") for t in (getattr(agent, "tools", []) or [])])
-            schema = []
-            for tool in (getattr(agent, "tools", []) or []):
-                schema.append({
-                    "name": getattr(tool, "name", ""),
-                    "params": getattr(tool, "params_json_schema", {}) or {},
-                    "strict": bool(getattr(tool, "strict_json_schema", True)),
-                })
-            try:
-                schema_blob = json.dumps(schema, ensure_ascii=False, sort_keys=True, default=str)
-                schema_hash = __import__("hashlib").sha256(schema_blob.encode("utf-8")).hexdigest()
-            except Exception:
-                schema_hash = ""
+        def _record(agent: Any, mode: str) -> Any:
+            tools = list(getattr(agent, "tools", []) or [])
             if run_id:
-                self._route_decisions[run_id] = route_decision_id
-                self._route_plans[run_id] = json.loads(
-                    json.dumps(capability_plan, ensure_ascii=False)
-                )
+                self._route_decisions[run_id] = decision_id
+                self._route_plans[run_id] = {}
                 try:
-                    if (self.tasks is not None
-                            and not (run_id in self._cancel_requested)):
-                        router_authority = (
-                            "runtime_capability_inventory" if route_mode.startswith("capability_inventory")
-                            else "keyword_tool_router" if route_mode.startswith("keyword_router")
-                            else "runtime_fallback"
-                        )
-                        self.tasks.add_event(run_id, "routing.decision", {
-                            "schema_version": 1,
-                            "run_id": run_id,
-                            "decision_id": route_decision_id,
-                            "query_sha256": message_hash,
-                            "layer": dict(layer_trace),
-                            "router_authority": router_authority,
-                            "router_candidates": selected_tools,
-                            "route_mode": route_mode,
-                            "allowed_tools": selected_tools,
-                            "allowed_tool_count": len(selected_tools),
-                            "agent_tool_schema_sha256": schema_hash,
-                            "capability_plan": capability_plan,
-                        })
+                    self.tasks.add_event(run_id, "routing.profile_selected", {
+                        "schema_version": 1,
+                        "run_id": run_id,
+                        "decision_id": decision_id,
+                        "query_sha256": message_hash,
+                        "authority": "runtime_profile_and_capability_context",
+                        "mode": mode,
+                        "available_tool_count": len(tools),
+                    })
                 except Exception:
-                    _logger.warning("路由决策 trace 写入失败 run=%s decision=%s",
-                                    run_id, route_decision_id, exc_info=True)
+                    _logger.warning("运行配置 trace 写入失败 run=%s", run_id, exc_info=True)
             return agent
 
         base = base_agent or current_assistant_agent()
         chosen = agent_for(base, profile or (channel if channel in ("cheap", "reasoning") else "default"))
-        # P1-B(3)：FORGE_REASONING_EFFORT=on 时按场景注入 reasoning_effort。
-        # 该网关（apihub.agnes-ai.cn）语义与 OpenAI 错位：coding 想深推理须选 low，
-        # 非 coding 场景保持 medium。默认 off，显式开启才克隆注入，不影响生产。
         try:
             from runtime.router import reasoning_effort_enabled, reasoning_effort_for_scene
             if reasoning_effort_enabled():
-                _effort = reasoning_effort_for_scene(message)
-                _effort = "medium" if not _effort else _effort
-                try:
-                    from agents import ModelSettings
-                    _cur = getattr(chosen, "model_settings", None)
-                    _reasoning = {"effort": _effort}
-                    if _cur is not None:
-                        chosen = chosen.clone(
-                            model_settings=ModelSettings(
-                                max_tokens=getattr(_cur, "max_tokens", 4096),
-                                temperature=getattr(_cur, "temperature", None),
-                                top_p=getattr(_cur, "top_p", None),
-                                reasoning=_reasoning,
-                            )
-                        )
-                    else:
-                        chosen = chosen.clone(
-                            model_settings=ModelSettings(
-                                max_tokens=4096, reasoning=_reasoning)
-                        )
-                except Exception:
-                    pass  # reasoning 注入失败不阻塞普通执行
+                from agents import ModelSettings
+                effort = reasoning_effort_for_scene(message) or "medium"
+                current = getattr(chosen, "model_settings", None)
+                settings = ModelSettings(
+                    max_tokens=getattr(current, "max_tokens", 4096),
+                    temperature=getattr(current, "temperature", None),
+                    top_p=getattr(current, "top_p", None),
+                    reasoning={"effort": effort},
+                )
+                chosen = chosen.clone(model_settings=settings)
         except Exception:
             pass
-        _is_capability = False
+
         try:
             from runtime.capability_introspection import capability_context_block
-
-            _cap_block = capability_context_block(message)
-            if _cap_block:
-                _is_capability = True
-                # 能力盘点问题：克隆注入"当前能力事实块"，不污染全局 Agent
-                chosen = chosen.clone(
-                    instructions=((chosen.instructions or "") + "\n" + _cap_block)
-                )
+            context = capability_context_block(message)
+            if context:
+                chosen = chosen.clone(instructions=(chosen.instructions or "") + "\n" + context)
+                # Capability questions are answered from the Runtime inventory and
+                # must not accidentally trigger business tools from prior context.
+                chosen = chosen.clone(tools=[])
+                return _record(chosen, "capability_inventory_context_only")
         except Exception:
-            pass  # 能力块失败不阻塞普通执行
-        if _is_capability:
-            # 当前能力已由 Runtime 事实块完整注入。该类只读问答不需要业务工具；
-            # 禁用工具也可避免会话里的旧请求诱发天气/文件等错误调用。
-            layer_trace.update({"skipped": True, "fallback": "capability_inventory_bypass"})
-            return _finish(
-                chosen.clone(tools=[]),
-                route_mode="capability_inventory_context_only",
-                names=[],
-            )
-        if defer_tool_selection:
-            # Production Run: LangGraph's structured tool-selection node will
-            # choose the visible subset after API analysis. No keyword router
-            # or Laya inference runs on this path.
-            available_names = [
-                str(getattr(tool, "name", ""))
-                for tool in (getattr(chosen, "tools", []) or [])
-                if getattr(tool, "name", "")
-            ]
-            if run_id:
-                self._route_decisions[run_id] = route_decision_id
-                self._route_plans[run_id] = {}
-                try:
-                    self.tasks.add_event(run_id, "routing.selection.pending", {
-                        "schema_version": 1,
-                        "run_id": run_id,
-                        "decision_id": route_decision_id,
-                        "query_sha256": message_hash,
-                        "authority": "langgraph_tool_selection_pending",
-                        "available_tool_count": len(available_names),
-                    })
-                except Exception:
-                    _logger.warning("LangGraph 工具筛选待处理事件写入失败 run=%s",
-                                    run_id, exc_info=True)
-            return chosen
-        if not router_enabled():
-            from runtime.task_plan import infer_task_plan
-            capability_plan = infer_task_plan(
-                message, [getattr(t, "name", "") for t in (getattr(chosen, "tools", []) or [])]
-            )
-            layer_trace.update({"skipped": True, "fallback": "router_disabled_full_tools"})
-            return _finish(chosen, route_mode="router_disabled_full_tools")
-        tools = getattr(chosen, "tools", []) or []
-        external = [
-            t.name for t in tools
-            if getattr(t, "_mcp_source", None) == "mcp"
-        ]
-        from runtime.tool_router import build_tool_catalog, BASE_TOOLS
-        from runtime.task_plan import infer_task_plan, plan_required_tools
+            pass
 
-        catalog = build_tool_catalog(tools)
-        capability_plan = infer_task_plan(message, [t.name for t in tools])
-        if capability_plan.get("phases"):
-            _phase_lines = [
-                f"{i + 1}. {phase['phase']} (tools: {', '.join(phase['tools'])})"
-                for i, phase in enumerate(capability_plan["phases"])
-            ]
-            _phase_intro = ("本轮检测到需要工具执行的能力步骤，请按下列依赖顺序完成；"
-                            "前一阶段产出应作为后一阶段输入。"
-                            "不得用猜测或未验证的文字替代工具结果。"
-                            "每个写入/提醒仍须核对用户明确意图及工具约束：\n")
-            chosen = chosen.clone(instructions=(chosen.instructions or "") +
-                                  "\n\n" + _phase_intro + "\n".join(_phase_lines))
-
-        # Laya 只提供意图提示，不拥有工具集合的裁决权。
-        # 即使高置信判为 direct_text，也继续走 select_tool_names；纯文本请求由
-        # Tool Router 自己决定是否返回空工具，Laya 的误判不能裁掉所需能力。
-        # 强工具信号仍可跳过 Laya 推理以节省一次本地分类调用。
-        from runtime.tool_router import laya_screen_skip
-        if not laya_screen_skip(message):
-            from runtime import laya_router
-            if laya_router.laya_router_enabled():
-                _laya_res = laya_router.laya_fast_screen(message)
-                try:
-                    _lr = laya_router.laya_router()
-                    layer_trace.update({
-                        "enabled": True,
-                        **(getattr(_lr, "last_screen_details", {}) or {}),
-                        "backend": getattr(_lr, "backend", None),
-                    })
-                except Exception:
-                    layer_trace.update({"enabled": True, "fallback": "decision_unavailable"})
-                if _laya_res in ("direct_text", "tool_needed"):
-                    _laya_hint = "text_likely" if _laya_res == "direct_text" else "tool_likely"
-                    layer_trace["hint"] = _laya_hint
-                    slog.info("Laya route hint", hint=_laya_hint)
-            else:
-                layer_trace.update({"enabled": False, "fallback": "disabled_or_unavailable"})
-        else:
-            layer_trace.update({"skipped": True, "fallback": "strong_tool_signal_skip"})
-
-        names = select_tool_names(
-            message,
-            [t.name for t in tools],
-            external=external or None,
-            catalog=catalog,
-            plan_required_tools=plan_required_tools(capability_plan),
-        )
-        # An optional trained Laya head may suggest the ordering of an already
-        # authorized single-stage candidate. The suggestion never removes tools,
-        # introduces tools, bypasses gates, or collapses a multi-stage plan.
-        if (os.getenv("FORGE_LAYA_TOOL_ROUTE_CHECKPOINT", "").strip()
-                and len(capability_plan.get("phases", [])) <= 1
-                and len(capability_plan.get("required_tools", [])) <= 1):
+        # Keep the full registered inventory visible until the LangGraph selector
+        # returns. Runtime validates the selected names and enforces all gates.
+        if run_id:
+            self._route_decisions[run_id] = decision_id
+            self._route_plans[run_id] = {}
             try:
-                from runtime.laya_router import laya_router, laya_router_confidence_threshold
-                by_name = {t.name: t for t in tools}
-                route_candidates = {
-                    name: str(getattr(by_name[name], "description", "") or name)
-                    for name in names if name in by_name and name not in BASE_TOOLS
-                }
-                candidate, confidence = laya_router().route_candidate(message, route_candidates)
-                try:
-                    route_threshold = float(os.getenv("FORGE_LAYA_ROUTE_CONF", "0.90"))
-                except ValueError:
-                    route_threshold = 0.90
-                if candidate and confidence >= max(route_threshold, laya_router_confidence_threshold()):
-                    base_names = [name for name in names if name in BASE_TOOLS]
-                    other_names = [name for name in names if name not in BASE_TOOLS]
-                    names = base_names + [candidate] + [
-                        name for name in other_names if name != candidate
-                    ]
-                    layer_trace.update({
-                        "authority": "coarse_intent_only",
-                        "decision_power": "advisory_only",
-                        "concrete_tool_routing": False,
-                        "route_candidates": list(route_candidates),
-                        "route_hint_candidate": candidate,
-                        "route_confidence": float(confidence),
-                        "route_threshold": max(route_threshold, laya_router_confidence_threshold()),
-                        "route_checkpoint_configured": True,
-                        "route_hint_effect": "candidate_order_only",
-                    })
-                else:
-                    layer_trace.update({"route_fallback": "below_threshold_or_unavailable"})
+                self.tasks.add_event(run_id, "routing.selection.pending", {
+                    "schema_version": 1,
+                    "run_id": run_id,
+                    "decision_id": decision_id,
+                    "query_sha256": message_hash,
+                    "authority": "langgraph_tool_selection_pending",
+                    "available_tool_count": len(getattr(chosen, "tools", []) or []),
+                })
             except Exception:
-                layer_trace.update({"route_fallback": "route_head_error"})
-        # C2 熔断升级：会话级连续"命中 0 目标工具"≥3 次 → 升级全量工具重试
-        session_key = self._router_session_key(channel, base_agent)
-        hit_zero = all(n in BASE_TOOLS for n in names)
-        if hit_zero:
-            streak = self._router_zero_streak.get(session_key, 0) + 1
-            self._router_zero_streak[session_key] = streak
-            if streak >= 3 and session_key not in self._router_escalated:
-                # 熔断触发：升级全量工具
-                self._router_escalated.add(session_key)
-                _logger.info(
-                    "C2 熔断：会话 %s 连续 %d 次命中 0 目标工具，升级全量工具",
-                    session_key, streak,
-                )
-                slog.info("C2 熔断升级全量工具", session=session_key, streak=streak)
-                return _finish(chosen, route_mode="c2_escalation_full_tools")
-        else:
-            # 命中目标工具 → 重置该会话的连续计数
-            if self._router_zero_streak.get(session_key, 0) > 0:
-                self._router_zero_streak[session_key] = 0
-        if len(names) >= len(tools):
-            return _finish(chosen, route_mode="keyword_router_full_tools", names=names)
-        by_name = {t.name: t for t in tools}
-        subset = [by_name[name] for name in names if name in by_name]
-        # The selected Agent can be cloned per request to attach a capability
-        # plan or reasoning settings. Key the cache by stable base/profile and
-        # those clone inputs so identical multi-phase requests reuse one clone.
-        instruction_key = __import__("hashlib").sha256(
-            str(getattr(chosen, "instructions", "") or "").encode("utf-8", "replace")
-        ).hexdigest()
-        key = (id(base), profile or channel, str(getattr(chosen, "model", "")),
-               repr(getattr(chosen, "model_settings", None)), instruction_key,
-               tuple(names))
-        clone = self._agent_cache.get(key)
-        if clone is None:
-            clone = chosen.clone(tools=subset)
-            self._agent_cache[key] = clone
-            if len(self._agent_cache) > 64:
-                self._agent_cache.clear()
-        return _finish(
-            clone,
-            route_mode="keyword_router_subset",
-            names=names,
-        )
-
-    def _router_session_key(self, channel: str, base_agent: Any) -> str:
-        """C2：会话级熔断 key（同一 channel + 同一 base_agent 共享同一计数）。"""
-        return f"{channel}:{id(base_agent)}"
-
-    def router_escalation_status(self, channel: str = "chat") -> dict:
-        """C2：查询某 channel 的熔断升级状态（可观测）。"""
-        keys = [k for k in self._router_escalated if k.startswith(f"{channel}:")]
-        return {
-            "escalated_sessions": keys,
-            "zero_streaks": {
-                k: v for k, v in self._router_zero_streak.items() if k.startswith(f"{channel}:")
-            },
-        }
+                _logger.warning("LangGraph 工具筛选待处理事件写入失败 run=%s", run_id, exc_info=True)
+        return chosen
 
     def _project_context_block(self, container_id: str | None, proj: dict | None) -> str:
         """Project Context：项目说明/来源文件/项目记忆/工作位置 → 注入模型指令。
@@ -2829,7 +2593,7 @@ class AgentRuntime:
                 run_provider = _gw_provider()
             selected_agent = await asyncio.to_thread(
                 self.route_agent, message or task.goal, channel=channel, profile=profile,
-                base_agent=base_agent, run_id=task.id, defer_tool_selection=True,
+                base_agent=base_agent, run_id=task.id,
             )
         except Exception:
             try:
@@ -2838,17 +2602,16 @@ class AgentRuntime:
                 selected_agent = await asyncio.to_thread(
                     self.route_agent, message or task.goal, channel=channel, profile=profile,
                     base_agent=_current_agent(), run_id=task.id,
-                    defer_tool_selection=True,
                 )
             except Exception:
                 selected_agent = await asyncio.to_thread(
                     self.route_agent, message or task.goal, channel=channel, profile=profile,
-                    run_id=task.id, defer_tool_selection=True,
+                    run_id=task.id,
                 )
         # TUI 是本地可信消费者：允许把中间文本以 assistant_delta 实时转发给它渲染
         # （runtime.execution._run_attempt 只在 agent._public_stream=True 时才这么做）。
         # 其余通道（Web SSE 等外部消费者）保持私有，中间推理文本不进公开事件流。
-        # 用 clone 打标记，避免污染 route_agent 的 _agent_cache 缓存对象。
+        # 用 clone 打标记，避免污染全局 Agent 实例。
         try:
             if str((metadata or {}).get("channel") or "") == "tui":
                 selected_agent = selected_agent.clone()
@@ -3713,24 +3476,6 @@ class AgentRuntime:
 
                     _analysis_ctx = _analysis_ctx()
                     _file_scope = getattr(_analysis_ctx, "file_scope", None)
-                    _laya_advice: dict[str, Any] = {"status": "unavailable_or_skipped"}
-                    try:
-                        for _event in reversed(self.tasks.list_events(task.id, limit=200)):
-                            if getattr(_event, "event_type", None) == "routing.decision":
-                                _layer = (getattr(_event, "payload", None) or {}).get("layer") or {}
-                                _laya_advice = {
-                                    "status": "hinted" if _layer.get("hint") else (
-                                        "skipped" if _layer.get("skipped") else "no_hint"
-                                    ),
-                                    "hint": _layer.get("hint"),
-                                    "enabled": bool(_layer.get("enabled")),
-                                    "route_hint_candidate": _layer.get("route_hint_candidate"),
-                                    "route_hint_effect": _layer.get("route_hint_effect"),
-                                    "authority": "advisory_only",
-                                }
-                                break
-                    except Exception:
-                        pass
                     _analysis_context = {
                         "container_selected": bool(container_id),
                         "work_location_selected": bool(
@@ -3748,7 +3493,6 @@ class AgentRuntime:
                             str(getattr(tool, "name", ""))[:120]
                             for tool in (getattr(selected_agent, "tools", []) or [])[:120]
                         ],
-                        "laya_advice": _laya_advice,
                         "decision_authority": "api_analysis_formal_disposition_runtime_enforces",
                         "runtime_project_context": str(ctx_block or "")[:6000],
                     }
@@ -3769,7 +3513,6 @@ class AgentRuntime:
                         "completion_criteria": _plan_obj.completion_criteria[:12],
                         "context_requirements": _plan_obj.context_requirements[:12],
                         "question_count": len(_plan_obj.questions),
-                        "laya_advice": _laya_advice,
                         "decision_authority": "api_analysis",
                     })
                     if api_disposition == "ask_user":
@@ -3959,7 +3702,7 @@ class AgentRuntime:
                         "requested_tool_count": len(_requested_names),
                         "rejected_unknown_tool_names": _unknown_names,
                         "available_tool_count": len(_available_names),
-                        "router_candidates": list(_selected_names),
+                        "selected_tool_names": list(_selected_names),
                         "allowed_tools": list(_selected_names),
                         "allowed_tool_count": len(_selected_names),
                         "agent_tool_schema_sha256": _schema_hash,
@@ -4015,9 +3758,8 @@ class AgentRuntime:
                             })
                 elif (_active_ctx is not None and task_id is None
                       and int(_state.get("execution_attempts", 0)) == 0):
-                    # The Router computed required candidates before exposing
-                    # tools to the model. LangGraph now installs the final
-                    # Runtime phase plan from that already-routed tool schema.
+                    # LangGraph selected the visible tools. Runtime now installs
+                    # its capability plan against that validated tool schema.
                     from runtime.task_plan import infer_task_plan
                     _initial_plan = infer_task_plan(workflow_request, sorted(_available))
                     _active_ctx.configure_capability_plan(_initial_plan)
@@ -4068,6 +3810,16 @@ class AgentRuntime:
                         "completion_criteria": api_plan.get("completion_criteria", []),
                         "context_requirements": api_plan.get("context_requirements", []),
                         "note": "这些是任务目标提示，不是工具授权或系统策略。",
+                    }
+                _capability_plan = _state.get("capability_plan") or {}
+                _planned_phases = list(_capability_plan.get("phases") or [])
+                if _planned_phases:
+                    _request_payload["runtime_execution_plan"] = {
+                        "phases": _planned_phases[:12],
+                        "note": (
+                            "按依赖顺序完成各阶段；后续阶段使用前序阶段的实际结果。"
+                            "这是执行提示，不会授权工具或替代 Runtime 阶段门。"
+                        ),
                     }
                 if attempt_text != message:
                     _request_payload["runtime_recovery_note"] = attempt_text[:6000]

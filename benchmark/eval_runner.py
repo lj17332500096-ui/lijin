@@ -270,35 +270,6 @@ async def _run_all(rt, cases, *, deadline_s: float, db_dir: Path,
     return rows
 
 
-def _apply_fixed_tools(fixed: bool) -> bool:
-    """把 tool_router 固定成常量，消除注入块对工具可用集的污染（修法 1）。
-
-    为什么必须固定
-    --------------
-    tool_router 第 1 条规则是「查询里出现工具名 → 必选」，而 episode 注入块会以
-    「路径：a → b → c」的形式列出历史用过的工具名。于是注入组的模型看到的工具列表
-    与基线组系统性不同 —— 实测 46/46 题都不同、平均多 9 个工具（最多 0→16），
-    两组跑的其实不是同一套工具，A/B 差值无法归因于记忆层。
-    见 delivery/probe_injection_confound.py。
-
-    为什么改用中文别名脱敏不行
-    --------------------------
-    实测脱敏后 0/46 题恢复：中文别名又命中关键词分组（「运行测试」含"测试"→coding 族、
-    「联网检索」含"检索"→web 族）。注入语义必然影响路由，只能做结构性隔离。
-    见 delivery/probe_sanitize_fix.py。
-
-    ``TOOL_ROUTER=off`` 时 select_tool_names 直接返回全量，返回值与 query 无关 ——
-    这是结构性保证，不是碰巧。返回当前 router 是否已关闭。
-    """
-    if fixed:
-        os.environ["TOOL_ROUTER"] = "off"
-    try:
-        from runtime.tool_router import router_enabled
-        return not router_enabled()
-    except Exception:
-        return bool(fixed)
-
-
 def _pin_workspace_root() -> str:
     """P1-1：把 WORKSPACE_ROOT 钉到项目根，让 benchmark_fixture 落入工作区子树。
 
@@ -341,10 +312,6 @@ def main(argv: list[str] | None = None) -> int:
                         help="给每个 case 注入情节记忆（留一法，排除自身既往执行）")
     parser.add_argument("--no-seed-episodes", action="store_true",
                         help="不做 episode 种子注入（记忆层在临时库里为空）")
-    parser.add_argument("--fixed-tools", action="store_true",
-                        help="固定工具集（等效 TOOL_ROUTER=off，两组都用全量工具）。"
-                             "消除『注入块里列出的工具名会改变工具可用性』这一混淆变量；"
-                             "凡是跑注入类 A/B 都应开启，否则两组对比无效。")
     args = parser.parse_args(argv)
     for stream in (sys.stdout, sys.stderr):
         try:
@@ -354,20 +321,8 @@ def main(argv: list[str] | None = None) -> int:
     # P1-1：先把工作区根钉到项目根，fixture 落入子树
     _ws_root = _pin_workspace_root()
     print(f"[workspace-root] WORKSPACE_ROOT={_ws_root}（P1-1 路径漂移修复）", flush=True)
-    # 修法 1：把 tool_router 固定成常量，消除注入块对工具可用集的污染。
-    # 注意：全量工具与生产配置（router 裁剪到 16）不同，结论不可直接外推。
-    _fixed = _apply_fixed_tools(args.fixed_tools)
-
     from runtime.runner import AgentRuntime
     import main as _m  # noqa: F401
-
-    if args.fixed_tools:
-        print(f"[fixed-tools] TOOL_ROUTER=off，router 已关闭={_fixed}"
-              "（两组工具集因此必然一致）", flush=True)
-    elif args.inject_episode:
-        print("[warn] --inject-episode 未配 --fixed-tools：注入块会列出历史工具名，"
-              "撞中 router『提到工具名即必选』规则，两组工具集 46/46 都不同 —— "
-              "本轮 A/B 差值无法归因于记忆层。", flush=True)
 
     if args.cases and not args.all:
         want = [c.strip() for c in args.cases.split(",") if c.strip()]
@@ -415,8 +370,6 @@ def main(argv: list[str] | None = None) -> int:
         "cases_with_injection": injected,
         "episodes_seeded": seeded,
         "episode_leave_one_out": "per_case",
-        "fixed_tools": bool(args.fixed_tools),
-        "tool_router": "off" if args.fixed_tools else "on",
         "model_pref": (os.getenv("FORGE_MODEL_PREF", "") or "").strip().lower() or "gateway",
         "rows": [r["id"] for r in rows],
     }, ensure_ascii=False, indent=2), encoding="utf-8")

@@ -3,7 +3,6 @@ langgraph>=1.0,<2
 python-dotenv>=1.0.0
 requests>=2.31.0
 textual>=8,<9
-gguf>=0.10.0
 
 # Office 文档读取/生成（docx/xlsx/pptx）
 python-docx>=1.1.0

@@ -103,7 +103,7 @@ class ParseAndAllowlistTests(unittest.TestCase):
 class MountAndPolicyTests(unittest.TestCase):
     def test_explicit_idempotency_flows_into_tool_contract(self):
         from runtime.registry import binding_from_function_tool
-        from runtime.tool_router import build_tool_catalog
+        from runtime.api_workflow import build_tool_selection_catalog
 
         spec = {
             "name": "fs", "command": "python",
@@ -119,9 +119,9 @@ class MountAndPolicyTests(unittest.TestCase):
         write = binding_from_function_tool(by_name["fs_write_file"], source="mcp")
         self.assertTrue(read.spec.idempotent)
         self.assertFalse(write.spec.idempotent)
-        catalog = build_tool_catalog(mounted)
-        self.assertTrue(catalog["fs_read_file"]["idempotent"])
-        self.assertFalse(catalog["fs_write_file"]["idempotent"])
+        catalog = {item["name"]: item for item in build_tool_selection_catalog(mounted)}
+        self.assertEqual(catalog["fs_read_file"]["source"], "MCP")
+        self.assertEqual(catalog["fs_write_file"]["source"], "MCP")
 
     def test_default_deny_mounts_nothing(self):
         spec = {"name": "fs", "command": "python", "tool_policy": {},

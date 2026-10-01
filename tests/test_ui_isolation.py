@@ -122,7 +122,7 @@ class UiEntryGateTests(unittest.TestCase):
 
         import webapp
 
-        argv = ["webapp.py", "--metrics-port", "0", ui_frozen.ENABLE_FLAG]
+        argv = ["webapp.py", ui_frozen.ENABLE_FLAG]
         with mock.patch.object(sys, "argv", argv), \
                 mock.patch.dict("os.environ", {}, clear=False), \
                 mock.patch("uvicorn.run") as mocked_run, \

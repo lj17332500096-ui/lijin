@@ -16,12 +16,10 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-os.environ["TOOL_ROUTER"] = "on"
 #: P1-14（2026-09-22）：受信代码根是评测/测试专用免审批通道，只有显式声明
 #: FORGE_EVAL_MODE/FORGE_TEST_MODE=1 的进程才会读取（code_exec._trusted_code_roots）。
 os.environ.setdefault("FORGE_TEST_MODE", "1")
 
-from runtime import tool_router as tr
 from runtime.readiness_gate import required_questions, missing_required_fields
 from runtime.completion import CompletionGate, ExecutionEvidence
 from runtime.runctx import RunContext
@@ -80,30 +78,6 @@ class TrustedRootSecurityTests(unittest.TestCase):
     def test_case_and_slash_normalized(self):
         # 大写 project 名（大小写差异）仍应命中（Windows 大小写不敏感）
         self.assertIsNotNone(self.ce.trusted_root_for("TRUSTED", "", ""))
-
-
-class DirectTextRouterTests(unittest.TestCase):
-    """纯文本改写/翻译 → tools=[]；只读意图 → 无写工具。"""
-
-    def _all(self):
-        try:
-            from agent import assistant_agent
-            return [t.name for t in assistant_agent.tools]
-        except Exception:
-            return ["web_search", "read_workspace_file", "list_workspace_files",
-                    "edit_project_file", "write_code_file", "save_note", "run_python"]
-
-    def test_rewrite_no_tools(self):
-        self.assertEqual(tr.select_tool_names(
-            "帮我把“这个功能不好用，你们赶紧改”改得正式一点。", self._all()), [])
-
-    def test_translate_no_tools(self):
-        self.assertEqual(tr.select_tool_names("把这句话翻译成英文。", self._all()), [])
-
-    def test_readonly_excludes_write(self):
-        names = tr.select_tool_names("看一下 auth.py，告诉我登录流程，不要修改代码。", self._all())
-        for w in ("edit_project_file", "write_code_file", "write_project_file", "save_note"):
-            self.assertNotIn(w, names)
 
 
 class NeedsUserInputTests(unittest.TestCase):

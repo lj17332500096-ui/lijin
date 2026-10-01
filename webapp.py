@@ -238,8 +238,6 @@ def main() -> None:
     parser.add_argument("--host", default="127.0.0.1", help="监听地址（默认仅本机）")
     parser.add_argument("--port", type=int, default=DEFAULT_PORT)
     parser.add_argument("--open", action="store_true", help="启动后自动打开浏览器")
-    parser.add_argument("--metrics-port", type=int, default=9095,
-                        help="Router 指标 Prometheus 端点端口（0=不启动指标线程，默认 9095）")
     parser.add_argument("--enable-frozen-ui", action="store_true",
                         help="显式开启已冻结的网页界面（等价于 FORGE_ENABLE_UI=1）")
     args = parser.parse_args()
@@ -296,15 +294,6 @@ def main() -> None:
             print(f"[RUNTIME] 自动恢复 {len(recovered)} 个崩溃遗留任务（RUNNING→failed）")
     except Exception:
         pass
-    # Router 指标线程（Prometheus /metrics on 127.0.0.1:<metrics-port>）
-    # 嵌入主进程，避免单独起 scripts/router_metrics_server.py；端口被占或 0 时静默跳过
-    if args.metrics_port and args.metrics_port != 0:
-        try:
-            sys.path.insert(0, str(BASE_DIR))
-            from scripts.router_metrics_server import start_metrics_thread
-            start_metrics_thread(args.metrics_port)
-        except Exception as _e:
-            print(f"[router-metrics] 指标线程启动失败（不影响主功能）：{_e}", file=sys.stderr)
     if args.open:
         webbrowser.open(url)
     uvicorn.run(app, host=args.host, port=args.port, log_level="warning")
