@@ -1945,8 +1945,9 @@ class AgentRuntime:
         profile: str | None = None,
         base_agent: Any | None = None,
         run_id: str | None = None,
+        defer_tool_selection: bool = False,
     ) -> Any:
-        """模型档位 + 动态工具子集的最终 Agent（Tool Router 默认开启）。"""
+        """Choose the model/profile; production Runs defer tool filtering to LangGraph."""
         self._ensure()
         from agent import current_assistant_agent  # provider-facing agent factory
 
@@ -2065,6 +2066,31 @@ class AgentRuntime:
                 route_mode="capability_inventory_context_only",
                 names=[],
             )
+        if defer_tool_selection:
+            # Production Run: LangGraph's structured tool-selection node will
+            # choose the visible subset after API analysis. No keyword router
+            # or Laya inference runs on this path.
+            available_names = [
+                str(getattr(tool, "name", ""))
+                for tool in (getattr(chosen, "tools", []) or [])
+                if getattr(tool, "name", "")
+            ]
+            if run_id:
+                self._route_decisions[run_id] = route_decision_id
+                self._route_plans[run_id] = {}
+                try:
+                    self.tasks.add_event(run_id, "routing.selection.pending", {
+                        "schema_version": 1,
+                        "run_id": run_id,
+                        "decision_id": route_decision_id,
+                        "query_sha256": message_hash,
+                        "authority": "langgraph_tool_selection_pending",
+                        "available_tool_count": len(available_names),
+                    })
+                except Exception:
+                    _logger.warning("LangGraph 工具筛选待处理事件写入失败 run=%s",
+                                    run_id, exc_info=True)
+            return chosen
         if not router_enabled():
             from runtime.task_plan import infer_task_plan
             capability_plan = infer_task_plan(
@@ -2803,7 +2829,7 @@ class AgentRuntime:
                 run_provider = _gw_provider()
             selected_agent = await asyncio.to_thread(
                 self.route_agent, message or task.goal, channel=channel, profile=profile,
-                base_agent=base_agent, run_id=task.id,
+                base_agent=base_agent, run_id=task.id, defer_tool_selection=True,
             )
         except Exception:
             try:
@@ -2812,11 +2838,12 @@ class AgentRuntime:
                 selected_agent = await asyncio.to_thread(
                     self.route_agent, message or task.goal, channel=channel, profile=profile,
                     base_agent=_current_agent(), run_id=task.id,
+                    defer_tool_selection=True,
                 )
             except Exception:
                 selected_agent = await asyncio.to_thread(
                     self.route_agent, message or task.goal, channel=channel, profile=profile,
-                    run_id=task.id,
+                    run_id=task.id, defer_tool_selection=True,
                 )
         # TUI 是本地可信消费者：允许把中间文本以 assistant_delta 实时转发给它渲染
         # （runtime.execution._run_attempt 只在 agent._public_stream=True 时才这么做）。
@@ -3407,7 +3434,10 @@ class AgentRuntime:
             from runtime.api_workflow import structured_output
 
             activity = current_activity()
-            phase_label = "分析请求" if stage == "conversation.analysis" else "复核结果"
+            phase_label = {
+                "conversation.analysis": "分析请求",
+                "conversation.tool_selection": "筛选工具",
+            }.get(stage, "复核结果")
             if activity:
                 activity.set_phase(phase_label)
             _stage_started = time.perf_counter()
@@ -3612,6 +3642,7 @@ class AgentRuntime:
             api_supplement_prompt = ""
             api_supplement_requires_tools = False
             api_plan: dict[str, Any] | None = None
+            _langgraph_selected_tool_names: list[str] = []
             # A resumed Run may enter with an empty continuation message so
             # the SDK session can continue. Analysis, planning, and review
             # still need the original persisted goal as their request.
@@ -3672,7 +3703,7 @@ class AgentRuntime:
             async def _workflow_analyze(_state):
                 nonlocal api_plan, api_disposition
                 # API 预分析只产出目标/策略建议；不接触工具、不写会话历史，也不
-                # 决定 Runtime 工具授权。解析失败时记录降级并走既有安全路由。
+                # 决定 Runtime 工具授权。解析失败时 LangGraph 的筛选节点会从注册清单选取。
                 try:
                     from runtime.api_workflow import (
                         RequestAnalysis, analysis_input, build_analysis_agent,
@@ -3773,11 +3804,176 @@ class AgentRuntime:
                             "run_id": task.id,
                             "error_type": type(_analysis_exc).__name__,
                             "error": str(_analysis_exc)[:300],
-                            "policy": "existing_runtime_route",
+                            "policy": "langgraph_registered_catalog_selection",
                         })
                     except Exception:
                         pass
                 return {"objective_plan": api_plan or {}, "disposition": api_disposition}
+
+            async def _workflow_select_tools(_state):
+                """LangGraph-owned model selection of the visible tool subset."""
+                nonlocal selected_agent, _langgraph_selected_tool_names
+                from runtime.api_workflow import (
+                    ToolSelection, build_tool_selection_agent,
+                    build_tool_selection_catalog, tool_selection_input,
+                )
+                from runtime.runctx import current as _selection_ctx
+                from runtime.task_plan import infer_task_plan, plan_required_tools
+
+                _analysis = _state.get("analysis") or {}
+                _all_tools = list(getattr(tool_inventory_agent, "tools", []) or [])
+                _available_names = [str(getattr(tool, "name", "")) for tool in _all_tools
+                                    if getattr(tool, "name", "")]
+                _is_supplement = int(_state.get("supplement_count", 0)) > 0
+                _supplement_prompt = str(_analysis.get("supplement_prompt") or "")[:3000]
+                _selection_request = (
+                    workflow_request + "\n\n复核指出的补充目标：" + _supplement_prompt
+                    if _is_supplement else workflow_request
+                )
+                _objective_plan = _analysis.get("objective_plan") or api_plan or {}
+                _disposition = ("execute" if _is_supplement else str(
+                    _analysis.get("disposition") or api_disposition or "execute"
+                ))
+                if _is_supplement:
+                    _objective_plan = {
+                        **_objective_plan,
+                        "objective": _supplement_prompt or _objective_plan.get("objective", ""),
+                        "disposition": "execute",
+                    }
+                _runtime_plan = infer_task_plan(_selection_request, _available_names)
+                _selection_status = "selected"
+                _rationale = ""
+                _requested_names: list[str] = []
+
+                if _is_supplement and not bool(_analysis.get("supplement_requires_tools")):
+                    _selection_status = "supplement_no_new_tools_required"
+                elif _disposition == "answer":
+                    _selection_status = "direct_answer_no_tools"
+                else:
+                    try:
+                        _selection_agent = build_tool_selection_agent(
+                            getattr(selected_agent, "model", None),
+                            getattr(selected_agent, "model_settings", None),
+                        )
+                        _selection_prompt = tool_selection_input(
+                            request=_selection_request,
+                            objective_plan=_objective_plan,
+                            tool_catalog=build_tool_selection_catalog(_all_tools),
+                            planned_phases=list(_runtime_plan.get("phases") or []),
+                        )
+                        _selection_result = await _workflow_api_call(
+                            "conversation.tool_selection", _selection_agent,
+                            _selection_prompt, ToolSelection,
+                        )
+                        _requested_names = list(_selection_result.tool_names or [])
+                        _rationale = str(_selection_result.rationale or "")[:1200]
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception as _selection_exc:
+                        if _is_missing_tool_call_id_error(_selection_exc):
+                            raise
+                        _selection_status = "selection_error_full_tools_fallback"
+                        _rationale = f"筛选失败，Runtime 保留全部注册工具：{type(_selection_exc).__name__}"
+
+                _available_set = set(_available_names)
+                _valid_names = list(dict.fromkeys(
+                    name for name in _requested_names if name in _available_set
+                ))
+                _unknown_names = [name for name in _requested_names
+                                  if name not in _available_set][:32]
+                _required_names = [name for name in plan_required_tools(_runtime_plan)
+                                   if name in _available_set]
+                if _is_supplement:
+                    _selected_names = list(dict.fromkeys(
+                        _langgraph_selected_tool_names + _valid_names + _required_names
+                    ))
+                    if _selection_status == "selection_error_full_tools_fallback":
+                        _selected_names = list(_available_names)
+                    elif (bool(_analysis.get("supplement_requires_tools"))
+                          and not (_valid_names or _required_names)):
+                        _selected_names = list(_available_names)
+                        _selection_status = "empty_supplement_selection_full_tools_fallback"
+                elif _disposition == "answer":
+                    _selected_names: list[str] = []
+                elif _selection_status == "selection_error_full_tools_fallback":
+                    _selected_names = list(_available_names)
+                else:
+                    _selected_names = list(dict.fromkeys(_valid_names + _required_names))
+                    if not _selected_names:
+                        _selected_names = list(_available_names)
+                        _selection_status = "empty_selection_full_tools_fallback"
+                _selected_set = set(_selected_names)
+                _selected_tools = [tool for tool in _all_tools
+                                   if getattr(tool, "name", "") in _selected_set]
+                try:
+                    selected_agent = selected_agent.clone(tools=_selected_tools)
+                    if str((metadata or {}).get("channel") or "") == "tui":
+                        selected_agent._public_stream = True
+                except Exception:
+                    # Preserve execution availability if an SDK clone operation
+                    # fails; the selector result remains visible in the trace.
+                    _selected_names = list(_available_names)
+                    _selected_tools = _all_tools
+                    _selection_status = "agent_clone_error_full_tools_fallback"
+                if _disposition == "answer":
+                    _runtime_plan = {"schema_version": 1, "required_tools": [],
+                                     "required_capabilities": [], "phases": []}
+                elif not _is_supplement:
+                    _runtime_plan = {
+                        **_runtime_plan,
+                        "required_tools": [name for name in _runtime_plan.get("required_tools", [])
+                                           if name in set(_selected_names)],
+                        "phases": [
+                            {**phase, "tools": [name for name in phase.get("tools", [])
+                                                if name in set(_selected_names)]}
+                            for phase in _runtime_plan.get("phases", [])
+                            if any(name in set(_selected_names) for name in phase.get("tools", []))
+                        ],
+                    }
+                _active_selection_ctx = _selection_ctx()
+                if _active_selection_ctx is not None and not _is_supplement:
+                    _active_selection_ctx.configure_capability_plan(_runtime_plan)
+                _langgraph_selected_tool_names = list(_selected_names)
+                _decision_id = getattr(_active_selection_ctx, "routing_decision_id", None)
+                _tool_schema = [{
+                    "name": str(getattr(tool, "name", "")),
+                    "params": getattr(tool, "params_json_schema", {}) or {},
+                    "strict": bool(getattr(tool, "strict_json_schema", True)),
+                } for tool in _selected_tools]
+                try:
+                    _schema_hash = __import__("hashlib").sha256(
+                        json.dumps(_tool_schema, ensure_ascii=False, sort_keys=True,
+                                   default=str).encode("utf-8")
+                    ).hexdigest()
+                except Exception:
+                    _schema_hash = ""
+                try:
+                    self.tasks.add_event(task.id, "routing.decision", {
+                        "schema_version": 2,
+                        "run_id": task.id,
+                        "decision_id": _decision_id,
+                        "authority": "langgraph_tool_selection_model",
+                        "selection_status": _selection_status,
+                        "selection_rationale": _rationale,
+                        "supplement": _is_supplement,
+                        "requested_tool_count": len(_requested_names),
+                        "rejected_unknown_tool_names": _unknown_names,
+                        "available_tool_count": len(_available_names),
+                        "router_candidates": list(_selected_names),
+                        "allowed_tools": list(_selected_names),
+                        "allowed_tool_count": len(_selected_names),
+                        "agent_tool_schema_sha256": _schema_hash,
+                        "capability_plan": _runtime_plan,
+                    })
+                except Exception:
+                    _logger.warning("LangGraph 工具筛选 trace 写入失败 run=%s",
+                                    task.id, exc_info=True)
+                return {
+                    "selected_tool_names": list(_selected_names),
+                    "selection_status": _selection_status,
+                    "rationale": _rationale,
+                    "required_tool_names": _required_names,
+                }
 
             async def _workflow_plan(_state):
                 nonlocal api_supplement_prompt, api_supplement_requires_tools
@@ -4412,8 +4608,12 @@ class AgentRuntime:
             from runtime.conversation_workflow import (
                 build_conversation_workflow, initial_state as _workflow_initial_state,
             )
+            # Keep the immutable per-Run registry snapshot available when a
+            # review supplement asks LangGraph to expand the current subset.
+            tool_inventory_agent = selected_agent
             _conversation_graph = build_conversation_workflow(
-                analyze=_workflow_analyze, plan=_workflow_plan,
+                analyze=_workflow_analyze, select_tools=_workflow_select_tools,
+                plan=_workflow_plan,
                 execute=_workflow_execute, review=_workflow_review,
                 retry_exhausted=_workflow_retry_exhausted,
             )

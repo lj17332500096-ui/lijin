@@ -15,6 +15,7 @@ from langgraph.graph import END, START, StateGraph
 class ConversationState(TypedDict, total=False):
     request: str
     analysis: dict[str, Any]
+    tool_selection: dict[str, Any]
     plan: dict[str, Any]
     execution: dict[str, Any]
     review: dict[str, Any]
@@ -46,6 +47,7 @@ def _handler_update(result: Any, key: str) -> dict[str, Any]:
 def build_conversation_workflow(
     *,
     analyze: NodeHandler,
+    select_tools: NodeHandler | None = None,
     plan: NodeHandler,
     execute: NodeHandler,
     review: NodeHandler,
@@ -53,10 +55,10 @@ def build_conversation_workflow(
 ) -> Any:
     """Build the bounded analyze/plan/execute/review graph.
 
-    The graph owns bounded execution retry transitions as well as the single
-    review supplement. The plan node runs on each retry edge, while its
-    Runtime callback preserves the already validated plan unless a supplement
-    requires one filtered extension.
+    The graph owns candidate tool selection, bounded execution retry
+    transitions, and the single review supplement. A supplement re-runs tool
+    selection against the full registered catalog before Runtime extends its
+    ordered capability plan.
     ``execute`` and ``review`` return ``{"terminal": ...}`` to stop the graph
     for Runtime-owned outcomes such as approval pause or user clarification.
     A Runtime completion rejection returns a typed retry request; the graph
@@ -65,6 +67,11 @@ def build_conversation_workflow(
 
     async def analyze_node(state: ConversationState) -> dict[str, Any]:
         return _handler_update(await analyze(state), "analysis")
+
+    async def select_tools_node(state: ConversationState) -> dict[str, Any]:
+        if select_tools is None:
+            return {"tool_selection": {}}
+        return _handler_update(await select_tools(state), "tool_selection")
 
     async def plan_node(state: ConversationState) -> dict[str, Any]:
         update = _handler_update(await plan(state), "plan")
@@ -130,6 +137,9 @@ def build_conversation_workflow(
             return "exhausted"
         return "execute"
 
+    def route_after_selection(state: ConversationState) -> Literal["plan", "end"]:
+        return "end" if state.get("terminal") is not None else "plan"
+
     def route_review(state: ConversationState) -> Literal["plan", "end"]:
         if state.get("terminal") is not None:
             return "end"
@@ -160,6 +170,7 @@ def build_conversation_workflow(
 
     graph = StateGraph(ConversationState)
     graph.add_node("analyze", analyze_node)
+    graph.add_node("select_tools", select_tools_node)
     graph.add_node("plan", plan_node)
     graph.add_node("execute", execute_node)
     graph.add_node("review", review_node)
@@ -169,7 +180,10 @@ def build_conversation_workflow(
 
     graph.add_edge(START, "analyze")
     graph.add_conditional_edges(
-        "analyze", route_continue, {"next": "plan", "end": END},
+        "analyze", route_continue, {"next": "select_tools", "end": END},
+    )
+    graph.add_conditional_edges(
+        "select_tools", route_after_selection, {"plan": "plan", "end": END},
     )
     graph.add_conditional_edges(
         "plan", route_plan,
@@ -184,7 +198,7 @@ def build_conversation_workflow(
     graph.add_conditional_edges(
         "review", route_review, {"plan": "supplement", "end": END},
     )
-    graph.add_edge("supplement", "plan")
+    graph.add_edge("supplement", "select_tools")
     return graph.compile()
 
 
@@ -192,6 +206,7 @@ def initial_state(request: str) -> ConversationState:
     return {
         "request": str(request),
         "analysis": {},
+        "tool_selection": {},
         "plan": {},
         "execution": {},
         "review": {},
