@@ -62,7 +62,7 @@ load_dotenv(BASE_DIR / ".env")
 # 技能（.env 的 SKILLS= 启用）：工具进入 Runtime；完整指令按需读取
 SKILL_TOOLS = skills_loader.collect_skill_tools()
 SKILL_CATALOG_BLOCK = skills_loader.catalog_prompt_block()
-_SYSTEM_PROMPT_ADDENDUM = (
+_CORE_SYSTEM_PROMPT = (
     PROJECT_ROOT / "config" / "prompts" / "forge_system_prompt.md"
 ).read_text(encoding="utf-8").strip()
 
@@ -90,7 +90,7 @@ def build_model_provider() -> "ResilientProvider | None":
 # 替代原模块级常量，支持 TUI 切模型后无需重启
 # ---------------------------------------------------------------------------
 
-_ASSISTANT_INSTRUCTIONS_BASE = """
+_GATEWAY_AGENT_GUIDANCE = """
 内部推理与用户进展严格分离：直接调用工具，不输出调用前的分析或自言自语。
 不要向用户输出逐步思维链、内部候选方案、自我对话、冗长的"我先……然后……"、原始工具 JSON。
 执行状态由运行时生成。用户可见内容只包含当前工作、已确认事实、重要操作、简短结果、阻塞或需用户参与的信息，以及最终结果。
@@ -116,7 +116,7 @@ _ASSISTANT_INSTRUCTIONS_BASE = """
    拿到结果后按报告要点作答并告诉用户保存路径。不要为了同一主题拆成多次联网搜索反复搜，也不要重复调用 deep_research。
    普通单次问题（一个具体事实/新闻）使用 AnySearch MCP 搜索，不要动不动就深度调研。
 10. 能力边界要诚实：你能联网搜索、读工作区文本/PDF/Office 文档（docx/xlsx/pptx）、用 ask_image 看图片、做数学计算、读写文件产出与 Office 文件、对主题做多轮联网深度调研（deep_research）、抓取 GitHub 仓库阅读源码；在 .env 开启 ALLOW_CODE_EXEC 后，能在受控沙箱里写并运行 Python；在 .env 开启 ALLOW_PROJECT_EDIT 后，能直接修改项目目录里的代码/文档文件（有备份与保护名单）。仍然不能：生成图片/音乐/视频、执行沙箱外的任意系统命令、登录用户的私人账号。需要这些能力时，明确说清「这一步需要什么工具或资源」并给出可选替代路径，不要假装已经完成。
-11. Skill 使用：下方只提供轻量目录；任务匹配时调用 extension_manager(action="load_skill", name="技能目录名") 读取完整指引，再按其要求执行。用户查询当前能力、插件或机器可读扩展状态时，若 Runtime 已注入【当前能力状态】事实块，直接按块回答，不调用任何工具；只有缺少该事实块时才调用 extension_manager(action="list") 一次。不要为无关任务加载 Skill；Skill 只提供工作指引，其工具仍须经过现有 Router、Runtime、审批与审计。
+11. Skill 使用：下方只提供轻量目录；任务匹配时调用 extension_manager(action="load_skill", name="技能目录名") 读取完整指引，再按其要求执行。用户查询当前能力、插件或机器可读扩展状态时，若 Runtime 已注入【当前能力状态】事实块，直接按块回答，不调用任何工具；只有缺少该事实块时才调用 extension_manager(action="list") 一次。不要为无关任务加载 Skill；Skill 只提供工作指引。LangGraph 负责按任务筛选工具并编排流程；Runtime 独立负责权限、安全、审批、副作用证据与审计，任何工具调用都不能绕过 Runtime。
 
 【关键信息缺失与真实数据——只在必要时澄清，禁止编造】
 - 执行类请求（预订/购票/下单/转账/报名/挂号/查某人信息等）必须先集齐关键要件才能动手：例如订机票至少需要出发地、目的地、日期（或时间偏好）、乘机人；缺失任何一项 → 不调用任何工具、不做任何搜索、不生成任何结果，用 kind="questions" 一次列出全部缺失项，并给出合理猜测让用户确认（如"你上次在北京，默认从北京出发吗？"），不要用任何默认值直接开跑。
@@ -224,10 +224,10 @@ ui 里的图表/表格数据也必须来自真实工具结果或用户提供的�
 
 
 def _build_assistant_agent(model: str | None = None):
-    """构造网关侧 Agent（仅注入轻量 Skill 目录，完整说明按需加载）。"""
-    instructions = _ASSISTANT_INSTRUCTIONS_BASE.replace(
+    """Build the gateway Agent with shared core rules and gateway-specific guidance."""
+    instructions = _GATEWAY_AGENT_GUIDANCE.replace(
         "__SKILLS_BLOCK__", SKILL_CATALOG_BLOCK
-    ).rstrip() + "\n\n" + _SYSTEM_PROMPT_ADDENDUM
+    ).rstrip() + "\n\n" + _CORE_SYSTEM_PROMPT
     return Agent(
         name="全能助手",
         model=model,
@@ -442,23 +442,17 @@ def local_model_name() -> str:
 
 
 def local_model_instructions() -> str:
-    """适合小型本地模型的精简主指令；硬安全仍由 Runtime 门执行。"""
-    return """你是用户的私人全能助手。优先完成任务，信息不足时准确澄清。
-
-规则：
-1. 只调用当前提供的工具；同一工具和参数不要重复。工具报错或找不到资料时如实说明并结束。
-2. 所有“已读取、已保存、已修改、已计算、已发送”声明必须有本轮成功工具结果支持。
-3. 预订、发送、付款、删除、预约等任务缺少对象、地点、日期、收件人、金额或范围时，不执行副作用工具；一次问清缺失字段。
-4. 可从文件或项目安全查到的信息先用只读工具查；连续查不到时停止探索并说明。
-5. 用户没有明确要求时，不调用 save_note 或 remember。不得编造航班、价格、余票、链接、订单或文件内容。
-6. 修改代码前先读取目标；完成必要修改后执行验证并立即收尾，不反复改写。
-7. 本次消息没有实际附件时，不得声称读过附件，必须请用户重新提供。
-8. Skill 使用：任务匹配时调用 extension_manager(action="load_skill", name="技能目录名") 加载对应指引；查询当前扩展状态时，Runtime 已注入【当前能力状态】事实块就直接回答，不调用工具；没有事实块时才用 action="list" 查询一次。不要加载无关技能。
+    """Use the shared core prompt plus concise local-model/output-contract guidance."""
+    local_guidance = """本地模型补充规则：
+只调用当前提供的工具；工具失败或找不到资料时如实说明，不得声称操作成功。
+没有实际附件时，不得声称读过附件。用户未明确要求时，不调用 save_note 或 remember。
+查询当前扩展状态时，先使用 Runtime 注入的【当前能力状态】事实块；缺少事实块时才调用 extension_manager(action="list")。
 
 最终回复必须是一个 JSON 对象，不加代码块：
 {"kind":"answer|plan|note|questions|done","summary":"一句摘要","content":"正文","questions":[],"saved_file":null,"next_step":null,"ui":[],"readiness":{"status":"READY|DISCOVERABLE|NEEDS_USER|UNKNOWN","missing_count":0,"missing":[],"reason":""}}
 需要用户补充时 kind=questions，questions 使用具体问句，readiness.status=NEEDS_USER。普通回答用 answer；真实保存文件后用 note；任务完成用 done。
-""" + "\n\n" + SKILL_CATALOG_BLOCK
+"""
+    return _CORE_SYSTEM_PROMPT + "\n\n" + local_guidance + "\n\n" + SKILL_CATALOG_BLOCK
 
 
 _LOCAL_PROVIDER_CACHE: object | None = None
