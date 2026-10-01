@@ -1938,6 +1938,7 @@ class AgentRuntime:
         profile: str | None = None,
         base_agent: Any | None = None,
         run_id: str | None = None,
+        capability_context: str | None = None,
     ) -> Any:
         """Choose the model/profile; LangGraph owns request-specific tool selection."""
         self._ensure()
@@ -1987,7 +1988,8 @@ class AgentRuntime:
 
         try:
             from runtime.capability_introspection import capability_context_block
-            context = capability_context_block(message)
+            context = (capability_context if capability_context is not None
+                       else capability_context_block(message, agent=chosen))
             if context:
                 chosen = chosen.clone(instructions=(chosen.instructions or "") + "\n" + context)
                 # Capability questions are answered from the Runtime inventory and
@@ -2573,6 +2575,7 @@ class AgentRuntime:
 
         # ---- 模型入口选择（本地 llama.cpp / 远程网关；仅按后台 env 配置 > gateway；忽略历史项目偏好）----
         run_provider = None
+        _capability_context = ""
         try:
             from agent import (local_model_configured as _lm_cfg,
                                local_model_instructions as _lm_instructions,
@@ -2591,22 +2594,42 @@ class AgentRuntime:
             else:
                 # 网关路径：动态获取 Provider（env 变化时自动重建）
                 run_provider = _gw_provider()
+            if _capability_query:
+                from runtime.capability_introspection import capability_context_block
+
+                _capability_context = capability_context_block(message, agent=base_agent)
             selected_agent = await asyncio.to_thread(
                 self.route_agent, message or task.goal, channel=channel, profile=profile,
                 base_agent=base_agent, run_id=task.id,
+                capability_context=_capability_context if _capability_query else None,
             )
         except Exception:
             try:
                 from agent import current_assistant_agent as _current_agent
+                if _capability_query:
+                    from runtime.capability_introspection import capability_context_block
+
+                    _capability_context = capability_context_block(
+                        message, agent=_current_agent()
+                    )
 
                 selected_agent = await asyncio.to_thread(
                     self.route_agent, message or task.goal, channel=channel, profile=profile,
                     base_agent=_current_agent(), run_id=task.id,
+                    capability_context=_capability_context if _capability_query else None,
                 )
             except Exception:
+                if _capability_query and not _capability_context:
+                    try:
+                        from runtime.capability_introspection import capability_context_block
+
+                        _capability_context = capability_context_block(message)
+                    except Exception:
+                        pass
                 selected_agent = await asyncio.to_thread(
                     self.route_agent, message or task.goal, channel=channel, profile=profile,
                     run_id=task.id,
+                    capability_context=_capability_context if _capability_query else None,
                 )
         # TUI 是本地可信消费者：允许把中间文本以 assistant_delta 实时转发给它渲染
         # （runtime.execution._run_attempt 只在 agent._public_stream=True 时才这么做）。
@@ -3493,6 +3516,8 @@ class AgentRuntime:
                             str(getattr(tool, "name", ""))[:120]
                             for tool in (getattr(selected_agent, "tools", []) or [])[:120]
                         ],
+                        "runtime_capability_context": _capability_context[:6000]
+                        if _capability_query else "",
                         "decision_authority": "api_analysis_formal_disposition_runtime_enforces",
                         "runtime_project_context": str(ctx_block or "")[:6000],
                     }
@@ -4268,6 +4293,9 @@ class AgentRuntime:
                         getattr(selected_agent, "model", None),
                         getattr(selected_agent, "model_settings", None),
                     )
+                    _review_evidence = review_evidence(evidence)
+                    if _capability_query and _capability_context:
+                        _review_evidence["runtime_capability_context"] = _capability_context[:6000]
                     _review_obj = await _workflow_api_call(
                         "conversation.review", _review_agent,
                         review_input(
@@ -4275,7 +4303,7 @@ class AgentRuntime:
                             plan=api_plan or {},
                             answer=str(_candidate.get("content") or
                                        _candidate.get("summary") or ""),
-                            evidence=review_evidence(evidence),
+                            evidence=_review_evidence,
                         ),
                         AnswerReview,
                     )
