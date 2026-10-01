@@ -86,6 +86,9 @@ class ConcurrentRunStressTests(unittest.TestCase):
         gate_off = mock.patch.dict(os.environ, {"FORGE_OBLIGATION_GATE": "off"})
         gate_off.start()
         self.addCleanup(gate_off.stop)
+        approval_on = mock.patch.dict(os.environ, {"APPROVAL": "on"})
+        approval_on.start()
+        self.addCleanup(approval_on.stop)
 
     def tearDown(self) -> None:
         runtime_execution.execute_turn = self._orig_execute

@@ -405,7 +405,8 @@ class RunTurnCompletionGateTests(unittest.TestCase):
             result = h.run("查询不了你有什么插件吗？")
             self.assertTrue(result.ok)
             self.assertEqual(result.task.state, TaskState.COMPLETED)
-            self.assertEqual(h.agent_tool_counts, [0])
+            self.assertTrue(h.agent_tool_counts)
+            self.assertTrue(all(count == 0 for count in h.agent_tool_counts))
             route = next(
                 event for event in h.manager.list_events(result.task.id)
                 if event.event_type == "routing.profile_selected"
@@ -455,7 +456,8 @@ class RunTurnCompletionGateTests(unittest.TestCase):
         # Phase 5：repaired 后模型给出 questions → Run 暂停 WAITING_USER。
         self.assertEqual(result.task.state, TaskState.WAITING_USER)
         self.assertEqual(len(h.calls), 2)
-        self.assertIn("请基于实际情况重新回答", h.calls[1])
+        recovery = json.loads(h.calls[1]).get("runtime_recovery_note", "")
+        self.assertIn("请基于实际情况重新回答", recovery)
         types = self._events(h, result.task.id)
         self.assertIn("completion.check.rejected", types)
         self.assertIn("completion.check.passed", types)

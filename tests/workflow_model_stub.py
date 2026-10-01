@@ -35,6 +35,21 @@ def workflow_model_stub(execute_fake: Callable[..., Any]) -> Callable[..., Any]:
                 "context_requirements": [],
                 "questions": [],
             }, ensure_ascii=False)
+        if name == "FORGE 工具候选筛选":
+            # Runtime workflow tests exercise execution policy and evidence,
+            # not selector quality. Return the registered catalog as the
+            # candidate set so a new LangGraph stage never consumes a test's
+            # scripted execution response or accidentally hides its tool.
+            try:
+                catalog = json.loads(message).get("registered_tools") or []
+            except (TypeError, ValueError):
+                catalog = []
+            names = [str(row.get("name") or "")[:120]
+                     for row in catalog if isinstance(row, dict) and row.get("name")]
+            return json.dumps({
+                "tool_names": names,
+                "rationale": "测试桩保留注册工具候选，Runtime 仍负责授权与执行门。",
+            }, ensure_ascii=False)
         if name == "FORGE 结果复核":
             return json.dumps({
                 "verdict": "complete", "gaps": [], "supplement_prompt": "",

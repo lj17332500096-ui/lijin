@@ -8,10 +8,12 @@
 """
 import asyncio
 import json
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import runtime.execution as runtime_execution
@@ -161,7 +163,11 @@ class GateOrderTests(unittest.TestCase):
         h = _GateHarness([_make_tool("run_python", executed)])
         try:
             self._seed_terminalize(h)
-            out = h.call("run_python", {"code": "print(1)"}, status=None)
+            # The developer machine may intentionally set APPROVAL=off in its
+            # ignored .env. This gate-order test specifically verifies that an
+            # enabled approval gate runs before convergence.
+            with patch.dict(os.environ, {"APPROVAL": "on"}):
+                out = h.call("run_python", {"code": "print(1)"}, status=None)
             # 审批/策略门先于 convergence：不得因为收敛而放行或改成普通失败。
             # 可能是 pending approval（等待审批）或策略直接拒绝——两者都由审批/策略层决定，
             # 关键是不能落到 convergence 分支，且绝不真实执行。
