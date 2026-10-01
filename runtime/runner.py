@@ -3788,6 +3788,9 @@ class AgentRuntime:
                 _repair = int(_state.get("execution_attempts", 0))
                 attempt_text = str(_state.get("retry_instruction") or message)
                 gate.begin(task.id, channel=channel)
+                _execution_activity = current_activity()
+                if _execution_activity:
+                    _execution_activity.set_phase("执行任务")
                 # Phase 38: auto-execute approved but unexecuted invocations on resume
                 if task_id is not None:
                     try:

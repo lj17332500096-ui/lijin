@@ -128,6 +128,7 @@ class StatusHeader(Static):
         self._model_name: str = ""
         self._tool_count: int = 0
         self._run_state: str = "idle"
+        self._phase_label: str = ""
         self._elapsed: str = ""
         self._width: int = 120  # 默认宽屏
         self._text = self._build_text()
@@ -160,6 +161,8 @@ class StatusHeader(Static):
             "needs_user": "? 需要你处理",
             "cancelled": "■ 已取消",
         }.get(state, "· 状态更新")
+        if state == "running" and self._phase_label:
+            state_label = f"◌ {self._phase_label}"
 
         # 始终保留：FORGE + session + state
         w = self._width
@@ -190,10 +193,24 @@ class StatusHeader(Static):
             pass  # widget 未挂载或无活跃 app，_text 已更新，下次挂载时生效
 
     def set_state(self, state: str, elapsed: str = "") -> None:
+        if state != "running":
+            self._phase_label = ""
         self._run_state = state
         if elapsed:
             self._elapsed = elapsed
         self._refresh()
+
+    def set_phase(self, phase: str | None) -> None:
+        """Show the current Runtime phase in place of the generic running label."""
+        label = str(phase or "").strip()[:16]
+        if label == self._phase_label:
+            return
+        self._phase_label = label
+        self._refresh()
+
+    @property
+    def phase_label(self) -> str:
+        return self._phase_label
 
     def set_model(self, model: str) -> None:
         self._model_name = model

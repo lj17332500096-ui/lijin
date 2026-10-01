@@ -85,6 +85,18 @@ def test_header_height_single_line():
     assert "\n" not in t.plain
 
 
+def test_header_shows_runtime_phase_and_clears_it():
+    header = StatusHeader("phase_test")
+    header.set_state("running")
+    header.set_phase("筛选工具")
+    assert "筛选工具" in header._build_text().plain
+    header.set_phase("")
+    assert "运行中" in header._build_text().plain
+    header.set_phase("复核结果")
+    header.set_state("idle")
+    assert "复核结果" not in header._build_text().plain
+
+
 def test_header_all_states_render():
     header = StatusHeader("test")
     for state, label in (("idle", "就绪"), ("running", "运行中"),
@@ -1232,5 +1244,24 @@ def test_streamed_content_not_duplicated_in_render_result():
             app._stream_item = None
             app._streamed_this_turn = False
             assert app._streamed_this_turn is False
+
+    asyncio.run(_run())
+
+
+def test_tui_displays_live_runtime_phase_events():
+    async def _run():
+        app = ForgeTuiApp(session_name="phase_display")
+        async with app.run_test(size=(120, 30)):
+            await asyncio.sleep(0)
+            header = app.query_one(TuiPanels).header
+            header.set_state("running")
+            app._on_tui_event("activity", {
+                "type": "phase.started", "metadata": {"phase": "分析请求"},
+            })
+            assert "分析请求" in header._build_text().plain
+            app._on_tui_event("activity", {
+                "type": "phase.completed", "metadata": {"phase": "分析请求"},
+            })
+            assert "运行中" in header._build_text().plain
 
     asyncio.run(_run())

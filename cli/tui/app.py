@@ -1942,6 +1942,11 @@ class ForgeTuiApp(App):
                 meta = payload.get("metadata") or {}
                 delta = str(meta.get("delta") or "")
                 if delta:
+                    header = self._header()
+                    # The reviewed answer streams after the review phase. Keep
+                    # any active execution phase if intermediate text arrives.
+                    if header.phase_label in ("", "复核结果"):
+                        header.set_phase("生成答复")
                     if self._stream_item is None:
                         self._stream_item = msglog.stream_start()
                     msglog.stream_chunk(delta)
@@ -1953,7 +1958,16 @@ class ForgeTuiApp(App):
                 aid = str(payload.get("activity_id") or "")
                 label = str(meta.get("label") or etype)
 
-                if etype == "tool.started":
+                if etype == "phase.started":
+                    self._header().set_phase(str(meta.get("phase") or ""))
+
+                elif etype == "phase.completed":
+                    completed_phase = str(meta.get("phase") or "")
+                    header = self._header()
+                    if header.phase_label == completed_phase:
+                        header.set_phase("")
+
+                elif etype == "tool.started":
                     if not aid:
                         return
                     if self._tool_group is None:
