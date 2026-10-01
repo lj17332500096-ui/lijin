@@ -6,6 +6,7 @@ from pathlib import Path
 from agents import Agent, ModelSettings
 from agents.models.openai_provider import OpenAIProvider
 from dotenv import load_dotenv
+from runtime_paths import PROJECT_ROOT
 
 from code_exec import (
     list_code_files,
@@ -61,6 +62,9 @@ load_dotenv(BASE_DIR / ".env")
 # 技能（.env 的 SKILLS= 启用）：工具进入 Runtime；完整指令按需读取
 SKILL_TOOLS = skills_loader.collect_skill_tools()
 SKILL_CATALOG_BLOCK = skills_loader.catalog_prompt_block()
+_SYSTEM_PROMPT_ADDENDUM = (
+    PROJECT_ROOT / "config" / "prompts" / "forge_system_prompt.md"
+).read_text(encoding="utf-8").strip()
 
 
 def build_model_provider() -> "ResilientProvider | None":
@@ -91,7 +95,7 @@ _ASSISTANT_INSTRUCTIONS_BASE = """
 不要向用户输出逐步思维链、内部候选方案、自我对话、冗长的"我先……然后……"、原始工具 JSON。
 执行状态由运行时生成。用户可见内容只包含当前工作、已确认事实、重要操作、简短结果、阻塞或需用户参与的信息，以及最终结果。
 可选 public_summary 默认 null；有重要新发现时仅 1–2 句、最多 120 字，描述已确认事实与下一步，不猜测、不解释工具选择原因。
-你叫「全能助手」，是用户的私人全能 AI 助理。使命：把用户日常大大小小的事情办妥——查资料、读文档、算东西、写备忘与产出文件、制定方案与计划、安排定时任务，并把用户的长期偏好记在心里。
+你是「FORGE · 砺行」，是用户的私人智能体。使命：把用户交办的事情办妥——查资料、读文档、算东西、写备忘与产出文件、制定方案与计划、安排定时任务，并在授权范围内持续协作。
 
 工作方式：
 1. 先理解用户真正要的结果，再选择最短可行路径。简单、明确、低风险的请求（计算、解释、天气、查一个事实、写一段代码）直接完成，不先展示计划，不问“要不要继续”，不把可选偏好当作阻塞条件。仅当缺少的信息会导致事实错误、目标无法区分或不可逆/高影响副作用时才提问；能安全查到的先自己查。需要澄清时，一次问完所有关键项，最多 1-3 个简短具体问题；用户答复后立即继续，不重复确认已答字段。不要为了避免承担判断而反复追问。
@@ -223,7 +227,7 @@ def _build_assistant_agent(model: str | None = None):
     """构造网关侧 Agent（仅注入轻量 Skill 目录，完整说明按需加载）。"""
     instructions = _ASSISTANT_INSTRUCTIONS_BASE.replace(
         "__SKILLS_BLOCK__", SKILL_CATALOG_BLOCK
-    )
+    ).rstrip() + "\n\n" + _SYSTEM_PROMPT_ADDENDUM
     return Agent(
         name="全能助手",
         model=model,
@@ -334,6 +338,25 @@ def gateway_assistant_agent():
 MODEL_PROVIDER = gateway_model_provider()
 assistant_agent = gateway_assistant_agent()
 
+_ASSISTANT_AGENT_OVERRIDE = None
+
+
+def set_assistant_agent_override(agent):
+    """Set a process-local CLI override (for example, --no-guardrails)."""
+    global _ASSISTANT_AGENT_OVERRIDE
+    _ASSISTANT_AGENT_OVERRIDE = agent
+
+
+def current_assistant_agent():
+    """Return the active Agent without making Runtime depend on the CLI module."""
+    current = gateway_assistant_agent()
+    if _ASSISTANT_AGENT_OVERRIDE is not None:
+        return _ASSISTANT_AGENT_OVERRIDE
+    if (not getattr(current, "input_guardrails", None)
+            or not getattr(current, "output_guardrails", None)):
+        return assistant_agent
+    return current
+
 
 def refresh_enabled_skills() -> dict[str, object]:
     """Rescan currently enabled local Skills and refresh live Agent instances.
@@ -344,9 +367,20 @@ def refresh_enabled_skills() -> dict[str, object]:
     global SKILL_TOOLS, SKILL_CATALOG_BLOCK
 
     previous_block = SKILL_CATALOG_BLOCK
-    skills_loader.reload_enabled_config()
-    refreshed_tools = skills_loader.collect_skill_tools()
-    refreshed_block = skills_loader.catalog_prompt_block()
+    try:
+        skills_loader.reload_enabled_config()
+        refreshed_tools = skills_loader.collect_skill_tools()
+        refreshed_block = skills_loader.catalog_prompt_block()
+    except Exception as exc:
+        error = f"Skill 刷新失败：{type(exc).__name__}: {str(exc)[:200]}"
+        errors = list(getattr(skills_loader, "_last_errors", []) or []) + [error]
+        return {
+            "enabled_skills": skills_loader.enabled_names(),
+            "registered_skill_tools": [tool.name for tool in SKILL_TOOLS],
+            "errors": errors,
+            "runtime_refreshed": False,
+            "runtime_error": error,
+        }
     targets = []
     for target in (assistant_agent, gateway_assistant_agent()):
         if target is not None and all(target is not item for item in targets):

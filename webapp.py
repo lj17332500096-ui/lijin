@@ -25,7 +25,9 @@ from __future__ import annotations
 import argparse
 import base64
 import hmac
+import json
 import os
+import re
 import sys
 import webbrowser
 from pathlib import Path
@@ -122,19 +124,33 @@ class UiAuthMiddleware:
             await self.app(scope, receive, send)
             return
         expected = getattr(state, "ui_api_token", "")
+        tokens = getattr(state, "ui_api_tokens", None) or {}
+        if not tokens and expected:
+            tokens = {"default": expected}
         headers = {key.lower(): value for key, value in scope.get("headers", [])}
         authorization = headers.get(b"authorization", b"").decode("latin-1").strip()
+        principal = ""
         supplied = ""
         if authorization.lower().startswith("bearer "):
             supplied = authorization[7:].strip()
+            for candidate, token in tokens.items():
+                if hmac.compare_digest(supplied, token):
+                    principal = candidate
         elif authorization.lower().startswith("basic "):
             try:
                 credentials = base64.b64decode(authorization[6:].strip(), validate=True).decode("utf-8")
-                _username, separator, password = credentials.partition(":")
+                username, separator, password = credentials.partition(":")
                 supplied = password if separator else ""
+                candidate = username.strip()
+                if candidate in tokens and hmac.compare_digest(supplied, tokens[candidate]):
+                    principal = candidate
+                elif candidate not in tokens and "default" in tokens and hmac.compare_digest(
+                        supplied, tokens["default"]):
+                    # Preserve legacy Basic auth where the username was cosmetic.
+                    principal = "default"
             except (ValueError, UnicodeDecodeError):
                 supplied = ""
-        if not expected or not supplied or not hmac.compare_digest(supplied, expected):
+        if not supplied or not principal:
             response = JSONResponse(
                 {"error": {"message": "需要有效的 Bearer token", "code": "unauthorized"}},
                 status_code=401,
@@ -142,6 +158,7 @@ class UiAuthMiddleware:
             )
             await response(scope, receive, send)
             return
+        scope.setdefault("state", {})["forge_principal"] = principal
         await self.app(scope, receive, send)
 
 
@@ -173,6 +190,7 @@ app.add_middleware(UiAuthMiddleware)
 #: 非回环监听必须显式 opt-in：本进程暴露会执行工具 / 跑 agent turn 的端点。
 ALLOW_NONLOCAL_ENV = "FORGE_ALLOW_NONLOCAL_UI"
 UI_API_TOKEN_ENV = "FORGE_UI_API_TOKEN"
+UI_API_TOKENS_ENV = "FORGE_UI_API_TOKENS"
 _MIN_UI_API_TOKEN_LENGTH = 32
 _TRUTHY = {"1", "true", "yes", "on", "y"}
 
@@ -190,6 +208,29 @@ def _is_loopback_host(host: str) -> bool:
         return ipaddress.ip_address(h).is_loopback
     except ValueError:
         return False
+
+
+def _configured_ui_tokens() -> dict[str, str]:
+    """Load named remote principals; retain the single-token legacy principal."""
+    tokens: dict[str, str] = {}
+    raw = os.getenv(UI_API_TOKENS_ENV, "").strip()
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return {}
+        if not isinstance(parsed, dict):
+            return {}
+        for name, token in parsed.items():
+            principal = str(name).strip()
+            secret = str(token).strip()
+            if (re.fullmatch(r"[A-Za-z0-9._-]{1,64}", principal)
+                    and len(secret) >= _MIN_UI_API_TOKEN_LENGTH):
+                tokens[principal] = secret
+    legacy = os.getenv(UI_API_TOKEN_ENV, "").strip()
+    if len(legacy) >= _MIN_UI_API_TOKEN_LENGTH:
+        tokens.setdefault("default", legacy)
+    return tokens
 
 
 def main() -> None:
@@ -222,19 +263,22 @@ def main() -> None:
                 file=sys.stderr,
             )
             raise SystemExit(2)
-        token = os.getenv(UI_API_TOKEN_ENV, "")
-        if len(token) < _MIN_UI_API_TOKEN_LENGTH:
+        tokens = _configured_ui_tokens()
+        if not tokens:
             print(
-                f"[UI] 拒绝非回环启动：必须设置至少 {_MIN_UI_API_TOKEN_LENGTH} 个字符的 "
-                f"{UI_API_TOKEN_ENV}；网页与 API 请求都需要 Bearer 认证。",
+                f"[UI] 拒绝非回环启动：必须设置 {UI_API_TOKEN_ENV}（至少 "
+                f"{_MIN_UI_API_TOKEN_LENGTH} 个字符）或有效的 {UI_API_TOKENS_ENV}；"
+                "网页与 API 请求都需要认证。",
                 file=sys.stderr,
             )
             raise SystemExit(2)
         app.state.require_ui_auth = True
-        app.state.ui_api_token = token
+        app.state.ui_api_tokens = tokens
+        app.state.ui_api_token = tokens.get("default", "")
     else:
         app.state.require_ui_auth = False
         app.state.ui_api_token = ""
+        app.state.ui_api_tokens = {}
 
     for stream in (sys.stdout, sys.stderr):
         try:

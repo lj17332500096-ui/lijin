@@ -1948,7 +1948,7 @@ class AgentRuntime:
     ) -> Any:
         """模型档位 + 动态工具子集的最终 Agent（Tool Router 默认开启）。"""
         self._ensure()
-        from main import current_assistant_agent  # 延迟导入，避免循环
+        from agent import current_assistant_agent  # provider-facing agent factory
 
         route_decision_id = str(__import__("uuid").uuid4())
         message_hash = __import__("hashlib").sha256(
@@ -1985,7 +1985,8 @@ class AgentRuntime:
                     json.dumps(capability_plan, ensure_ascii=False)
                 )
                 try:
-                    if self.tasks is not None:
+                    if (self.tasks is not None
+                            and not (run_id in self._cancel_requested)):
                         router_authority = (
                             "runtime_capability_inventory" if route_mode.startswith("capability_inventory")
                             else "keyword_tool_router" if route_mode.startswith("keyword_router")
@@ -2788,7 +2789,7 @@ class AgentRuntime:
                                local_model_name as _lm_name,
                                local_model_provider as _lm_provider,
                                gateway_model_provider as _gw_provider)
-            from main import current_assistant_agent as _current_agent
+            from agent import current_assistant_agent as _current_agent
 
             model_pref = os.getenv("FORGE_MODEL_PREF", "").strip().lower() or "gateway"
             base_agent = _current_agent()
@@ -2800,19 +2801,25 @@ class AgentRuntime:
             else:
                 # 网关路径：动态获取 Provider（env 变化时自动重建）
                 run_provider = _gw_provider()
-            selected_agent = self.route_agent(message or task.goal, channel=channel, profile=profile,
-                                              base_agent=base_agent, run_id=task.id)
+            selected_agent = await asyncio.to_thread(
+                self.route_agent, message or task.goal, channel=channel, profile=profile,
+                base_agent=base_agent, run_id=task.id,
+            )
         except Exception:
             try:
-                from main import current_assistant_agent as _current_agent
+                from agent import current_assistant_agent as _current_agent
 
-                selected_agent = self.route_agent(message or task.goal, channel=channel, profile=profile,
-                                                  base_agent=_current_agent(), run_id=task.id)
+                selected_agent = await asyncio.to_thread(
+                    self.route_agent, message or task.goal, channel=channel, profile=profile,
+                    base_agent=_current_agent(), run_id=task.id,
+                )
             except Exception:
-                selected_agent = self.route_agent(message or task.goal, channel=channel, profile=profile,
-                                                  run_id=task.id)
+                selected_agent = await asyncio.to_thread(
+                    self.route_agent, message or task.goal, channel=channel, profile=profile,
+                    run_id=task.id,
+                )
         # TUI 是本地可信消费者：允许把中间文本以 assistant_delta 实时转发给它渲染
-        # （main._run_attempt 只在 agent._public_stream=True 时才这么做）。
+        # （runtime.execution._run_attempt 只在 agent._public_stream=True 时才这么做）。
         # 其余通道（Web SSE 等外部消费者）保持私有，中间推理文本不进公开事件流。
         # 用 clone 打标记，避免污染 route_agent 的 _agent_cache 缓存对象。
         try:

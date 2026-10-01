@@ -71,6 +71,22 @@ class LoaderTests(unittest.TestCase):
                 self.assertFalse(marker.exists())
                 self.assertTrue(any("符号链接" in err for err in skills_loader._last_errors))
 
+    def test_skill_refresh_failure_is_reported_without_throwing(self) -> None:
+        import agent
+
+        previous_tools = list(agent.SKILL_TOOLS)
+        previous_block = agent.SKILL_CATALOG_BLOCK
+        try:
+            with patch.object(skills_loader, "reload_enabled_config", side_effect=OSError("fixture scan failure")):
+                result = agent.refresh_enabled_skills()
+            self.assertFalse(result["runtime_refreshed"])
+            self.assertTrue(any("fixture scan failure" in error for error in result["errors"]))
+            self.assertEqual(agent.SKILL_TOOLS, previous_tools)
+            self.assertEqual(agent.SKILL_CATALOG_BLOCK, previous_block)
+        finally:
+            agent.SKILL_TOOLS = previous_tools
+            agent.SKILL_CATALOG_BLOCK = previous_block
+
 
 if __name__ == "__main__":
     unittest.main()

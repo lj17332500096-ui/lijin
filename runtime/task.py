@@ -71,7 +71,8 @@ class TaskUsage:
     failures: int = 0
     input_tokens: int = 0
     output_tokens: int = 0
-    cost_usd: float = 0.0
+    # None means pricing is unavailable; zero is reserved for a known zero-cost call.
+    cost_usd: float | None = None
 
     def tokens_total(self) -> int:
         """累计 input + output token（④ 成本闸门的记账口径）。"""

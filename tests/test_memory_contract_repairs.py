@@ -124,6 +124,28 @@ class MemoryContractTests(unittest.TestCase):
 
         self.assertEqual(EpisodeStore(self.db).stats()["total"], 1)
 
+    def test_episode_database_busy_does_not_roll_back_terminal_run_state(self) -> None:
+        run = self.manager.create_task("episode-busy", "读取 README 并总结")
+        self.manager.transition(run.id, TaskState.RUNNING, reason="test")
+        self.manager.transition(run.id, TaskState.COMPLETED, reason="test")
+        with (
+            patch.dict("os.environ", {"FORGE_MEMORY_ENABLED": "1", "EPISODE_INGEST": "1"}),
+            patch.object(EpisodeStore, "ingest_pending", side_effect=__import__("sqlite3").OperationalError("database is locked")),
+        ):
+            event = self.manager.add_terminal_event(
+                run.id, TaskState.COMPLETED,
+                {"kind": "completed", "state": "completed", "error": ""},
+            )
+        self.assertEqual(event.event_type, "run.terminal")
+        self.assertEqual(self.manager.get_task(run.id).state, TaskState.COMPLETED)
+
+    def test_corrupt_episode_database_fails_closed_as_no_recall(self) -> None:
+        corrupt = Path(self.temp.name) / "corrupt-episodes.db"
+        corrupt.write_bytes(b"not a sqlite database")
+        from runtime.episode_recall import recall
+
+        self.assertEqual(recall("读取 README 并总结", store=EpisodeStore(corrupt)), [])
+
 
 if __name__ == "__main__":
     unittest.main()

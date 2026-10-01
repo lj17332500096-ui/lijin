@@ -1216,7 +1216,7 @@ class TaskManager:
         self.add_event(task_id, "task.failed", {"error": str(error)[:400]})
         return self.get_task(task_id) or task
 
-    def update_usage(self, task_id: str, **fields: int | float) -> None:
+    def update_usage(self, task_id: str, **fields: int | float | None) -> None:
         allowed = {"turns", "tool_calls", "failures", "input_tokens", "output_tokens", "cost_usd"}
         updates = {k: v for k, v in fields.items() if k in allowed}
         if not updates:
@@ -1232,7 +1232,7 @@ class TaskManager:
             "output_tokens": task.usage.output_tokens,
             "cost_usd": task.usage.cost_usd,
         }
-        usage.update({k: (float(v) if k == "cost_usd" else int(v))
+        usage.update({k: (None if v is None else float(v)) if k == "cost_usd" else int(v)
                       for k, v in updates.items()})
         with self._connect() as conn:
             conn.execute(
@@ -2236,7 +2236,7 @@ class TaskManager:
             failures=int(usage.get("failures", 0) or 0),
             input_tokens=int(usage.get("input_tokens", 0) or 0),
             output_tokens=int(usage.get("output_tokens", 0) or 0),
-            cost_usd=float(usage.get("cost_usd", 0.0) or 0.0),
+            cost_usd=(float(usage["cost_usd"]) if usage.get("cost_usd") is not None else None),
         )
         task.metadata = load_json(row["metadata_json"], {}) or {}
         return task

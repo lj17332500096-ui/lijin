@@ -34,6 +34,7 @@ if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
 from starlette.applications import Starlette  # noqa: E402
+from starlette.requests import Request  # noqa: E402
 from starlette.routing import Route  # noqa: E402
 from starlette.testclient import TestClient  # noqa: E402
 
@@ -548,12 +549,103 @@ class StreamCacheBudgetTests(unittest.TestCase):
         self.assertGreater(second.base_offset, 0)
 
     def test_expired_byte_offset_returns_410(self) -> None:
-        stream = lb._stream_open("conversation", "run-expired")
+        owner_request = Request({"type": "http", "headers": [], "client": ("testclient", 50000),
+                                 "method": "GET", "path": "/", "query_string": b""})
+        owner_id = lb._request_principal(owner_request)
+        stream = lb._stream_open("conversation", "run-expired", owner_id)
         stream.publish("x" * 20)
         with TestClient(_make_app()) as client:
             response = client.get(f"/v1/stream?conv_id={stream.key}&from=0")
         self.assertEqual(response.status_code, 410)
         self.assertEqual(response.json()["error"]["code"], "stream_offset_expired")
+
+
+class RemoteOwnershipTests(unittest.TestCase):
+    def _remote_client(self, principal_tokens):
+        import webapp
+
+        app = _make_app()
+        app.state.require_ui_auth = True
+        app.state.ui_api_tokens = principal_tokens
+        app.state.ui_api_token = ""
+        app.add_middleware(webapp.UiAuthMiddleware)
+        return TestClient(app)
+
+    def test_named_remote_tokens_parse_to_distinct_principals(self) -> None:
+        import webapp
+
+        env = {
+            webapp.UI_API_TOKENS_ENV: '{"alice":"' + "a" * 40 + '","bob":"' + "b" * 40 + '"}',
+            webapp.UI_API_TOKEN_ENV: "",
+        }
+        with mock.patch.dict(os.environ, env, clear=False):
+            self.assertEqual(set(webapp._configured_ui_tokens()), {"alice", "bob"})
+
+    def test_remote_run_control_uses_authenticated_owner_not_body_label(self) -> None:
+        operator = "operator-secret-" + "o" * 32
+        other = "other-secret-" + "x" * 32
+        lb._remember_run_owner("owned-run", "remote-operator")
+        client = self._remote_client({"operator": operator, "other": other})
+        from runtime.runner import AgentRuntime
+        foreign_runtime = mock.Mock()
+        foreign_runtime.cancel_run.return_value = True
+        try:
+            with mock.patch.object(AgentRuntime, "get_default", return_value=foreign_runtime) as get_runtime:
+                denied = client.post(
+                    "/v1/chat/completions/control",
+                    headers={"Authorization": "Bearer " + other},
+                    json={"run_id": "owned-run", "user_id": "operator"},
+                )
+                self.assertEqual(denied.status_code, 404)
+                get_runtime.assert_not_called()
+                allowed = client.post(
+                    "/v1/chat/completions/control",
+                    headers={"Authorization": "Bearer " + operator},
+                    json={"run_id": "owned-run", "user_id": "other"},
+                )
+                self.assertEqual(allowed.status_code, 200)
+                self.assertTrue(allowed.json()["cancelled"])
+                foreign_runtime.cancel_run.assert_called_once_with("owned-run")
+        finally:
+            with lb._RUN_OWNER_LOCK:
+                lb._RUN_OWNERS.pop("owned-run", None)
+
+    def test_remote_stream_lookup_and_resume_are_owner_scoped(self) -> None:
+        operator = "operator-secret-" + "o" * 32
+        other = "other-secret-" + "x" * 32
+        stream = lb._stream_open("private-conversation", "private-run", "remote-operator")
+        stream.publish("data: private\n\n")
+        stream.finish()
+        client = self._remote_client({"operator": operator, "other": other})
+        try:
+            lookup = client.post(
+                "/v1/streams/lookup",
+                headers={"Authorization": "Bearer " + other},
+                json={"conversation_ids": [stream.key, "private-conversation"], "user_id": "operator"},
+            )
+            self.assertEqual(lookup.json(), [])
+            resume = client.get(
+                "/v1/stream", params={"conv_id": stream.key, "from": 0},
+                headers={"Authorization": "Bearer " + other},
+            )
+            self.assertEqual(resume.status_code, 404)
+            denied_delete = client.delete(
+                "/v1/stream", params={"conv_id": stream.key},
+                headers={"Authorization": "Bearer " + other},
+            )
+            self.assertFalse(denied_delete.json()["cancelled"])
+            owner_resume = client.get(
+                "/v1/stream", params={"conv_id": "private-conversation", "from": 0},
+                headers={"Authorization": "Bearer " + operator},
+            )
+            self.assertEqual(owner_resume.status_code, 200)
+            self.assertIn("private", owner_resume.text)
+        finally:
+            with lb._STREAM_LOCK:
+                lb._STREAMS.pop(stream.key, None)
+                for alias, key in list(lb._STREAM_ALIAS.items()):
+                    if key == stream.key:
+                        lb._STREAM_ALIAS.pop(alias, None)
 
 
 if __name__ == "__main__":

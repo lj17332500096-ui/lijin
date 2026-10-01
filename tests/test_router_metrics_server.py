@@ -12,6 +12,7 @@ import sys
 import threading
 import time
 import unittest
+from unittest import mock
 import urllib.request
 from pathlib import Path
 
@@ -76,6 +77,13 @@ class StartMetricsThreadTests(unittest.TestCase):
         self.assertIn("# HELP", body)
         self.assertIn("# TYPE", body)
         self.assertIn("forge_router_total_calls_total", body)
+
+    def test_empty_run_latency_is_not_reported_as_zero(self) -> None:
+        with mock.patch.object(self.mod, "_read_run_latency",
+                               return_value={"count": 0, "p50_ms": None, "p95_ms": None}):
+            body = self.mod.render_prometheus()
+        self.assertIn("forge_run_latency_p95_ms NaN", body)
+        self.assertIn("forge_run_latency_samples 0", body)
 
     def test_health_endpoint_json(self) -> None:
         port = _find_free_port()

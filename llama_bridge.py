@@ -145,7 +145,7 @@ def _model_name() -> str:
 
 
 def _sessions_db() -> str:
-    from main import SESSIONS_DB
+    from runtime.session_storage import SESSIONS_DB
     return str(SESSIONS_DB)
 
 
@@ -191,6 +191,14 @@ def _user_id_from_request(request: Request, payload: dict | None = None) -> str:
         _user_id_from_request._ip_salt = uuid.uuid4().hex[:8]
     ip = request.client.host if request.client else "unknown"
     return f"ip-{_user_id_from_request._ip_salt}-{_sanitize_user(ip)}"
+
+
+def _request_principal(request: Request, payload: dict | None = None) -> str:
+    """Return verified remote identity, or a local session label in loopback mode."""
+    authenticated = getattr(getattr(request, "state", None), "forge_principal", None)
+    if authenticated:
+        return "remote-" + _sanitize_user(str(authenticated))
+    return "local-" + _user_id_from_request(request, payload)
 
 
 def _session_id_for(user: str, model: str) -> str:
@@ -322,11 +330,12 @@ async def api_stream_lookup(request: Request) -> Response:
     ids = body.get("conversation_ids") if isinstance(body, dict) else None
     if not isinstance(ids, list):
         ids = []
+    owner_id = _request_principal(request, body)
     out: list[dict[str, Any]] = []
     with _STREAM_LOCK:
         _stream_prune_locked()
         for raw in ids:
-            st = _stream_find_locked(str(raw))
+            st = _stream_find_locked(str(raw), owner_id)
             if st is None or st.done:
                 continue
             out.append({
@@ -353,8 +362,9 @@ async def api_stream_resume(request: Request) -> Response:
     stream 状态；若这里也回 200，前端会误以为「服务端仍有流」而反复挂载。
     """
     key = request.query_params.get("conv_id") or ""
+    owner_id = _request_principal(request)
     if request.method == "DELETE":
-        st = _stream_find(key)
+        st = _stream_find(key, owner_id)
         if st is None:
             return JSONResponse({"ok": True, "cancelled": False,
                                  "note": "no such stream"})
@@ -368,7 +378,7 @@ async def api_stream_resume(request: Request) -> Response:
         return JSONResponse({"ok": True, "cancelled": cancelled,
                              "run_id": st.run_id})
 
-    st = _stream_find(key)
+    st = _stream_find(key, owner_id)
     if st is None:
         # 统一错误信封（C3）；conv_id 作为附加上下文保留（前端也会读它做清理判断）。
         return _error(request, 404, "no such stream", code="stream_not_found", conv_id=key)
@@ -427,9 +437,9 @@ async def api_tools_execute(request) -> Response:
         return _error(request, 409, reason, code="tool_requires_agent_run")
 
     try:
+        principal = _request_principal(request, body)
         invocation = await rt.execute_readonly_api_tool(
-            tool, params, session_id=f"api-tool-{_user_id_from_request(request, body)}",
-            user_id=_user_id_from_request(request, body),
+            tool, params, session_id=f"api-tool-{principal}", user_id=principal,
         )
     except Exception as e:
         # 200 + plain_text_response：成功与失败都走文本结果，保持前端既有契约。
@@ -464,7 +474,7 @@ async def _run_chat_turn(message: str, payload: dict, request: Request | None, u
     - 登记 run_id 供 /control 真实取消（③）
     """
     from agents.memory import SQLiteSession
-    from main import SESSIONS_DB
+    from runtime.session_storage import SESSIONS_DB
     from runtime.runner import AgentRuntime
 
     rt = AgentRuntime.get_default()
@@ -477,6 +487,7 @@ async def _run_chat_turn(message: str, payload: dict, request: Request | None, u
 
     run_id = uuid.uuid4().hex[:16]
     queue: asyncio.Queue = asyncio.Queue()
+    _remember_run_owner(run_id, user)
 
     def _cb(channel, event):
         """RunActivityProjector._send(channel, event) 回调。
@@ -529,6 +540,7 @@ async def _run_chat_turn(message: str, payload: dict, request: Request | None, u
                 pass
 
     task = rt.spawn_run_task(run_id, _bg())
+    task.add_done_callback(lambda _task, rid=run_id: _mark_run_owner_finished(rid))
     return run_id, session_id, queue, task
 
 
@@ -565,17 +577,55 @@ _STREAMS: dict[str, "_ConvStream"] = {}
 _STREAM_ALIAS: dict[str, str] = {}  # 裸 conv 前缀 → 实际 key（容忍 ::model 差异）
 _STREAM_LOCK = threading.Lock()
 _PUMP_TASKS: set[asyncio.Task] = set()
+_RUN_OWNER_RETENTION_SECONDS = 300.0
+_RUN_OWNER_MAX_ENTRIES = 4096
+_RUN_OWNERS: dict[str, tuple[str, float | None]] = {}
+_RUN_OWNER_LOCK = threading.Lock()
+
+
+def _prune_run_owners_locked(now: float) -> None:
+    expired = [run_id for run_id, (_owner, expiry) in _RUN_OWNERS.items()
+               if expiry is not None and expiry <= now]
+    for run_id in expired:
+        _RUN_OWNERS.pop(run_id, None)
+    if len(_RUN_OWNERS) > _RUN_OWNER_MAX_ENTRIES:
+        finished = sorted(((expiry, run_id) for run_id, (_owner, expiry)
+                           in _RUN_OWNERS.items() if expiry is not None))
+        for _expiry, run_id in finished[:len(_RUN_OWNERS) - _RUN_OWNER_MAX_ENTRIES]:
+            _RUN_OWNERS.pop(run_id, None)
+
+
+def _remember_run_owner(run_id: str, owner_id: str) -> None:
+    with _RUN_OWNER_LOCK:
+        _prune_run_owners_locked(time.time())
+        _RUN_OWNERS[run_id] = (owner_id, None)
+
+
+def _mark_run_owner_finished(run_id: str) -> None:
+    with _RUN_OWNER_LOCK:
+        current = _RUN_OWNERS.get(run_id)
+        if current is not None:
+            _RUN_OWNERS[run_id] = (current[0], time.time() + _RUN_OWNER_RETENTION_SECONDS)
+        _prune_run_owners_locked(time.time())
+
+
+def _run_owned_by(run_id: str, owner_id: str) -> bool:
+    with _RUN_OWNER_LOCK:
+        _prune_run_owners_locked(time.time())
+        current = _RUN_OWNERS.get(run_id)
+        return bool(current and current[0] == owner_id)
 
 
 class _ConvStream:
     """单个会话的 SSE 字节缓冲，支持从任意字节偏移续读。"""
 
-    __slots__ = ("key", "run_id", "started_at", "buf", "base_offset", "done", "closed_at",
+    __slots__ = ("key", "run_id", "owner_id", "started_at", "buf", "base_offset", "done", "closed_at",
                  "_version", "_tick")
 
-    def __init__(self, key: str, run_id: str) -> None:
+    def __init__(self, key: str, run_id: str, owner_id: str = "") -> None:
         self.key = key
         self.run_id = run_id
+        self.owner_id = owner_id
         self.started_at = time.time()
         self.buf = bytearray()
         self.base_offset = 0
@@ -699,42 +749,50 @@ def _stream_prune_locked() -> None:
             _STREAM_ALIAS.pop(base, None)
 
 
-def _stream_open(key: str, run_id: str) -> _ConvStream:
+def _stream_open(key: str, run_id: str, owner_id: str = "") -> _ConvStream:
     base_key = key or "anon"
     stable_key = f"{base_key}::run:{run_id}"
-    st = _ConvStream(stable_key, run_id)
+    st = _ConvStream(stable_key, run_id, owner_id)
     with _STREAM_LOCK:
         _stream_prune_locked()
         _STREAMS[st.key] = st
         base = _base_conv_key(base_key)
         if base:
-            _STREAM_ALIAS[base] = st.key
+            _STREAM_ALIAS[_stream_alias_key(owner_id, base)] = st.key
         if base_key:
-            _STREAM_ALIAS[base_key] = st.key
+            _STREAM_ALIAS[_stream_alias_key(owner_id, base_key)] = st.key
     return st
 
 
-def _stream_find_locked(key: str) -> _ConvStream | None:
+def _stream_alias_key(owner_id: str, conversation_id: str) -> str:
+    return f"{owner_id}\0{conversation_id}" if owner_id else conversation_id
+
+
+def _stream_find_locked(key: str, owner_id: str | None = None) -> _ConvStream | None:
     """按会话标识找流（调用方须持锁）。容忍 `conv` 与 `conv::model` 两种写法。"""
     if not key:
         return None
     st = _STREAMS.get(key)
-    if st is not None:
+    if st is not None and (owner_id is None or st.owner_id == owner_id):
         return st
-    alias = _STREAM_ALIAS.get(_base_conv_key(key))
+    alias_name = _base_conv_key(key)
+    alias = _STREAM_ALIAS.get(_stream_alias_key(owner_id, alias_name)) if owner_id is not None else None
+    if alias is None and owner_id is None:
+        alias = _STREAM_ALIAS.get(alias_name)
     if alias:
         st = _STREAMS.get(alias)
-        if st is not None:
+        if st is not None and (owner_id is None or st.owner_id == owner_id):
             return st
     for candidate_key, candidate in _STREAMS.items():
-        if candidate_key.startswith(key + "::"):
+        if (candidate_key.startswith(key + "::")
+                and (owner_id is None or candidate.owner_id == owner_id)):
             return candidate
     return None
 
 
-def _stream_find(key: str) -> _ConvStream | None:
+def _stream_find(key: str, owner_id: str | None = None) -> _ConvStream | None:
     with _STREAM_LOCK:
-        return _stream_find_locked(key)
+        return _stream_find_locked(key, owner_id)
 
 
 def _spawn_pump(coro) -> asyncio.Task:
@@ -830,7 +888,7 @@ async def api_chat_completions(request) -> Response:
         )
 
     # ① session 按用户隔离：从请求头 / body 提取 user_id
-    user = _user_id_from_request(request, payload)
+    user = _request_principal(request, payload)
 
     run_id, session_id, queue, bg_task = await _run_chat_turn(message, payload, request, user)
 
@@ -876,7 +934,7 @@ async def api_chat_completions(request) -> Response:
     # 这样即便前端按 visibilitychange 逻辑 cancel 掉本次 POST，生成仍继续、
     # 缓冲继续增长，后续 GET /v1/stream 可从断点完整续读（不丢正文）。
     conv_key = _conv_key_from_request(request, payload)
-    conv_stream = _stream_open(conv_key, run_id)
+    conv_stream = _stream_open(conv_key, run_id, user)
 
     async def _pump() -> None:
         """消费 run 事件 → 转 OpenAI SSE 帧 → 写会话缓冲（与连接无关）。"""
@@ -948,9 +1006,6 @@ async def api_chat_control(request: Request) -> Response:
     guard = _require_json_content_type(request)
     if guard is not None:
         return guard
-    from runtime.runner import AgentRuntime
-    rt = AgentRuntime.get_default()
-    rt._ensure()
     body, bad = await _json_body(request, code="invalid_control_request")
     if bad is not None:
         return bad
@@ -958,6 +1013,12 @@ async def api_chat_control(request: Request) -> Response:
     if not run_id:
         # 统一错误信封（C3）。保留 ok=False 供既有调用方按旧契约判断完成度。
         return _error(request, 400, "缺少 run_id", code="missing_run_id", ok=False)
+    owner_id = _request_principal(request, body)
+    if not _run_owned_by(str(run_id), owner_id):
+        return _error(request, 404, "找不到此运行或无权操作", code="run_not_found", ok=False)
+    from runtime.runner import AgentRuntime
+    rt = AgentRuntime.get_default()
+    rt._ensure()
     cancelled = rt.cancel_run(run_id)
     return JSONResponse({
         "ok": True,

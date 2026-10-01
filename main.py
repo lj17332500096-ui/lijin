@@ -17,7 +17,8 @@ from agents.exceptions import MaxTurnsExceeded, ModelBehaviorError
 from agents.memory import SQLiteSession
 from dotenv import load_dotenv
 
-from agent import build_assistant_agent, assistant_agent, gateway_assistant_agent
+from agent import (build_assistant_agent, assistant_agent, gateway_assistant_agent,
+                   set_assistant_agent_override)
 from runtime.compact import maybe_compact
 from integrations.mcp_bridge import ensure_connected as ensure_mcp
 from runtime.observability import install_local_tracing
@@ -25,7 +26,7 @@ from runtime.runner import AgentRuntime
 from runtime.task_manager import TaskManager
 from runtime.errors import FinalResponseFailed
 from runtime_paths import LOG_DIR
-from runtime_paths import state_db_path
+from runtime.session_storage import SESSIONS_DB
 import scheduler
 from schemas import AgentReply
 
@@ -40,10 +41,6 @@ from runtime.execution import (
 
 BASE_DIR = Path(__file__).resolve().parent
 load_dotenv(BASE_DIR / ".env")
-SESSIONS_DB = state_db_path(
-    "sessions.sqlite", env_vars=("FORGE_SESSIONS_DB",),
-    legacy_path=BASE_DIR / "sessions.sqlite",
-)
 
 _KIND_LABELS = {
     "answer": "💬 回答",
@@ -301,14 +298,8 @@ def current_assistant_agent() -> object:
     动态调用 gateway_assistant_agent() 使 TUI 切模型后无需重启。
     如果 --no-guardrails 已替换过全局实例（guardrails 被关闭），仍用全局版本。
     """
-    global assistant_agent
-    import agent as _agent_mod
-    # 只有 --no-guardrails 改过全局时（guardrails 被关闭），走全局版本
-    current = gateway_assistant_agent()
-    if not getattr(current, "input_guardrails", None) or not getattr(current, "output_guardrails", None):
-        # guardrails 被关了 → 说明 --no-guardrails 生效过，用全局
-        return assistant_agent
-    return current
+    from agent import current_assistant_agent as _current
+    return _current()
 
 
 
@@ -690,6 +681,7 @@ def main() -> None:
     input_on = not (args.no_guardrails or args.no_input_guardrail)
     output_on = not (args.no_guardrails or args.no_output_guardrail)
     assistant_agent = build_assistant_agent(enable_input_guardrail=input_on, enable_output_guardrail=output_on)
+    set_assistant_agent_override(assistant_agent if not (input_on and output_on) else None)
     if not (input_on and output_on):
         status = " ｜ ".join(
             [

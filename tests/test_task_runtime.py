@@ -101,6 +101,7 @@ class TaskManagerTests(unittest.TestCase):
         self.assertEqual(restored.usage.turns, 3)
         self.assertEqual(restored.usage.tool_calls, 5)
         self.assertEqual(restored.usage.input_tokens, 100)
+        self.assertIsNone(restored.usage.cost_usd)
 
     def test_write_ahead_result_retains_bounded_search_evidence(self) -> None:
         task = self.manager.create_task("s1", "external search")

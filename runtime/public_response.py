@@ -15,7 +15,7 @@ content 直接回答问题，分段书写。禁止推理链、思考过程、候
 
 
 async def stream_final(canonical, agent, provider, activity, audit=None):
-    from main import _run_attempt, _run_config
+    from runtime.execution import _run_attempt, _run_config
 
     final_agent = agent.clone(tools=[], handoffs=[], input_guardrails=[], output_guardrails=[],
                               instructions=FINAL_INSTRUCTIONS, output_type=None)
