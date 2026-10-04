@@ -907,14 +907,19 @@ async def api_chat_completions(request) -> Response:
             return _error(request, 500, ev["error"], code="run_failed",
                           err_type="server_error", retryable=True)
         content = ev.get("content") or ""
-        kind = ev.get("kind", "answer")
         effective_model = ev.get("model") or model
-        # ④ 审批门：若本轮需要审批，在 content 里带上标记让前端处理
+        # ④ 审批/追问态：此前这里写的是 `choices[0].message.approval_required=True`
+        #    + `finish_reason="tool_calls"`（见下方「已删除的审批死分支」说明）。
+        #    现在改为在**顶层**如实回传 run 状态（bridge 自有字段，不污染
+        #    OpenAI 标准的 choices[0].message）。
         body = {
             "id": run_id,
             "object": "chat.completion",
             "created": int(time.time()),
             "model": effective_model,
+            # run 状态：waiting_approval / waiting_user 等由 Runtime 判定，
+            # 是**真实**的审批/追问信号（旧的 approval_required 从未成立过）。
+            "state": ev.get("state") or "completed",
             "choices": [
                 {
                     "index": 0,
@@ -925,10 +930,40 @@ async def api_chat_completions(request) -> Response:
         }
         if isinstance(ev.get("usage"), dict):
             body["usage"] = ev["usage"]
-        if kind in ("needs_approval", "approval_required"):
-            body["choices"][0]["finish_reason"] = "tool_calls"
-            body["choices"][0]["message"]["approval_required"] = True
         return JSONResponse(body)
+
+    # ── 已删除的「审批死分支」（2026-09-27，冻结层接口例外）────────────────────
+    # 原代码：
+    #     if kind in ("needs_approval", "approval_required"):
+    #         body["choices"][0]["finish_reason"] = "tool_calls"
+    #         body["choices"][0]["message"]["approval_required"] = True
+    #
+    # 为什么删（两条独立证据，都实测过）：
+    # 1) **分支不可达**：`kind` 来自 `_assistant_parts(res.final_output)` →
+    #    `runtime/reply_parser.parse()`，而 `parse` 把 kind 限制在白名单
+    #    `KINDS = {"answer","plan","note","questions","done"}` 内，未知值一律
+    #    降级为 "answer"（reply_parser.py:164-170）。故 `kind` **永远不可能**
+    #    等于 "needs_approval" / "approval_required"。实测：
+    #        parse({"kind":"needs_approval","content":"hi"}).canonical["kind"]
+    #        == "answer"
+    # 2) **前端没有消费方**：web/llama-ui/_app/immutable/bundle.CfD0eHgL.js
+    #    （8.8MB 冻结 bundle）中 `approval_required` 命中数 = 0、
+    #    `approval` 命中数 = 0、`finish_reason` 命中数 = 0。
+    #    前端唯一读的是 `choices[0].message.tool_calls`（作为**数组**判断长度）。
+    #    写 `finish_reason="tool_calls"` 却不填 tool_calls 数组，按 OpenAI
+    #    协议属于「声称有 tool_calls 却给空集」，对标准客户端是错的。
+    #
+    # 为什么是删除而不是「保留 + 标注未实现」：
+    # - 保留一个**不可达**分支的唯一作用是诱导后人以为审批经此路径生效；
+    #   而审批的真实通路是存在的（Runtime 的 waiting_approval 状态 +
+    #   /tools 的 permissions.approval，见 api_tools_list），并不依赖这里。
+    # - 真要复活审批前端，需要**新增 UI**，那是功能而非本条缺陷修复，
+    #   且会打破冻结前端契约。
+    #
+    # 同类例外依据：2026-09-22「接口层例外」（只动错误结构与请求守卫，
+    # 不动 UI 功能与前端契约）。本次同样只做「让死分支诚实降级」：
+    # 删掉伪造字段，改为在顶层如实回传真实 run 状态（bridge 自有字段），
+    # **未触碰** choices[0].message 的既有结构。
 
     # ② 真·逐 token 流式 SSE：先写入会话缓冲，HTTP 连接只做订阅者。
     # 这样即便前端按 visibilitychange 逻辑 cancel 掉本次 POST，生成仍继续、
