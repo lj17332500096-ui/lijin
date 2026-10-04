@@ -19,6 +19,20 @@ concurrency:
 jobs:
   full:
     runs-on: windows-latest
+    # job 级 env:：每个 `run:` 是独立进程，步骤内 `$env:` 不跨步骤
+    # （已实测）。完整键集与理由见 ci.yml 的同名注释。
+    env:
+      APPROVAL: "on"
+      FORGE_TRUSTED_CODE_ROOTS: ""
+      FORGE_OBLIGATION_GATE: "off"
+      FORGE_TEST_MODE: "1"
+      ALLOW_CODE_EXEC: "true"
+      ALLOW_PROJECT_EDIT: "true"
+      AGENT_MODEL: "ci-placeholder-model"
+      FORGE_MODEL_PREF: "gateway"
+      OPENAI_BASE_URL: "https://ci.invalid/v1"
+      OPENAI_API_KEY: "ci-placeholder-key"
+      PYTHONPATH: ""
     steps:
       - uses: actions/checkout@v4
 
@@ -27,19 +41,17 @@ jobs:
           python-version: "3.11"
 
       - name: Install dependencies
+        # pypdf：requirements.txt 中被注释掉，但 test_sources_rag 无条件 import 它。
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
+          pip install pytest pypdf
 
-      - name: Inject explicit env (hermetic)
+      - name: Prepare runner-absent directories
         shell: pwsh
-        run: |
-          $env:APPROVAL = "on"
-          $env:FORGE_TRUSTED_CODE_ROOTS = ""
-          $env:FORGE_OBLIGATION_GATE = "off"
-          $env:FORGE_TEST_MODE = "1"
-          $env:PYTHONPATH = ""
+        # web/llama-ui 被 .gitignore 排除，runner 上不存在；
+        # StaticFiles(directory=...) 会在目录缺失时抛 RuntimeError。
+        run: New-Item -ItemType Directory -Force -Path web/llama-ui | Out-Null
 
       - name: Full suite
         run: |
@@ -50,6 +62,8 @@ jobs:
       - name: Concurrency stress (isolated)
         # 刻意单独跑、且不与全量并行：并发用例的判定依赖"机器负载条件"，
         # 与其它测试同跑会把资源竞争误判成 S 层缺陷。
+        # 本步骤未声明 shell:，但 runs-on 是 windows-latest ⇒ 默认即 pwsh，
+        # 与下方 for(...) 循环一致（已实测 for($i=1;...) 在 pwsh 下正常）。
         run: python -m pytest tests/test_concurrency_stress.py -q -p no:cacheprovider
 
       - name: Concurrency stress x3 (flakiness probe)

@@ -91,7 +91,7 @@ def _check_with_pwsh(body: str) -> str | None:
             "$t = $null; $e = $null\n"
             "$null = [System.Management.Automation.Language.Parser]::ParseInput("
             "$b, [ref]$t, [ref]$e)\n"
-            "if ($e -and $e.Count -gt 0) { $e[0].Message | Set-Content -LiteralPath $args[1] }\n",
+            "if ($e -and $e.Count -gt 0) { $e[0].Message | Set-Content -LiteralPath $args[1] -Encoding UTF8 }\n",
             encoding="utf-8",
         )
         proc = subprocess.run(
@@ -102,7 +102,12 @@ def _check_with_pwsh(body: str) -> str | None:
         if proc.returncode != 0:
             return f"harness failed: {(proc.stderr or proc.stdout).strip()[:200]}"
         if result.exists():
-            return result.read_text(encoding="utf-8").strip()
+            # 刻意容错解码：Windows PowerShell 5.1 的 Set-Content 在部分控制台
+            # 代码页下会写出非 UTF-8 字节（中文 Windows 报 0xA1 之类），
+            # 早先这里硬解 UTF-8 会抛 UnicodeDecodeError —— 检查器自己崩掉，
+            # 报不出"哪一步写错了"，等于在最需要它的时候失去鉴别力。
+            # 判据是"有没有解析错误"，不是"错误文案编码对不对"。
+            return result.read_text(encoding="utf-8", errors="replace").strip()
         return None
 
 

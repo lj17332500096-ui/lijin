@@ -13,13 +13,14 @@ on:
       - "integrations/**"
       - "skills/**"
       - "scripts/**"
+      - ".github/workflows/guard-consistency.yml"
+      - ".ci/**"
       - "tests/test_tool_roster_consistency.py"
       - "tests/test_capability_introspection.py"
       - "tests/test_capability_gate_no_false_strip.py"
       - "tests/test_mcp_bridge_policy.py"
       - "tests/test_conversation_workflow.py"
-      - ".ci/**"
-      - ".github/workflows/guard-consistency.yml"
+      - "tests/test_ci_workflow_shell_syntax.py"
   workflow_dispatch:
 
 concurrency:
@@ -29,6 +30,22 @@ concurrency:
 jobs:
   consistency:
     runs-on: windows-latest
+    # job 级 env:，不是独立的 "Inject explicit env" 步骤。
+    # 每个 `run:` 都是独立进程，步骤内 `$env:X = ...` 不会传给后续步骤
+    # （已实测：第二个 pwsh 进程读到空值）。独立步骤会制造"注入了"的假象。
+    env:
+      APPROVAL: "on"
+      FORGE_TRUSTED_CODE_ROOTS: ""
+      FORGE_OBLIGATION_GATE: "off"
+      FORGE_TEST_MODE: "1"
+      # .env 不入库 ⇒ runner 上缺失的键在此显式补齐（理由见 ci.yml 的同名注释）。
+      ALLOW_CODE_EXEC: "true"
+      ALLOW_PROJECT_EDIT: "true"
+      AGENT_MODEL: "ci-placeholder-model"
+      FORGE_MODEL_PREF: "gateway"
+      OPENAI_BASE_URL: "https://ci.invalid/v1"
+      OPENAI_API_KEY: "ci-placeholder-key"
+      PYTHONPATH: ""
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,16 +60,13 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pytest
+          pip install pytest pypdf
 
-      - name: Inject explicit env (hermetic)
+      - name: Prepare runner-absent directories
         shell: pwsh
-        run: |
-          $env:APPROVAL = "on"
-          $env:FORGE_TRUSTED_CODE_ROOTS = ""
-          $env:FORGE_OBLIGATION_GATE = "off"
-          $env:FORGE_TEST_MODE = "1"
-          $env:PYTHONPATH = ""
+        # web/llama-ui 被 .gitignore 排除，runner 上不存在；
+        # StaticFiles(directory=...) 会在目录缺失时抛 RuntimeError。
+        run: New-Item -ItemType Directory -Force -Path web/llama-ui | Out-Null
 
       - name: Static consistency tests
         run: >
@@ -75,20 +89,39 @@ jobs:
       # 这条与本地 pre-commit 钩子跑的是同一个脚本/同一份基线，
       # 避免"本地过、CI 红"或反之。
       #
-      # 注意输入重定向的写法：本 job 是 windows-latest，shell: pwsh。
-      # `<` 在 PowerShell 里是**保留运算符**（"为将来使用而保留"），
-      # 写成 `python scripts/ci_gate.py --stdin < changed.txt` 会让
-      # 步骤在解析期就失败 —— YAML 合法但 runner 起不来。
-      # PowerShell 的输入重定向是管道：`Get-Content x | cmd`。
-      # 校验方式见 scripts/check_workflow_shells.py（按各自 shell 实际解析）。
+      # 两个 shell 层面的坑，都必须记住：
+      #
+      # 1. 输入重定向：`<` 在 PowerShell 里是**保留运算符**（"为将来使用而保留"），
+      #    写成 `python scripts/ci_gate.py --stdin < changed.txt` 会让步骤在
+      #    **解析期**就失败 —— YAML 合法但 runner 起不来。
+      #    PowerShell 的输入重定向是管道：`Get-Content x | cmd`。
+      #
+      # 2. `github.base_ref` 只在 pull_request 事件下有值。
+      #    workflow_dispatch（以及任何非 PR 触发）下它是空串，
+      #    于是 `origin/${{ github.base_ref }}` 变成 `origin/`，
+      #    `git diff --name-only origin/` 实测 exit 128（fatal: ambiguous argument）。
+      #    上一版没有任何防护 —— 这条只对 PR 有效，一手动触发就红。
       - name: Verify local gate mapping covers changed files
         shell: pwsh
         run: |
-          $base = "origin/${{ github.base_ref }}"
-          git fetch origin ${{ github.base_ref }} --depth=1
+          $baseRef = "${{ github.base_ref }}"
+          if ([string]::IsNullOrWhiteSpace($baseRef)) {
+            # 非 PR 触发：没有可比对的 base，退回与 HEAD~1 比。
+            # 直接跑 `origin/` 会 fatal，故必须显式选一个存在的 ref。
+            Write-Host "no base_ref (event=${{ github.event_name }}); diffing against HEAD~1"
+            $base = "HEAD~1"
+          }
+          else {
+            git fetch origin $baseRef --depth=1
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $base = "origin/$baseRef"
+          }
           git diff --name-only $base > changed.txt
-          Write-Host "--- changed files ---"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Host "--- changed files (base=$base) ---"
           Get-Content changed.txt
+          # 空 changed.txt（首次 push / 无改动）时管道传空 stdin，
+          # ci_gate 走 `if not tests: return 0` 分支，正常放行。
           Get-Content changed.txt | python scripts/ci_gate.py --stdin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
