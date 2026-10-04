@@ -414,6 +414,12 @@ class AgentRuntime:
             # Wrap tools before the next Run begins.
             self._patch_agent_tools()
             return
+        # P0-2：护栏总开关的强制生效点。**必须在 _initialized = True 之前**——
+        # 否则一次 fail-closed 阻断后，调用方重试会命中上面的早退分支跳过护栏。
+        # 此刻 TaskManager 还没建好，所以先只判定，审计事件在下面补写。
+        from runtime.startup_guard import audit_approval_guard, enforce_approval_guard
+
+        approval_verdict = enforce_approval_guard()
         self._initialized = True
         if not self.registry.names():
             from agent import assistant_agent  # 延迟导入，避免循环
@@ -425,6 +431,8 @@ class AgentRuntime:
             self.tasks = TaskManager(self.db_path)
         if self.approval is None:
             self.approval = ApprovalGate(self.tasks)
+        # 补写审计：护栏关闭这件事必须进事件流可查（best-effort，不影响启动）。
+        audit_approval_guard(approval_verdict, self.tasks)
         self._patch_agent_tools()
         self._ensure_tracing()
 
