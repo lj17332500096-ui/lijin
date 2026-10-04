@@ -17,6 +17,23 @@ from runtime.completion import ExecutionEvidence, evaluate_completion_eligibilit
 from runtime.errors import ApprovalRequired
 
 
+def _assert_gate_enabled(case, gate) -> None:
+    """P0-3 前置自检：先断言审批门处于开启态，再断言行为。
+
+    背景：`ApprovalGate.enabled` 读 `os.getenv("APPROVAL")`。若该变量被关成
+    off，`gate.check()` 会在**创建审批行之前**就早退返回 None，于是
+    `assertRaises(ApprovalRequired)` 挂在一个不可能抛出的路径上——测试全绿，
+    但护栏其实已被整体绕过。这类失效不会产生任何红字，因此必须在此显式断言，
+    把"空转"变成"以明确原因失败"。
+    """
+    case.assertTrue(
+        getattr(gate, "enabled", False),
+        "APPROVAL 被关闭（APPROVAL=off/false/0），审批门整体不生效，"
+        "本用例已失去鉴别力：assertRaises(ApprovalRequired) 不会触发。"
+        "请将 .env / 进程环境的 APPROVAL 设为 on。",
+    )
+
+
 class ApprovalImmediateSuspensionTests(unittest.TestCase):
     """Phase 38: approval creation raises ApprovalRequired (immediate suspension)."""
 
@@ -25,6 +42,7 @@ class ApprovalImmediateSuspensionTests(unittest.TestCase):
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self.runtime._ensure()
         self.gate = self.runtime.approval
+        _assert_gate_enabled(self, self.gate)
         self.task = self.runtime.tasks.create_task(session_id="a38", goal="test")
         self.runtime.tasks.transition(self.task.id, TaskState.RUNNING, reason="start")
 
@@ -60,6 +78,7 @@ class ApprovalAutoExecutionTests(unittest.TestCase):
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self.runtime._ensure()
         self.gate = self.runtime.approval
+        _assert_gate_enabled(self, self.gate)
         self.task = self.runtime.tasks.create_task(session_id="a38e", goal="test")
         self.runtime.tasks.transition(self.task.id, TaskState.RUNNING, reason="start")
 
@@ -171,6 +190,7 @@ class ApprovalResumeIntegrationTests(unittest.TestCase):
         self.runtime = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self.runtime._ensure()
         self.gate = self.runtime.approval
+        _assert_gate_enabled(self, self.gate)
         self.task = self.runtime.tasks.create_task(session_id="a38i", goal="test")
         self.runtime.tasks.transition(self.task.id, TaskState.RUNNING, reason="start")
 
@@ -213,6 +233,7 @@ class ApprovalBatchToolTests(unittest.TestCase):
         rt = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         rt._ensure()
         gate = rt.approval
+        _assert_gate_enabled(self, gate)
         task = rt.tasks.create_task(session_id="a38b", goal="test")
         rt.tasks.transition(task.id, TaskState.RUNNING, reason="start")
 
@@ -236,6 +257,7 @@ class ApprovalConvergenceWhilePendingTests(unittest.TestCase):
         rt = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         rt._ensure()
         gate = rt.approval
+        _assert_gate_enabled(self, gate)
         task = rt.tasks.create_task(session_id="a38c", goal="test")
         rt.tasks.transition(task.id, TaskState.RUNNING, reason="start")
 

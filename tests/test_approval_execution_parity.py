@@ -21,6 +21,23 @@ from runtime.completion import ExecutionEvidence, evaluate_completion_eligibilit
 from runtime.errors import ApprovalRequired
 
 
+def _assert_gate_enabled(case, gate) -> None:
+    """P0-3 前置自检：先断言审批门处于开启态，再断言行为。
+
+    背景：`ApprovalGate.enabled` 读 `os.getenv("APPROVAL")`。若该变量被关成
+    off，`gate.check()` 会在**创建审批行之前**就早退返回 None，于是
+    `assertRaises(ApprovalRequired)` 挂在一个不可能抛出的路径上——测试全绿，
+    但护栏其实已被整体绕过。这类失效不会产生任何红字，因此必须在此显式断言，
+    把"空转"变成"以明确原因失败"。
+    """
+    case.assertTrue(
+        getattr(gate, "enabled", False),
+        "APPROVAL 被关闭（APPROVAL=off/false/0），审批门整体不生效，"
+        "本用例已失去鉴别力：assertRaises(ApprovalRequired) 不会触发。"
+        "请将 .env / 进程环境的 APPROVAL 设为 on。",
+    )
+
+
 def _run_test_approval_flow(rt, tool_name, arguments, task_id):
     """Helper: create pending approval, approve it, return approval record."""
     gate = rt.approval
@@ -49,6 +66,7 @@ class ApprovalExecutionParityTests(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="a39p_"))
         self.rt = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self.rt._ensure()
+        _assert_gate_enabled(self, self.rt.approval)
         self.task = self.rt.tasks.create_task(session_id="a39p", goal="test parity")
         self.rt.tasks.transition(self.task.id, TaskState.RUNNING, reason="start")
 
@@ -125,6 +143,7 @@ class SideEffectDuplicateTest(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="a39se_"))
         self.rt = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self.rt._ensure()
+        _assert_gate_enabled(self, self.rt.approval)
         self.task = self.rt.tasks.create_task(session_id="a39se", goal="test side-effect")
         self.rt.tasks.transition(self.task.id, TaskState.RUNNING, reason="start")
 
@@ -159,6 +178,7 @@ class CrashWindowTest(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="a39crash_"))
         self.rt = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self.rt._ensure()
+        _assert_gate_enabled(self, self.rt.approval)
         self.task = self.rt.tasks.create_task(session_id="a39crash", goal="test crash window")
         self.rt.tasks.transition(self.task.id, TaskState.RUNNING, reason="start")
 
@@ -181,6 +201,7 @@ class FileScopeParityTest(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="a39fs_"))
         self.rt = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self.rt._ensure()
+        _assert_gate_enabled(self, self.rt.approval)
         self.task = self.rt.tasks.create_task(session_id="proj-a39fs", goal="test filesystem scope")
         self.rt.tasks.transition(self.task.id, TaskState.RUNNING, reason="start")
 
@@ -237,6 +258,7 @@ class ArgumentValidationTest(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="a39arg_"))
         self.rt = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self.rt._ensure()
+        _assert_gate_enabled(self, self.rt.approval)
         self.task = self.rt.tasks.create_task(session_id="a39arg", goal="test args")
         self.rt.tasks.transition(self.task.id, TaskState.RUNNING, reason="start")
 
@@ -261,6 +283,7 @@ class EvidenceParityTest(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="a39ev_"))
         self.rt = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self.rt._ensure()
+        _assert_gate_enabled(self, self.rt.approval)
         self.task = self.rt.tasks.create_task(session_id="a39ev", goal="test evidence")
         self.rt.tasks.transition(self.task.id, TaskState.RUNNING, reason="start")
 
@@ -308,6 +331,7 @@ class VerificationEvidenceTest(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="a39vr_"))
         self.rt = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self.rt._ensure()
+        _assert_gate_enabled(self, self.rt.approval)
         self.task = self.rt.tasks.create_task(session_id="a39vr", goal="test verification")
         self.rt.tasks.transition(self.task.id, TaskState.RUNNING, reason="start")
 
@@ -361,6 +385,7 @@ class ApprovedExecutionContextTest(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="approved_tool_context_"))
         self.rt = AgentRuntime(db_path=str(self._tmp / "agent.db"))
         self.rt._ensure()
+        _assert_gate_enabled(self, self.rt.approval)
         self.task = self.rt.tasks.create_task(
             session_id="approved-tool-context", goal="运行本地计算器示例"
         )
