@@ -43,6 +43,15 @@ DISPLAY_NAMES: dict[str, str] = {
     "forget_memory": "忘记记忆",
     "index_workspace": "整理文件索引",
     "search_documents": "搜索资料",
+    # P1-2（C-1）：AnySearch 三件套的展示名。`265a558` 从 DISPLAY_NAMES 删掉了
+    # "web_search": "联网搜索" 却没补任何 anysearch_* 条目，导致真实挂载的
+    # 联网搜索工具在能力清单里显示成裸 tool_id。
+    # 保留 "web_search" 是为了让**残留引用**仍能显示友好名（它已不在注册表，
+    # 实际不会被列出；名册侧的清理见 tests/test_tool_roster_consistency.py）。
+    "web_search": "联网搜索",
+    "anysearch_search": "联网搜索",
+    "anysearch_batch_search": "批量联网搜索",
+    "anysearch_extract": "提取网页内容",
     "ask_image": "看图问答",
     "read_office_file": "读取文档",
     "read_spreadsheet": "读取表格",

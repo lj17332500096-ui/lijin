@@ -53,8 +53,15 @@ DELETE_TOOLS: frozenset[str] = frozenset({
 # tests/test_tool_roster_consistency.py 的 WRONG_NAMES 哨兵，再出现即红灯。
 RUN_TOOLS: frozenset[str] = frozenset({"run_tests", "run_python", "code_loop"})
 
+#: 联网搜索工具（P1-1/P1-4）。
+#: `web_search` 已随 AnySearch 迁移下线（实测不在注册表），保留它只为让残留
+#: 引用显式可见；真实流量走下面三个 anysearch_*。
+#: 注意：这是**评估口径**的搜索工具集合，与 runtime 侧的工具分类各自独立维护
+#: （runtime/spec.py:143-144 把 anysearch_* 归为 EXTERNAL_FACT）。
 SEARCH_TOOLS: frozenset[str] = frozenset({
-    "web_search", "search_documents", "deep_research", "search_sources",
+    "web_search",  # 已下线，保留仅为显式暴露残留引用
+    "anysearch_search", "anysearch_batch_search", "anysearch_extract",
+    "search_documents", "deep_research", "search_sources",
 })
 
 #: 需要审批的真实高风险工具（与 ApprovalGate 名单语义一致；用于观测统计）
@@ -318,10 +325,15 @@ class Observation:
 
     # ---- 行为断言指标（Phase 11+）：从 tool_calls 明细派生，不引入第二套状态 ----
     def search_call_count(self) -> int:
-        """web_search 真实执行次数（executed 状态，不含 blocked/error）。"""
+        """联网搜索真实执行次数（executed 状态，不含 blocked/error）。
+
+        P1-4（V-1）：此前只按 `web_search` 计数，而 AnySearch 迁移后真实流量
+        全部走 `anysearch_*` —— 该指标恒为 0。一个恒为 0 的指标比没有指标更
+        危险：它看起来是"有效"的。故改为按 SEARCH_TOOLS 集合计数。
+        """
         return sum(
             1 for c in self.tool_calls
-            if c.get("name") == "web_search" and c.get("status") == "executed"
+            if c.get("name") in SEARCH_TOOLS and c.get("status") == "executed"
         )
 
     def duplicate_tool_calls(self) -> int:

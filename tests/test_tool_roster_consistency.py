@@ -90,6 +90,20 @@ KNOWN_NON_REGISTERED = {
     "questions": "澄清动作的合成名（来自 final JSON 的 kind），非注册工具",
     # —— 期望行为标签，不是工具引用 ——
     "ask_user": "behavior 标签（benchmark 的 ORACLE / ExpectedBehavior 用的键），非注册工具",
+    # —— MCP 动态登记的工具：静态注册表里查不到，但生产确实挂载 ——
+    # 实测（2026-10-04）：`_registered_tools()` 共 39 项，不含任何 anysearch_*。
+    # 它们由 integrations/mcp_bridge.py 在 bridge 启动时经 register_non_file_tools
+    # 动态登记（见 runtime/spec.py:143-144 的 EXTERNAL_FACT 分类）。
+    # 故名册里引用它们属于"运行期真实存在、静态不可见"，在此登记理由。
+    "anysearch_search": "MCP anysearch 动态登记（bridge 启动时），静态注册表不可见",
+    "anysearch_batch_search": "MCP anysearch 动态登记（bridge 启动时），静态注册表不可见",
+    "anysearch_extract": "MCP anysearch 动态登记（bridge 启动时），静态注册表不可见",
+    # —— 已下线的旧搜索工具 ——
+    # 实测：`web_search` 不在注册表（AnySearch 迁移后已下线），但多个名册仍在
+    # 引用它。按 P1-1 的方向，这些引用应改为 anysearch_*；保留登记是为了让
+    # 残留引用**显式可见**（一旦全部替换完毕，本行与上面的 anysearch_* 一并
+    # 复核删除，而不是让"清理完成"变成一个没人验证的口头状态）。
+    "web_search": "已下线的旧搜索工具（AnySearch 迁移产物）；名册残留引用应改为 anysearch_*",
 }
 
 #: filescope 未登记但**有意**如此的工具（由 authorize_tool 的前置分支显式处理）

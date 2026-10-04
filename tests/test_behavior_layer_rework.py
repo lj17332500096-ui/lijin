@@ -223,6 +223,34 @@ class BehaviorAssertionMetricsTests(unittest.TestCase):
         )
         self.assertEqual(obs.search_call_count(), 2)
 
+    def test_search_call_count_includes_anysearch(self):
+        """P1-4（V-1）：AnySearch 迁移后真实流量走 anysearch_*，指标不得再记 0。
+
+        此前实现只按 `web_search` 计数，而 `web_search` 已下线、不在注册表
+        （实测注册表 39 项无它），于是该指标对全部真实搜索流量**恒为 0**。
+        恒为 0 的指标比没有指标更危险 —— 它看起来是"有效"的。
+        """
+        from benchmark.evaluator import SEARCH_TOOLS, Observation
+
+        obs = Observation(
+            case_id="T1-anysearch",
+            tool_calls=[
+                {"name": "anysearch_search", "status": "executed"},
+                {"name": "anysearch_batch_search", "status": "executed"},
+                {"name": "anysearch_extract", "status": "executed"},
+                {"name": "anysearch_search", "status": "blocked"},  # 不算
+                {"name": "anysearch_search", "status": "error"},    # 不算
+                {"name": "read_workspace_file", "status": "executed"},  # 非搜索
+            ],
+        )
+        self.assertEqual(
+            obs.search_call_count(), 3,
+            "anysearch_* 的 executed 调用必须被计入（迁移后这是真实搜索流量）",
+        )
+        # 名册侧也要对齐：三个 anysearch 工具都必须在 SEARCH_TOOLS 里
+        for name in ("anysearch_search", "anysearch_batch_search", "anysearch_extract"):
+            self.assertIn(name, SEARCH_TOOLS, f"{name} 未登记进评估层搜索名册")
+
     def test_duplicate_counts_same_fp_no_epoch_change(self):
         from benchmark.evaluator import Observation
 

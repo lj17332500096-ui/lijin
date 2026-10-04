@@ -131,7 +131,15 @@ WRITE_TOOLS = {"write_project_file", "edit_project_file"}
 NON_FILE_TOOLS = {
     "extension_manager",
     "save_note", "read_note", "list_notes",
-    "web_search", "get_current_datetime", "get_weather", "calculate",
+    # P1-1/P1-5：`web_search` 已下线，联网搜索由 AnySearch 三个工具承担。
+    # 写入静态名册（P1-5）使其**不再只依赖 MCP bridge 启动时的动态登记** ——
+    # 否则 bridge 未启用/策略变更时，严格 Project 下的联网搜索会被直接 DENY
+    # （fail-closed 方向正确，但可用性会变成启动顺序的函数）。
+    # `web_search` 暂留：名册一致性测试按"未注册工具须有文档"核对，删除前先确认
+    # 该测试的 WRONG_NAMES 哨兵覆盖（见 tests/test_tool_roster_consistency.py）。
+    "web_search",
+    "anysearch_search", "anysearch_batch_search", "anysearch_extract",
+    "get_current_datetime", "get_weather", "calculate",
     "remember", "recall_memory", "forget_memory",
     "schedule_add", "schedule_list", "schedule_remove", "schedule_set_enabled",
     "deep_research", "search_sources", "scan_dependencies",
