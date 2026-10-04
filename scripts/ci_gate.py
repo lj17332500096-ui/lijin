@@ -25,11 +25,54 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 BASELINE_FILE = PROJECT_ROOT / ".ci" / "known_failures.txt"
 
 #: 改动文件（精确路径）→ 需要跑的测试文件。顺序即去重后的执行顺序。
+#:
+#: P2-2：本表原先只有 4 组，**改 runtime/runner.py（4819 行，承载 E/T/S/L 四层）
+#: 不会跑任何测试**。这解释了为什么"评估层记 0"这类问题能长期存活：
+#: 没有任何本地门禁会在改主干后提醒你补测试。
+#:
+#: 扩表原则：宁可多跑，不可漏跑。漏跑的代价是"改主干无测试"这种静默失效；
+#: 多跑的代价只是几秒到几十秒。
 CHANGE_TEST_MAP: list[tuple[tuple[str, ...], list[str]]] = [
+    # —— E/T/S/L 主干：改动面最大，必须触发实质回归 ——
+    (("runtime/runner.py",),
+     ["tests/test_concurrency_stress.py", "tests/test_conversation_workflow.py",
+      "tests/test_task_runtime.py"]),
+    # S 层：连接管理 / 事件流 / 容器
+    (("runtime/task_manager.py",),
+     ["tests/test_task_manager_resilience.py", "tests/test_task_runtime.py",
+      "tests/test_audit.py", "tests/test_concurrency_stress.py"]),
+    (("runtime/startup_guard.py",),
+     ["tests/test_approval_startup_guard.py", "tests/test_approval.py"]),
+    # L 层：护栏本体（P0-1 已移除其 import 期 load_dotenv，仍需守住语义）
+    (("runtime/approval.py", "runtime/errors.py"),
+     ["tests/test_approval.py", "tests/test_approval_lifecycle.py",
+      "tests/test_approval_execution_parity.py", "tests/test_approval_startup_guard.py"]),
+    # 配置加载：改任何一处都可能影响"谁在 import 期喂环境变量"
+    (("runtime/compact.py", "runtime/codex_loop.py", "runtime/reply_parser.py",
+      "runtime_paths.py", "agent.py", "main.py"),
+     ["tests/test_approval.py", "tests/test_approval_startup_guard.py"]),
+    # C 层：能力自省 + 意图门（tools=[] 误伤风险）
+    (("runtime/capability_introspection.py",),
+     ["tests/test_capability_introspection.py",
+      "tests/test_capability_gate_no_false_strip.py"]),
+    # T 层：名册 / 文件边界
+    (("runtime/filescope.py", "runtime/registry.py", "runtime/spec.py",
+      "integrations/mcp_bridge.py"),
+     ["tests/test_tool_roster_consistency.py", "tests/test_capability_introspection.py",
+      "tests/test_mcp_bridge_policy.py"]),
+    # V 层：评估口径（搜索计数恒 0 这类问题只能靠这里挡住）
+    (("benchmark/evaluator.py", "benchmark/matrix.py"),
+     ["tests/test_behavior_layer_rework.py", "tests/test_benchmark_evaluator.py",
+      "tests/test_tool_roster_consistency.py"]),
+    # C 层残留架构债：task_plan 的规则选择器
+    (("runtime/task_plan.py",),
+     ["tests/test_task_plan.py", "tests/test_task_plan_no_regex_authority.py"]),
+    # 工作流图
+    (("runtime/conversation_workflow.py", "runtime/api_workflow.py"),
+     ["tests/test_conversation_workflow.py"]),
+    # 其余既有映射
     (("cli/tui/app.py", "cli/tui/panels.py", "cli/tui/models.py"),
      ["tests/test_tui.py"]),
-    (("runtime/approval.py", "runtime/errors.py"),
-     ["tests/test_approval.py"]),
     (("runtime/public_activity.py",),
      ["tests/test_public_activity.py"]),
     (("runtime/provider_gateway.py",),
@@ -81,7 +124,25 @@ def load_baseline() -> dict[tuple[str, str], str]:
     return entries
 
 
+def missing_test_files(tests: list[str]) -> list[str]:
+    """返回映射表里引用、但仓库中不存在的测试文件。
+
+    为什么需要它：映射表指向一个不存在的文件时，pytest 会报
+    "file or directory not found" 并**整体失败**——看起来像"测试红了"，
+    实际是门禁配置写错了。两种故障混在一起会消耗排查时间，故提前显式区分。
+    """
+    return [t for t in tests if not (PROJECT_ROOT / t).is_file()]
+
+
 def run_tests(tests: list[str], junit_path: Path) -> int:
+    absent = missing_test_files(tests)
+    if absent:
+        print(
+            "[CI Gate] 映射表引用了不存在的测试文件（门禁配置错误，非测试失败）：\n  "
+            + "\n  ".join(absent),
+            file=sys.stderr,
+        )
+        return 2
     cmd = [str(VENV_PY), "-m", "pytest", *tests, "-q",
            f"--junitxml={junit_path}"]
     result = subprocess.run(cmd, cwd=PROJECT_ROOT)

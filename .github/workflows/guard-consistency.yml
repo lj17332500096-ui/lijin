@@ -1,0 +1,82 @@
+# 一致性护栏：秒级反馈，挡住"名册漂移"这类静态可检的问题。
+#
+# 为什么要单独一份：簇 2（名册与能力自省不一致）是**纯静态**可检的 ——
+# 不需要 DB、不需要模型、不需要并发。等 11 分钟的全量才报出来，代价比
+# 一次 PR 往返高得多。这份是 ci.yml 的止血位，不是它的替代。
+name: guard-consistency
+
+on:
+  pull_request:
+    paths:
+      - "runtime/**"
+      - "benchmark/**"
+      - "integrations/**"
+      - "skills/**"
+      - "scripts/**"
+      - "tests/test_tool_roster_consistency.py"
+      - "tests/test_capability_introspection.py"
+      - "tests/test_capability_gate_no_false_strip.py"
+      - "tests/test_mcp_bridge_policy.py"
+      - "tests/test_conversation_workflow.py"
+      - ".ci/**"
+      - ".github/workflows/guard-consistency.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: guard-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  consistency:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # 需要 base ref 才能算改动文件；浅克隆会导致 diff 不可用。
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Inject explicit env (hermetic)
+        shell: pwsh
+        run: |
+          $env:APPROVAL = "on"
+          $env:FORGE_TRUSTED_CODE_ROOTS = ""
+          $env:FORGE_OBLIGATION_GATE = "off"
+          $env:FORGE_TEST_MODE = "1"
+          $env:PYTHONPATH = ""
+
+      - name: Static consistency tests
+        run: >
+          python -m pytest -q -p no:cacheprovider
+          tests/test_tool_roster_consistency.py
+          tests/test_capability_introspection.py
+          tests/test_capability_gate_no_false_strip.py
+          tests/test_mcp_bridge_policy.py
+          tests/test_conversation_workflow.py
+
+      # 门禁一致性：改动文件 → 选测子集 + 已知失败基线比对。
+      # 这条与本地 pre-commit 钩子跑的是同一个脚本/同一份基线，
+      # 避免"本地过、CI 红"或反之。
+      - name: Verify local gate mapping covers changed files
+        shell: pwsh
+        run: |
+          $base = "origin/${{ github.base_ref }}"
+          git fetch origin ${{ github.base_ref }} --depth=1
+          git diff --name-only $base > changed.txt
+          Write-Host "--- changed files ---"
+          Get-Content changed.txt
+          python scripts/ci_gate.py --stdin < changed.txt
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Baseline is well-formed
+        # load_baseline() 会在缺 `# 原因` 时 SystemExit；这里提前失败并给出可读信息。
+        run: python -c "import sys; sys.path.insert(0,'scripts'); import ci_gate; print('baseline entries:', len(ci_gate.load_baseline()))"

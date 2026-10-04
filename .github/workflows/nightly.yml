@@ -1,0 +1,71 @@
+# 夜间全量：不分片、单进程。
+#
+# 为什么不直接让 ci.yml 跑全量代替：簇 3 是**并发压力**问题，共享 CI 机器上的
+# 负载条件与本地不同。分片后并发压力用例与另外 27 个文件共享一个进程，
+# 测的是"挤在一起时的表现"；夜间单独跑一遍才是"这个用例本身是否稳定"。
+# 两个都做，缺一不可。
+name: nightly
+
+on:
+  schedule:
+    # 每日 UTC 18:00（避开本地工作时间，减少与开发者 push 争抢 runner）
+    - cron: "0 18 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  full:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      - name: Inject explicit env (hermetic)
+        shell: pwsh
+        run: |
+          $env:APPROVAL = "on"
+          $env:FORGE_TRUSTED_CODE_ROOTS = ""
+          $env:FORGE_OBLIGATION_GATE = "off"
+          $env:FORGE_TEST_MODE = "1"
+          $env:PYTHONPATH = ""
+
+      - name: Full suite
+        run: |
+          New-Item -ItemType Directory -Force -Path var/test-reports | Out-Null
+          python -m pytest tests -q -p no:cacheprovider `
+            --junitxml=var/test-reports/nightly-full.xml
+
+      - name: Concurrency stress (isolated)
+        # 刻意单独跑、且不与全量并行：并发用例的判定依赖"机器负载条件"，
+        # 与其它测试同跑会把资源竞争误判成 S 层缺陷。
+        run: python -m pytest tests/test_concurrency_stress.py -q -p no:cacheprovider
+
+      - name: Concurrency stress x3 (flakiness probe)
+        # 本轮实测该用例曾间歇红（修复前 4 次里 1 次失败）。
+        # 单次通过不能证明它稳定，故重复三轮。
+        run: |
+          for ($i=1; $i -le 3; $i++) {
+            Write-Host "--- stress pass $i ---"
+            python -m pytest tests/test_concurrency_stress.py -q -p no:cacheprovider
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-reports
+          path: var/test-reports/
+          if-no-files-found: warn

@@ -1,0 +1,80 @@
+name: ci
+
+# PR 门禁主测试。设计依据：docs/audits/MIGRATION_POST_REVIEW_2026-10-04.md §5.2。
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    # windows-latest 是**刻意**选择，不是省事：
+    # 簇 3（SQLITE_READONLY / WAL -shm 退化）只在 Windows 上复现。
+    # 换 ubuntu 等于把这条红灯永久藏起来 —— 那比 CI 慢更糟。
+    runs-on: windows-latest
+    strategy:
+      # 必须 false：否则一片红会 cancel 掉其余三片，掩盖多个独立问题。
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        # requirements.txt 里没有 pytest（它是开发依赖，不是运行时依赖），
+        # 故这里显式补 pytest。不引 pytest-shard：分片由 scripts/ci_shard.py 做，
+        # 少一个装不上的外部插件就少一处 CI 失败源。
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest
+
+      # P0-1 的前提：CI 上**没有** .env（它未被 git 跟踪）。
+      # 配置必须显式注入，测试结果不得依赖任何开发者的本机状态。
+      - name: Inject explicit env (hermetic)
+        shell: pwsh
+        run: |
+          # 护栏默认开，且由 runtime/startup_guard.py 在启动时强制断言。
+          # 若这里不注入，startup_guard 会因"未声明无人值守 + APPROVAL 关闭态"
+          # 拒绝启动 —— 那正是 P0-2 想要的行为。
+          $env:APPROVAL = "on"
+          # 测试不需要可信代码根（会因机器相关路径拒绝大量用例）
+          $env:FORGE_TRUSTED_CODE_ROOTS = ""
+          $env:FORGE_OBLIGATION_GATE = "off"
+          $env:FORGE_TEST_MODE = "1"
+
+      - name: Resolve shard
+        id: shard
+        shell: pwsh
+        run: |
+          $files = python scripts/ci_shard.py --num-shards 4 --shard-id ${{ matrix.shard - 1 }}
+          Write-Host "shard ${{ matrix.shard }}: $files"
+          "files=$files" >> $env:GITHUB_OUTPUT
+
+      - name: Run tests
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path var/test-reports | Out-Null
+          # PYTHONPATH= 必须显式清空：本机存在 Python shim 劫持 shutil.rmtree
+          # 的现象（会产生一批 SystemExit:1 假失败）。CI 上用同一写法保持一致。
+          $env:PYTHONPATH = ""
+          python -m pytest ${{ steps.shard.outputs.files }} -q `
+            --junitxml=var/test-reports/ci-${{ matrix.shard }}.xml `
+            -p no:cacheprovider
+
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: report-${{ matrix.shard }}
+          path: var/test-reports/
+          if-no-files-found: warn

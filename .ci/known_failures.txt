@@ -7,5 +7,44 @@
 #   1. 必须写 `# 原因…`，否则脚本拒绝加载 —— 基线是"已确认并排期"的凭证，不是免检牌。
 #   2. 只登记**与本次改动无关**的长期红灯；能修的先修，不要往这里塞。
 #   3. 修好后请立刻把对应行删掉，否则新引入的同名失败会被静默放过。
+#   4. 已被注册表收录的名字必须从这里移除（test_tool_roster_consistency.py 会反查）。
 #
-# 当前：无（2026-09-26 清理后，test_tool_router 88 条与 TUI 64 条全绿）。
+# ---------------------------------------------------------------------------
+# 当前：**无**。这是有意为之，不是"还没来得及填"。
+#
+# 2026-10-04（P2 收尾）。基线数字取自
+#   var/test-reports/_precheck_20261004.xml（修复前，22 failed）
+# 逐条解析 junit 得到，**不是**估算：
+#
+#   19  审批簇（根因同一：.env APPROVAL=off 经 import 期 load_dotenv 泄漏成进程级开关）
+#       11  tests/test_approval_execution_parity.py
+#        7  tests/test_approval_lifecycle.py
+#        1  tests/test_api_layer_phase_b.py::ApprovedEvidenceAttributionTests::
+#              test_evidence_lands_on_target_run_despite_foreign_context
+#    1  tests/test_tool_roster_consistency.py::
+#          RosterEntryExplainabilityTests::test_non_registered_entries_are_all_documented
+#    1  tests/test_capability_introspection.py::
+#          CapabilityDisplayAndFailureTests::test_testcap06_default_friendly_name_no_id
+#    1  tests/test_concurrency_stress.py::ConcurrentRunStressTests::
+#          test_mixed_parallel_runs_approval_and_filescope_isolation
+#   ---
+#   22  合计
+#
+# 对应修法（全部修掉，**一条都没登记进本文件**）：
+#   19 审批簇        P0-1 去掉 compact/codex_loop/reply_parser 三处 import 期
+#                    load_dotenv + 本机 .env 恢复 APPROVAL=on
+#    1 名册          P1-1/P1-5：web_search -> anysearch_* 补进静态名册
+#    1 能力自省      P1-2：补 AnySearch 展示名
+#    1 只读库        P0-4：按 db_path 串行化连接生命周期 + P1-3 去掉热路径同步写
+#
+# 按上面规则 2「能修的先修」，这 22 条全部能修，故不登记。
+# 复审报告曾建议把其中若干条登记为"唯一候选"，本轮**明确不采纳**：
+# 登记它们的唯一效果是让门禁不再报警，而根因就在本仓库内、改动量以行计。
+# 基线的正确定义是"已确认并排期的债务"，不是"当前测不动的借口"。
+#
+# 更正一条此前的错误记录：复审报告 §0/§10 写"22 条里 4 条未归因"。
+# 那是按 classname 是否含 "Approval" 做归类的**正则漏匹配**造成的误报 ——
+# `ApprovedEvidenceAttributionTests` / `EvidenceParityTest` / `CrashWindowTest`
+# 这类类名不含该词，被落进了"未归因"桶。逐条解析 junit 后确认：
+# **22 条全部有归属，无未归因项。**
+# ---------------------------------------------------------------------------
