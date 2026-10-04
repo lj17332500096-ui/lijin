@@ -382,6 +382,9 @@ class AgentRuntime:
     # Run-scoped routing decision correlation (consumed when its RunContext is bound).
     _route_decisions: dict[str, str] = field(default_factory=dict)
     _route_plans: dict[str, dict[str, Any]] = field(default_factory=dict)
+    #: P1-3：query 指纹在 Run 内的传递（route_agent -> routing.decision）。
+    #: 取代原先那次同步 DB 写；不落盘，只在决策事件里一次性留档。
+    _route_query_hashes: dict[str, str] = field(default_factory=dict)
 
     # 真实工具执行账本：按 run_id 隔离（P1-C 并发安全；Completion Gate 证据源）。
     # 旧字段名 _run_ledger 保留为“当前 run 账本”的只读属性，兼容既有测试与调用方。
@@ -2009,20 +2012,24 @@ class AgentRuntime:
 
         # Keep the full registered inventory visible until the LangGraph selector
         # returns. Runtime validates the selected names and enforces all gates.
+        #
+        # P1-3：此处原有的 `routing.selection.pending` 同步 DB 写已移除。
+        # 它是「LangGraph 正在筛选」这个**瞬时态**，写在 `route_agent`（模型档位
+        # 选择）里 —— 一个与状态存储无关的函数 —— 且每 Run 必写、失败仅 WARNING。
+        # 代价是实测出来的：它把连接 churn 抬高一档，WAL 并发下退化出
+        # SQLITE_READONLY（详见 task_manager._db_lock_for 的说明）。
+        #
+        # 无消费者复核（本轮亲查，替代 P1 报告的 unknown #4）：
+        #   grep -rn 'routing\.selection\.pending' --include=*.py  → 仅 1 处写入、0 处读取；
+        #   cli/store.py:161 与 runtime/__main__.py:178 是**通用**事件转储
+        #   （list_events 后原样列出，不按 event_type 分支），不构成类型消费者。
+        # 因此把它**并入随后的 routing.decision**（一次落库），字段全部保留：
+        # query_sha256 / available_tool_count 改为决策时刻的权威值。
         if run_id:
             self._route_decisions[run_id] = decision_id
             self._route_plans[run_id] = {}
-            try:
-                self.tasks.add_event(run_id, "routing.selection.pending", {
-                    "schema_version": 1,
-                    "run_id": run_id,
-                    "decision_id": decision_id,
-                    "query_sha256": message_hash,
-                    "authority": "langgraph_tool_selection_pending",
-                    "available_tool_count": len(getattr(chosen, "tools", []) or []),
-                })
-            except Exception:
-                _logger.warning("LangGraph 工具筛选待处理事件写入失败 run=%s", run_id, exc_info=True)
+            # 内存态：把 query 指纹带进决策事件，供 V 层做端到端关联。
+            self._route_query_hashes[run_id] = message_hash
         return chosen
 
     def _project_context_block(self, container_id: str | None, proj: dict | None) -> str:
@@ -3597,6 +3604,9 @@ class AgentRuntime:
                 from runtime.task_plan import infer_task_plan, plan_required_tools
 
                 _analysis = _state.get("analysis") or {}
+                # P2-4：筛选成本埋点起点（墙钟）。与决策事件里的
+                # selection_wall_ms 配对，用于兑现"32→8~16 工具"的成本收益说法。
+                _selection_started_at = time.perf_counter()
                 _all_tools = list(getattr(tool_inventory_agent, "tools", []) or [])
                 _available_names = [str(getattr(tool, "name", "")) for tool in _all_tools
                                     if getattr(tool, "name", "")]
@@ -3717,15 +3727,21 @@ class AgentRuntime:
                     "strict": bool(getattr(tool, "strict_json_schema", True)),
                 } for tool in _selected_tools]
                 try:
+                    _schema_json = json.dumps(_tool_schema, ensure_ascii=False,
+                                              sort_keys=True, default=str)
                     _schema_hash = __import__("hashlib").sha256(
-                        json.dumps(_tool_schema, ensure_ascii=False, sort_keys=True,
-                                   default=str).encode("utf-8")
+                        _schema_json.encode("utf-8")
                     ).hexdigest()
+                    _schema_json_len = len(_schema_json.encode("utf-8"))
                 except Exception:
                     _schema_hash = ""
+                    _schema_json_len = 0
+                # P2-4：筛选墙钟成本（毫秒）。与 selection_schema_bytes 配对，
+                # 使"工具 schema 体积 vs 筛选耗时"这一收益声称可被 V 层核对。
+                _selection_wall_ms = int((time.perf_counter() - _selection_started_at) * 1000)
                 try:
                     self.tasks.add_event(task.id, "routing.decision", {
-                        "schema_version": 2,
+                        "schema_version": 3,
                         "run_id": task.id,
                         "decision_id": _decision_id,
                         "authority": "langgraph_tool_selection_model",
@@ -3740,6 +3756,16 @@ class AgentRuntime:
                         "allowed_tool_count": len(_selected_names),
                         "agent_tool_schema_sha256": _schema_hash,
                         "capability_plan": _runtime_plan,
+                        # --- P1-3：并入原 routing.selection.pending 的字段 ---
+                        # 原事件表达"筛选已开始"，其 query 指纹与候选规模在此
+                        # 以决策时刻的权威值留档；瞬时态本身不再单独落库。
+                        "query_sha256": self._route_query_hashes.get(task.id, ""),
+                        # --- P2-4：决策成本埋点 ---
+                        # 迁移的声称收益是"32→8~16 个工具"，但此前无任何度量支撑，
+                        # 该声称既不可证实也不可证伪。这里记录筛选本身的墙钟成本
+                        # 与产出密度，使该收益可被 V 层核对。
+                        "selection_wall_ms": _selection_wall_ms,
+                        "selection_schema_bytes": _schema_json_len,
                     })
                 except Exception:
                     _logger.warning("LangGraph 工具筛选 trace 写入失败 run=%s",

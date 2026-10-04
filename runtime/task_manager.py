@@ -25,17 +25,92 @@ import logging
 import math
 import os
 import sqlite3
+import threading
 import time
 import uuid
 from datetime import datetime
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any, Callable, Iterator, TypeVar
 
 from runtime.errors import AgentError
 from runtime_paths import PROJECT_ROOT, state_db_path
 from runtime.state_machine import RESUMABLE_FROM, assert_transition
 from runtime.task import RunBudget, Task, TaskEvent, TaskState, TaskUsage, utcnow_iso
+
+T = TypeVar("T")
+
+#: P0-4：S 层重试预算。3 次 = 1 + 2 次重试，覆盖 WAL -shm 退化的典型窗口；
+#: 再多只会拖长 Run，且超过 SQLite 自身 busy_timeout(5s) 后重试无意义。
+_CONNECT_RETRIES = 3
+_WRITE_RETRIES = 3
+_RETRY_BACKOFF_BASE = 0.05  # 秒；0.05 / 0.10 指数退避
+
+#: 可重试的 SQLite 主错误码。
+#:
+#: 关于 SQLITE_READONLY(8) 的重要实测结论（别再按扩展码收窄）：
+#: Python 3.11 的 sqlite3 只暴露**主码** `sqlite_errorcode`。实测把文件 chmod 0444
+#: 制造真·权限只读，得到 code=8 / name=SQLITE_READONLY，与 WAL 并发下
+#: "attempt to write a readonly database" 的主码**完全相同**，扩展码
+#: READONLY_DBMOVED(10) / READONLY_RECOVERY(13) 不可直接读到。
+#: 即：**无法在捕获处区分"权限真的只读"与"WAL 并发把连接降级成只读"**。
+#: 因此对 code==8 采用**有界**重试（≤3 次，合计退避 0.15s）：
+#: 真权限只读会在 0.15s 后原样抛出，不掩盖配置问题；WAL 降级则被治好。
+#: 这比"猜一个扩展码然后永远不命中"诚实得多。
+_RETRYABLE_ERRNOS = frozenset({
+    getattr(sqlite3, "SQLITE_BUSY", 5),
+    getattr(sqlite3, "SQLITE_LOCKED", 6),
+    getattr(sqlite3, "SQLITE_READONLY", 8),
+})
+
+
+def _is_retryable_sqlite_error(exc: sqlite3.Error) -> bool:
+    """只对「退避后可能成功」的 SQLite 错误返回 True（供 P0-4 两层重试共用）。
+
+    刻意保守：把权限/磁盘/损坏/约束类错误挡在外面，否则会把"立刻失败"的
+    配置问题变成"慢 3 次后才失败"，反而更难排查。SQLITE_READONLY 的取舍见
+    `_RETRYABLE_ERRNOS` 上方注释。
+    """
+    code = getattr(exc, "sqlite_errorcode", None)
+    if code is None:
+        # 老版本 sqlite3 无 sqlite_errorcode：只信消息里的忙/锁/只读措辞。
+        msg = str(exc).lower()
+        return (
+            "database is locked" in msg
+            or "database table is locked" in msg
+            or "attempt to write a readonly database" in msg
+        )
+    return code in _RETRYABLE_ERRNOS
+
+
+#: P0-4 根因修复：按 db_path 复用一把**可重入**锁，串行化同一 DB 的连接生命周期。
+#:
+#: 为什么必须锁（这是本轮实测定位到的真因，不是推测）：
+#: 「每操作新建 + 立即关闭一个连接」在 WAL 下高频并发时，最后一个连接关闭时
+#: SQLite 要回放并删除 -wal/-shm；此时若另一个连接正在并发打开/映射同一 -shm，
+#: Windows 上就会退化成 `SQLITE_READONLY`（"attempt to write a readonly
+#: database"，而目录与 DB 权限都正常）。**只加重试治不了**：重试期间新的
+#: 连接仍在并发 churn，实测 3 次退避全部耗尽后照样抛同一错。
+#: 串行化后连接不再并发开闭，-shm 的回放/删除有了确定的顺序。
+#:
+#: 为什么用 RLock：`_connect` 在同一线程内被嵌套调用时（历史代码里存在
+#: 顺序复用型调用）不得自锁；跨线程/跨 TaskManager 实例对同一 db_path 仍然互斥。
+#: 锁表本身用一把模块级锁保护，避免"建锁"本身成为竞态。
+_DB_LOCKS: dict[str, threading.RLock] = {}
+_DB_LOCKS_GUARD = threading.Lock()
+
+
+def _db_lock_for(db_path: Path) -> threading.RLock:
+    """取（并惰性创建）某个 DB 路径对应的可重入锁。"""
+    key = str(db_path)
+    lock = _DB_LOCKS.get(key)
+    if lock is None:
+        with _DB_LOCKS_GUARD:
+            lock = _DB_LOCKS.get(key)
+            if lock is None:
+                lock = threading.RLock()
+                _DB_LOCKS[key] = lock
+    return lock
 
 _logger = logging.getLogger(__name__)
 
@@ -645,14 +720,79 @@ class TaskManager:
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
-        self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(self.db_path), timeout=10)
-        conn.row_factory = sqlite3.Row
-        try:
-            yield conn
-            conn.commit()
-        finally:
-            conn.close()
+        """打开一个 DB 连接，提交后关闭。
+
+        P0-4（S 层连接韧性）。本函数此前是「每操作新建连接 + 无任何韧性」，
+        在 WAL + 多路并发下会让**无关的下一条语句**炸掉
+        `sqlite3.OperationalError: attempt to write a readonly database`。
+
+        三层防护，按"治本 → 治标"排序：
+          1. **按 db_path 串行化**（`_db_lock_for`）—— 治本。消除并发 churn，
+             这是实测到的真因（只加重试无效：3 次退避耗尽后仍抛同一错）。
+          2. `_open_with_retry` —— 治标，应对跨进程竞争。
+          3. `_retrying_write` —— 供关键业务写点显式启用整块重放。
+
+        **刻意不做「长驻连接池」**：那会让 Windows 上被 rmtree 的临时 DB 目录
+        因句柄占用而删不掉（tests 大量用 shutil.rmtree 清理 tmp 目录），
+        等于把偶发 SQL 错误换成一个必然的清理失败。
+        """
+        with _db_lock_for(self.db_path):
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = self._open_with_retry()
+            try:
+                yield conn
+                conn.commit()
+            except sqlite3.Error:
+                # 事务失败必须显式回滚：连接即将关闭，但残留事务状态会污染
+                # 同一 TaskManager 后续连接（WAL 下的 -wal 可见性）。
+                try:
+                    conn.rollback()
+                except sqlite3.Error:
+                    pass
+                raise
+            finally:
+                conn.close()
+
+    def _open_with_retry(self) -> sqlite3.Connection:
+        """打开连接；对可重试的 SQLite 忙/锁错误做指数退避。"""
+        last_exc: sqlite3.Error | None = None
+        for attempt in range(_CONNECT_RETRIES):
+            try:
+                conn = sqlite3.connect(str(self.db_path), timeout=10)
+                conn.row_factory = sqlite3.Row
+                return conn
+            except sqlite3.Error as exc:
+                last_exc = exc
+                if not _is_retryable_sqlite_error(exc) or attempt == _CONNECT_RETRIES - 1:
+                    raise
+                time.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
+        raise last_exc if last_exc else sqlite3.OperationalError("cannot open database")
+
+    def _retrying_write(self, fn: Callable[[sqlite3.Connection], T]) -> T:
+        """执行一个写事务块；对可重试错误重放**整个块**（≤3 次，退避）。
+
+        为什么重放必须在这一层而不是 `_connect` 里：contextmanager 只能 yield
+        一次连接，无法重跑调用方写在 `with` 块里的语句。要真正消化
+        SQLITE_READONLY（连接被 WAL 并发降级），必须重新走一次
+        「开连接 → 执行 → 提交」全流程。
+
+        幂等性要求：传入的块必须对同一状态可安全重放。已按此纪律标注各调用点；
+        不满足者**不得**改用本方法（宁可保留裸 `_connect`）。
+        """
+        last_exc: sqlite3.Error | None = None
+        for attempt in range(_WRITE_RETRIES):
+            try:
+                with self._connect() as conn:
+                    return fn(conn)
+            except sqlite3.Error as exc:
+                last_exc = exc
+                if not _is_retryable_sqlite_error(exc) or attempt == _WRITE_RETRIES - 1:
+                    raise
+                _logger.warning(
+                    "S 层写冲突，退避重试 %d/%d: %s", attempt + 1, _WRITE_RETRIES, exc
+                )
+                time.sleep(_RETRY_BACKOFF_BASE * (2 ** attempt))
+        raise last_exc if last_exc else sqlite3.OperationalError("write failed")
 
     # ================= Project（工作环境） =================
 
@@ -692,9 +832,19 @@ class TaskManager:
     def get_or_create_container(
         self, session_id: str, project_id: str | None = None, title: str | None = None
     ) -> dict:
-        """同 session_id（底层上下文键）复用一个未归档的 Task 容器。"""
+        """同 session_id（底层上下文键）复用一个未归档的 Task 容器。
+
+        P0-4：这是并发压测里实测到的**崩溃点**（`attempt to write a readonly
+        database` 抛在这里，且与本函数要写的业务毫无关系——它只是恰好排在一条
+        无关语句之后）。故改用 `_retrying_write`。
+        """
         session_id = (session_id or "personal").strip() or "personal"
-        with self._connect() as conn:
+        # 幂等性（`_retrying_write` 的重放前提）：
+        # - 提交失败 -> 已回滚，重放时 SELECT 仍查不到 -> 用同一 id 重新 INSERT；
+        # - 提交其实成功但报错 -> 重放时 SELECT 命中 -> 提前返回，不会插第二行。
+        container_id = "tk_" + uuid.uuid4().hex[:8]
+
+        def _block(conn: sqlite3.Connection) -> dict | None:
             row = conn.execute(
                 "SELECT * FROM tasks WHERE session_id = ? AND archived_at IS NULL "
                 "ORDER BY updated_at DESC LIMIT 1",
@@ -702,13 +852,17 @@ class TaskManager:
             ).fetchone()
             if row is not None:
                 return dict(row)
-            container_id = "tk_" + uuid.uuid4().hex[:8]
             now = utcnow_iso()
             conn.execute(
                 "INSERT INTO tasks (id, project_id, session_id, title, summary, status, created_at, updated_at, archived_at) "
                 "VALUES (?,?,?,?,?,?,?,?,?)",
                 (container_id, project_id, session_id, (title or "")[:120], "", "active", now, now, None),
             )
+            return None
+
+        existing = self._retrying_write(_block)
+        if existing is not None:
+            return existing
         result = self.get_container(container_id)
         assert result is not None
         return result
@@ -1243,12 +1397,17 @@ class TaskManager:
     # ---------- 事件 ----------
 
     def add_event(self, task_id: str, event_type: str, payload: dict | None = None) -> TaskEvent:
+        # P0-4：用 `_retrying_write`。add_event 是并发下最频繁的写点（WAL 降级的
+        # 触发面），单语句 + 固定 payload，重放天然幂等。
         event = TaskEvent(task_id=task_id, event_type=event_type, payload=payload or {})
-        with self._connect() as conn:
+
+        def _block(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "INSERT INTO task_events (task_id, event_type, payload_json, created_at) VALUES (?,?,?,?)",
                 (task_id, event_type, json.dumps(event.payload, ensure_ascii=False), event.created_at),
             )
+
+        self._retrying_write(_block)
         if event_type == "run.terminal":
             self._auto_ingest_episode_memory()
         return event
