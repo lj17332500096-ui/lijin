@@ -57,8 +57,13 @@ class CapabilityOriginAndStateTests(unittest.TestCase):
 
         plan = infer_task_plan("请读取工作区里的 README.md 并总结")
 
+        # 本用例的价值是"显式文件读取**不得**被能力问题门吞掉"——由 phases 判定。
         self.assertEqual(plan["phases"][0]["phase"], "read_input")
-        self.assertIn("read_office_file", plan["required_tools"])
+        # P1-7：工具名移到了 phases（规则降级为提示），required_tools 恒空。
+        # 断言**载体迁移**而非删除：同一条工具名仍必须出现在该阶段里，
+        # 否则"读取阶段被选错工具"这类回归就无人看守了。
+        self.assertEqual(plan["phases"][0]["tools"], ["read_office_file"])
+        self.assertEqual(plan["required_tools"], [])
 
     def test_testcap01_mcp_query_only_returns_mcp(self) -> None:
         agent = _FakeAgent([
