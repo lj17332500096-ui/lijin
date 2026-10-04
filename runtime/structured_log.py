@@ -112,7 +112,7 @@ class _SlogProxy:
         return self._target
 
     def _emit(self, level: int, msg: str, *fields: Any,
-              extra: dict[str, Any] | None = None, exc_info: bool = True,
+              extra: dict[str, Any] | None = None, exc_info: bool = False,
               stack_info: bool = False, **kw: Any) -> None:
         # 用 record 的 forge_fields 携带结构字段（不进 getMessage，避免混进 msg）
         merged: dict[str, Any] = {}
@@ -133,31 +133,36 @@ class _SlogProxy:
         target.log(level, msg, extra=record_extra,
                    exc_info=exc_info, stack_info=stack_info)
 
+    # `exc_info` 默认 False（与 logging 标准库一致）：`exc_info=True` 的语义是
+    # "打印当前活跃异常"，而 warning/error 绝大多数调用点并不在 except 块里。
+    # 默认 True 会让每条普通日志都多出一行无意义的 "NoneType: None"
+    # （实测审批护栏的可读提示里就夹着这么一行，用户以为程序出错）。
+    # 要记异常用 `exception()`，它显式传 True。
     def debug(self, msg: str, *f: Any, **kw: Any) -> None:
         self._emit(logging.DEBUG, msg, *f,
                    extra=kw.pop("extra", None),
-                   exc_info=kw.pop("exc_info", True),
+                   exc_info=kw.pop("exc_info", False),
                    stack_info=kw.pop("stack_info", False),
                    **kw)
 
     def info(self, msg: str, *f: Any, **kw: Any) -> None:
         self._emit(logging.INFO, msg, *f,
                    extra=kw.pop("extra", None),
-                   exc_info=kw.pop("exc_info", True),
+                   exc_info=kw.pop("exc_info", False),
                    stack_info=kw.pop("stack_info", False),
                    **kw)
 
     def warning(self, msg: str, *f: Any, **kw: Any) -> None:
         self._emit(logging.WARNING, msg, *f,
                    extra=kw.pop("extra", None),
-                   exc_info=kw.pop("exc_info", True),
+                   exc_info=kw.pop("exc_info", False),
                    stack_info=kw.pop("stack_info", False),
                    **kw)
 
     def error(self, msg: str, *f: Any, **kw: Any) -> None:
         self._emit(logging.ERROR, msg, *f,
                    extra=kw.pop("extra", None),
-                   exc_info=kw.pop("exc_info", True),
+                   exc_info=kw.pop("exc_info", False),
                    stack_info=kw.pop("stack_info", False),
                    **kw)
 
