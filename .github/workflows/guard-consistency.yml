@@ -62,10 +62,25 @@ jobs:
           tests/test_capability_gate_no_false_strip.py
           tests/test_mcp_bridge_policy.py
           tests/test_conversation_workflow.py
+          tests/test_ci_workflow_shell_syntax.py
+
+      # 自检：本 workflow 自身的 run 步骤能否被声明的 shell 解析。
+      # 这条看似自指，但正是它能在 push 之前挡住"改了 workflow 忘了换 shell
+      # 语法"——上一版就是在这里用 bash 的 `<` 重定向，YAML 合法但 runner
+      # 解析期就失败，PR 上第一个 commit 必红。
+      - name: Workflow shell syntax self-check
+        run: python scripts/check_workflow_shells.py
 
       # 门禁一致性：改动文件 → 选测子集 + 已知失败基线比对。
       # 这条与本地 pre-commit 钩子跑的是同一个脚本/同一份基线，
       # 避免"本地过、CI 红"或反之。
+      #
+      # 注意输入重定向的写法：本 job 是 windows-latest，shell: pwsh。
+      # `<` 在 PowerShell 里是**保留运算符**（"为将来使用而保留"），
+      # 写成 `python scripts/ci_gate.py --stdin < changed.txt` 会让
+      # 步骤在解析期就失败 —— YAML 合法但 runner 起不来。
+      # PowerShell 的输入重定向是管道：`Get-Content x | cmd`。
+      # 校验方式见 scripts/check_workflow_shells.py（按各自 shell 实际解析）。
       - name: Verify local gate mapping covers changed files
         shell: pwsh
         run: |
@@ -74,7 +89,7 @@ jobs:
           git diff --name-only $base > changed.txt
           Write-Host "--- changed files ---"
           Get-Content changed.txt
-          python scripts/ci_gate.py --stdin < changed.txt
+          Get-Content changed.txt | python scripts/ci_gate.py --stdin
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
       - name: Baseline is well-formed
