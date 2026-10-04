@@ -139,8 +139,25 @@ def server_display(server_id: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# 能力查询意图（最小检测，不做 Intent Engine）
+# 能力查询意图（宽召回 + 结构确认；不做 Intent Engine）
 # ---------------------------------------------------------------------------
+#
+# P1-6 的设计纪律（也是 AGENTS.md 分工宪法的直接落地）：
+#   **面向业务语义的判断不能用关键字/正则/规则匹配。**
+# 之前的实现是"两个正则都命中才算"，于是每次被误伤就往里加同义句 ——
+# 未提交的草稿一次加了 10 行（`你(?:现在|目前|当前)?(?:可以|能|会).{0,12}...`）。
+# 那是**设计放错层级的症状**，不是纪律滑坡：加词永远补不完同义表达。
+#
+# 改为两阶段，且第二阶段**不做语义匹配**：
+#   阶段 1（宽召回）：一个正则，**故意过召**。它只回答"值不值得再看一眼"，
+#     不作结论。过召的方向是安全的（多花一次结构检查）。
+#   阶段 2（结构确认）：纯结构/格式判定 —— 句子形状 + 是否携带**可执行目标**
+#     （路径、URL、代码块、引号字面量、带单位/序号的清单项、子句并列）。
+#     这些是**确定性的格式校验**（文件/文本形态），不是"用户想干什么"的业务语义。
+#
+# 为什么阶段 2 方向正确：`tools=[]` 是**移除能力**的动作，误判的代价是
+# "普通任务被清空工具"（用户看不到结果、Run 空转）。所以确认必须偏严：
+# 结构上"不像一句纯粹的自我盘点问句"就一律放行工具，宁可漏判也不误伤。
 
 _CAPABILITY_RE = re.compile(
     r"mcp|技能|能力|你能做什么|你会(?:什么|哪些)|能用|可用|可以帮你|"
@@ -151,16 +168,15 @@ _CAPABILITY_RE = re.compile(
     re.IGNORECASE,
 )
 
-_CAPABILITY_QUERY_SHAPE = re.compile(
-    r"有哪些|有什么|有啥|你会(?:什么|哪些)|你能做什么|能用(?:什么|哪些|啥)|"
-    r"可用(?:什么|哪些|啥)|支持(?:什么|哪些)|"
-    r"(?:工具|插件|扩展|技能).{0,12}(?:列表|清单|状态|有哪些|有什么)|"
-    r"(?:检查(?:一下)?|查看|看看|查(?:看|一下)?|列出|列一下|展示|告诉我).{0,20}"
-    r"(?:自己|你|当前(?:会话|agent)?).{0,12}"
-    r"(?:工具|能力|功能|插件|技能|mcp)|"
-    r"当前.{0,8}(?:能用|可用|支持).{0,8}(?:工具|能力|功能|插件|技能|mcp)|"
-    r"把.{0,32}(?:列出来|展示出来|列示)|"
-    r"(?:what can you do|what tools|available tools|list.*(?:tools|plugins|skills))",
+#: 宽召回的**英文**补充词表。原先英文问句（"what can you do" / "available
+#: tools"）只被 `_CAPABILITY_QUERY_SHAPE` 认，该正则已按 P1-6 拆除；这些词是
+#: "工具/能力"本身的**指称**，属于阶段 1 过召的合法词汇，不是同义句堆叠
+#:（判断仍然由阶段 2 的结构确认负责）。
+_CAPABILITY_RE_EN = re.compile(
+    r"what\s+(?:can|could)\s+you\s+do|what\s+tools|which\s+tools|"
+    r"available\s+(?:tools|capabilities|skills|plugins)|"
+    r"list\s+(?:your\s+|all\s+|the\s+)?(?:tools|capabilities|skills|plugins)|"
+    r"your\s+(?:tools|capabilities)",
     re.IGNORECASE,
 )
 
@@ -180,13 +196,89 @@ _HISTORY_RE = re.compile(
     re.IGNORECASE,
 )
 
+# ---------------------------------------------------------------------------
+# 阶段 2：结构确认（确定性格式校验，不做业务语义判断）
+# ---------------------------------------------------------------------------
 
-def looks_like_capability_query(text: str) -> bool:
+#: 携带**可执行目标**的形态 —— 命中即判定"这是一条要做事的指令"，不是盘点问句。
+#: 全部是文本/路径的**格式特征**，不含任何"用户意图"词汇：
+#: - URL：http(s):// 或 www.
+#: - 路径/文件名：反斜杠、正斜杠，或「点 + 扩展名」形态（.md/.py/.txt/.json…）
+#: - 代码块：```
+#: - 引号/书名号字面量：` " ' 「」 《》
+#: - 带单位或序号的清单项：数字 + 单位（个/条/份/…）或行首序号（1. / 1) / 1、）
+_OPERAND_SHAPE_RE = re.compile(
+    r"""https?://|www\.
+       |[\\/]
+       |\.[A-Za-z0-9]{1,8}\b
+       |```
+       |[`"']
+       |[「『《]
+       |\d+\s*(?:个|条|份|页|张|次|天|周|月|年|%|％|字|行|块|张表)
+       |^\s*\d+\s*[.、)）]""",
+    re.IGNORECASE | re.VERBOSE | re.MULTILINE,
+)
+
+#: 子句并列连接词（语篇/句法层的成分，不是业务语义词）。
+#: "你能做什么，帮我把 X 做出来" 里，前半句是盘点、后半句是要办事 ——
+#: 出现并列连接词说明这条消息**同时**承载了执行意图。
+_CLAUSE_JOINER_RE = re.compile(r"并(?:且|帮|替|再)|然后|接着|再(?:帮|替|来)|同时|以及")
+
+#: 问句切分符。用于统计"这句话由几段构成"。
+_SENTENCE_SPLIT_RE = re.compile(r"[。！？!?；;\n]+")
+
+#: 结构确认的形状上限。一句纯盘点问句不会又长又分段；
+#: 超过即视为"这更可能是一条多任务指令"，放行工具。
+_MAX_SHAPE_SENTENCES = 2
+_MAX_SHAPE_CHARS = 80
+
+
+def confirm_capability_shape(text: str) -> bool:
+    """阶段 2：对宽召回候选做**结构**确认。
+
+    返回 True = 形状上"像一句纯粹的自我盘点问句"，可以施加 `tools=[]`；
+    返回 False = 形状上更可能是一条要办事的指令，**必须保留工具**。
+
+    这里刻意**不判断"用户在问什么"**（那是业务语义，属于 LLM/工作流的职责）。
+    它只回答一个格式问题：这条消息是否**同时携带了可执行目标或并列子句**。
+    """
     if not text:
         return False
+    normalized = " ".join(str(text).split())
+    if not normalized:
+        return False
+    # 形状：过长 / 分段过多 -> 放行工具
+    if len(normalized) > _MAX_SHAPE_CHARS:
+        return False
+    segments = [s for s in _SENTENCE_SPLIT_RE.split(normalized) if s.strip()]
+    if len(segments) > _MAX_SHAPE_SENTENCES:
+        return False
+    # 携带可执行目标 -> 放行工具
+    if _OPERAND_SHAPE_RE.search(normalized):
+        return False
+    # 并列子句 -> 放行工具
+    if _CLAUSE_JOINER_RE.search(normalized):
+        return False
+    return True
+
+
+def looks_like_capability_query(text: str) -> bool:
+    """是否应进入"能力盘点"路径（会注入事实块，并可能清空工具）。
+
+    = 阶段 1 宽召回（过召）**且** 阶段 2 结构确认（偏严）。
+    两个阶段任一为假 -> 一律当作普通任务处理，保留全部工具。
+    """
+    if not text:
+        return False
+    # 明确的本地文件能力咨询：形态固定且无歧义，走既有精确分支。
+    # 注意这条**不经过阶段 1 宽召回** —— "你可以读取我电脑中的文档吗" 不含
+    # 任何召回词（实测 _CAPABILITY_RE 对它为 False），若把精确分支放在召回
+    # 之后，这条既有的精确能力问句会被误判为普通任务。精确分支优先。
     if _LOCAL_FILE_CAPABILITY_QUESTION_RE.search(text):
         return True
-    return bool(_CAPABILITY_RE.search(text) and _CAPABILITY_QUERY_SHAPE.search(text))
+    if not (_CAPABILITY_RE.search(text) or _CAPABILITY_RE_EN.search(text)):
+        return False
+    return confirm_capability_shape(text)
 
 
 def looks_like_history_query(text: str) -> bool:
