@@ -21,8 +21,8 @@
 全部离线：不联网、不调真实模型（桩掉 _run_chat_turn）。
 """
 from __future__ import annotations
+
 import asyncio
-import json
 import sys
 import unittest
 from pathlib import Path
@@ -32,12 +32,11 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
-from starlette.applications import Starlette  # noqa: E402
-from starlette.responses import JSONResponse  # noqa: E402
-from starlette.routing import Route  # noqa: E402
-from starlette.testclient import TestClient  # noqa: E402
+from starlette.applications import Starlette
+from starlette.routing import Route
+from starlette.testclient import TestClient
 
-import llama_bridge as lb  # noqa: E402
+import llama_bridge as lb
 
 #: 冻结 bundle（web/llama-ui/_app/immutable/bundle.CfD0eHgL.js）里这些键的命中数。
 #: 改动前端产物时此文件应同步失效 —— 那正是「死分支」判据的来源。

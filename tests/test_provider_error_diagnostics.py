@@ -17,6 +17,7 @@
 全部离线：不联网、不调真实模型。
 """
 from __future__ import annotations
+
 import os
 import sys
 import unittest
@@ -110,7 +111,6 @@ class FailedAttemptCarriesDiagnosisTests(unittest.TestCase):
 
     def test_get_response_failure_records_type_and_message(self) -> None:
         """非流式路径真的产出带诊断字段的记录。"""
-        from runtime.provider_errors import ProviderErrorKind
 
         boom = ConnectionRefusedError("127.0.0.1:8081 connection refused")
 
@@ -123,13 +123,13 @@ class FailedAttemptCarriesDiagnosisTests(unittest.TestCase):
         rt._inner = _FailingModel()
         rt._gateway = mock.Mock()
         rt._gateway._fallback_config.return_value = None
+        import asyncio
         with mock.patch.object(self.pg, "_current_run_id", return_value=run_id), \
                 mock.patch.object(self.pg, "_provider_max_attempts", return_value=1), \
                 mock.patch.object(self.pg, "_provider_max_total_attempts", return_value=1), \
-                mock.patch.object(self.pg, "_total_timeout_seconds", return_value=5):
-            with self.assertRaises(BaseException):
-                import asyncio
-                asyncio.run(rt.get_response("hi"))
+                mock.patch.object(self.pg, "_total_timeout_seconds", return_value=5), \
+                self.assertRaises(ConnectionRefusedError):
+            asyncio.run(rt.get_response("hi"))
 
         recs = self._records()
         self.assertTrue(recs, "失败必须留下尝试记录")

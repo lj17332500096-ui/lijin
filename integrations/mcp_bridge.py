@@ -540,7 +540,10 @@ async def close_servers() -> list[str]:
     for server in servers:
         try:
             await server.cleanup()
-        except BaseException as exc:  # noqa: BLE001 - 关停必须逐个隔离，见下
+        except BaseException as exc:
+            # 关停必须逐个隔离：CancelledError 继承 BaseException 而非 Exception，
+            # 原来的 `except Exception` 抓不到它 ⇒ 一个 server 被取消会中断整个
+            # 循环，后面所有 server 都不清理（子进程残留）。
             if _is_cross_task_teardown_noise(exc):
                 # 已定位的良性跨 task 关停噪声：降级为一行 debug。
                 # 修复前这里走 _logger.warning(..., exc_info=True)，6 个 server
@@ -550,9 +553,7 @@ async def close_servers() -> list[str]:
                 _logger.debug("MCP %s teardown: benign cross-task cancel scope noise (%s)",
                               getattr(server, "name", "?"), type(exc).__name__)
                 continue
-            # CancelledError 继承 BaseException 而非 Exception：修复前的
-            # `except Exception` 抓不到它 ⇒ 一个 server 的取消会**中断整个循环**，
-            # 后面所有 server 都不清理（子进程残留）。这里逐个隔离后继续。
+            # 其余异常（含真故障与真取消）都要留痕并计入返回值。
             message = (
                 f"{getattr(server, 'name', 'MCP')} cleanup: "
                 f"{type(exc).__name__}: {str(exc)[:160]}"

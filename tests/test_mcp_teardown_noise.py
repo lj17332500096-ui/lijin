@@ -15,8 +15,8 @@
 全部离线：不联网、不启动真实 MCP 子进程（用桩替代）。
 """
 from __future__ import annotations
+
 import asyncio
-import logging
 import sys
 import unittest
 from pathlib import Path
@@ -25,7 +25,7 @@ BASE = Path(__file__).resolve().parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
-from integrations import mcp_bridge  # noqa: E402
+from integrations import mcp_bridge
 
 #: anyio/_backends/_asyncio.py::CancelScope.__exit__ 的原话（勿手改，上游文案）
 CROSS_TASK_MSG = ("Attempted to exit cancel scope in a different task "
@@ -62,7 +62,7 @@ class CrossTaskNoiseIsSilencedTests(_CloseServersBase):
 
     async def test_benign_cross_task_runtime_error_is_not_reported(self) -> None:
         self._install(*[_StubServer(f"s{i}", RuntimeError(CROSS_TASK_MSG)) for i in range(6)])
-        with self.assertLogs(mcp_bridge._logger, level="DEBUG") as cap:
+        with self.assertLogs(mcp_bridge._logger, level="DEBUG"):
             errors = await mcp_bridge.close_servers()
         self.assertEqual(errors, [], "良性跨 task 噪音不该进 errors（它是已解释的关停竞态）")
 
