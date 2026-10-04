@@ -32,6 +32,7 @@ import os
 from typing import Any
 
 from runtime.approval import GATED_DEFAULT
+from runtime.errors import StartupGuardBlocked
 from runtime.structured_log import slog
 
 __all__ = [
@@ -39,9 +40,11 @@ __all__ = [
     "UNATTENDED_ENV",
     "UNATTENDED_MODES",
     "GuardVerdict",
+    "StartupGuardBlocked",
     "approval_guard_verdict",
     "audit_approval_guard",
     "enforce_approval_guard",
+    "format_block_message",
 ]
 
 #: fail-closed 总开关。默认 on —— 护栏被关掉时宁可起不来，也不要静默裸奔。
@@ -190,6 +193,22 @@ def approval_guard_verdict() -> GuardVerdict:
     )
 
 
+def format_block_message(exc: BaseException) -> str:
+    """把护栏阻断渲染成给人看的多行提示（CLI / Web / daemon 共用）。
+
+    单独抽出来的理由：护栏异常是 `BaseException` 子类，正常 `except Exception`
+    捕不到，所以**必须**由入口显式接住并给出可读原因 —— 否则用户看到的是
+    一段 Python 崩栈，而不是"审批护栏拒绝了启动、缺哪个声明"。
+    """
+    reason = getattr(exc, "reason", "") or str(exc)
+    hint = getattr(exc, "hint", "")
+    head = "审批护栏拒绝启动（approval guard blocked startup）"
+    lines = [head, "", f"原因：{reason}"]
+    if hint:
+        lines += ["", hint]
+    return "\n".join(lines)
+
+
 def enforce_approval_guard(
     *,
     events: Any = None,
@@ -222,8 +241,18 @@ def enforce_approval_guard(
     audit_approval_guard(verdict, events)
 
     if verdict.should_block and raise_on_block:
-        raise RuntimeError(
-            "[approval-guard] 拒绝启动：" + verdict.reason
+        raise StartupGuardBlocked(
+            verdict.reason,
+            reason=verdict.reason,
+            hint=(
+                f"这是审批护栏的启动期强制断言（{FORGE_APPROVAL_FAILCLOSED_ENV} 默认 on）。\n"
+                f"  当前 APPROVAL 取值：{os.getenv('APPROVAL') or '(未设置，按 on 处理)'} —— "
+                f"关闭态下 {len(verdict.side_effect_tools)} 个有副作用的工具不受审批保护。\n"
+                f"  若这是**无人值守**部署（定时任务 / 常驻服务），请在 .env 显式声明：\n"
+                f"      {UNATTENDED_ENV}=scheduled   （或 daemon / both）\n"
+                f"  若需要人工审批，把 APPROVAL 设回 on。\n"
+                f"  紧急放行（不推荐）：{FORGE_APPROVAL_FAILCLOSED_ENV}=off"
+            ),
         )
 
     return verdict

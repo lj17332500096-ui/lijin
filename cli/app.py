@@ -34,6 +34,13 @@ from cli import theme
 from cli.commands import build_registry
 from cli.render import TurnRenderer
 from cli.store import SessionStore
+from runtime.errors import StartupGuardBlocked
+from runtime.startup_guard import format_block_message
+
+#: 审批护栏拒绝启动时的进程退出码。选 78（EX_CONFIG）而不是 1：
+#: 1 在本项目里表示"一般运行失败"，无法把"配置导致的拒绝启动"与
+#: "Run 执行失败"区分开 —— 而这两者的处置完全不同（改配置 vs 看报错）。
+EXIT_GUARD_BLOCKED = 78
 
 
 def _same_text(left: str, right: str) -> bool:
@@ -446,8 +453,23 @@ class ChatApp:
 
 
 def run_cli(**kwargs) -> int:
-    """同步入口：给 main.py 调用。"""
-    app = ChatApp(**kwargs)
+    """同步入口：给 main.py 调用。
+
+    P3 返工项 2：护栏阻断必须**穿透到进程顶层**，以非零退出码结束，
+    而不是被 `ChatApp.container_id()` 之类的 `except Exception:` 兜底吞掉
+    （实测：APPROVAL=off 时横幅正常、退出码 0、报错推迟到第一次 Run
+    并被包装成 E-UNKNOWN —— 护栏在最典型的绕过路径上失效）。
+
+    `StartupGuardBlocked` 刻意继承 `BaseException` 而非 `Exception`，
+    所以任何"局部失败不影响整体"的兜底都捕不到它；这里显式接住并渲染
+    成可读提示。**方向不对称是刻意的**：宁可在这里友好退出，
+    也不可让安全阻断被静默吞掉。
+    """
+    try:
+        app = ChatApp(**kwargs)
+    except StartupGuardBlocked as exc:
+        print(format_block_message(exc), file=sys.stderr)
+        return EXIT_GUARD_BLOCKED
     try:
         async def _run_with_mcp_lifecycle() -> int:
             try:
@@ -458,6 +480,10 @@ def run_cli(**kwargs) -> int:
                 await close_servers()
 
         return asyncio.run(_run_with_mcp_lifecycle())
+    except StartupGuardBlocked as exc:
+        # 运行期才触发的阻断（例如补充轮次里第一次真正建 Runtime）
+        print(format_block_message(exc), file=sys.stderr)
+        return EXIT_GUARD_BLOCKED
     except KeyboardInterrupt:
         print("\n已中断，退出。")
         return 130

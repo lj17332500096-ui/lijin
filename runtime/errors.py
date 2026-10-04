@@ -101,6 +101,33 @@ class PolicyDenied(AgentError):
     pass
 
 
+class StartupGuardBlocked(BaseException):
+    """审批护栏在**启动期**拒绝放行（`runtime/startup_guard.py` 抛出）。
+
+    # 为什么继承 BaseException 而不是 AgentError
+
+    这是本轮实测到的真实问题：CLI 的 `ChatApp.container_id()` 等处有
+    `except Exception:` 兜底（用于"某步失败不该终结会话"），
+    而护栏异常此前是普通 `RuntimeError` → **被这些兜底静默吞掉**，
+    表现是"APPROVAL=off 也能照常启动、退出码 0、报错推迟到第一次 Run
+    并被包装成 E-UNKNOWN"—— 护栏在最典型的绕过路径上完全失效。
+
+    改继承 `BaseException`（**不**继承 `AgentError` / `Exception`）意味着：
+      - `except Exception:` 捕不到它 → 任何"局部失败不影响整体"的兜底
+        都不会误吞安全阻断；
+      - 仍然必须由**进程入口显式**捕获并转成可读提示 + 非零退出码，
+        否则会变成"未捕获异常直接崩栈"（不体面，但**安全方向正确**）。
+
+    这是刻意的取舍：**宁可崩栈，也不可静默放行**。
+    顶层处理见 cli/app.py::handle_startup_guard_blocked 与 main.py。
+    """
+
+    def __init__(self, message: str, *, reason: str = "", hint: str = "") -> None:
+        super().__init__(message)
+        self.reason = reason or ""
+        self.hint = hint or ""
+
+
 class ApprovalRequired(AgentError, _SDKAgentsException):
     """审批门挂起：高风险工具需用户确认。
 

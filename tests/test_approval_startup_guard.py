@@ -18,10 +18,12 @@ if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 
 from runtime import startup_guard
+from runtime.errors import StartupGuardBlocked
 from runtime.startup_guard import (
     UNATTENDED_ENV,
     approval_guard_verdict,
     enforce_approval_guard,
+    format_block_message,
 )
 
 
@@ -79,9 +81,9 @@ class FailClosedTests(StartupGuardEnvMixin, unittest.TestCase):
         )
         self.assertTrue(verdict.should_block, "关闭 + 有副作用工具 + failclosed -> 应阻断")
 
-        with self.assertRaises(RuntimeError) as cm:
+        with self.assertRaises(StartupGuardBlocked) as cm:
             enforce_approval_guard()
-        self.assertIn("approval-guard", str(cm.exception))
+        self.assertIn("拒绝启动", format_block_message(cm.exception))
         self.assertIn("拒绝启动", str(cm.exception))
 
     def test_default_is_failclosed_without_any_env(self) -> None:
@@ -126,7 +128,7 @@ class ExplicitUnattendedDeclarationTests(StartupGuardEnvMixin, unittest.TestCase
     def test_illegal_declaration_value_does_not_disable_guard(self) -> None:
         """声明了但取值非法 -> 视为未声明，仍阻断（不做模糊匹配）。"""
         self._set(APPROVAL="off", **{UNATTENDED_ENV: "unattended-ish"})
-        with self.assertRaises(RuntimeError) as cm:
+        with self.assertRaises(StartupGuardBlocked) as cm:
             enforce_approval_guard()
         self.assertIn(UNATTENDED_ENV, str(cm.exception))
         self.assertIn("不是合法取值", str(cm.exception))
@@ -141,7 +143,7 @@ class ExplicitUnattendedDeclarationTests(StartupGuardEnvMixin, unittest.TestCase
                 self._set(APPROVAL="off")
                 os.environ["FORGE_CHANNEL"] = decoy
                 try:
-                    with self.assertRaises(RuntimeError):
+                    with self.assertRaises(StartupGuardBlocked):
                         enforce_approval_guard()
                 finally:
                     os.environ.pop("FORGE_CHANNEL", None)
@@ -204,9 +206,9 @@ class RunnerWiringTests(StartupGuardEnvMixin, unittest.TestCase):
 
         self._set(APPROVAL="off")
         rt = AgentRuntime(db_path="var/tmp/guard_wiring_probe.db")
-        with self.assertRaises(RuntimeError) as cm:
+        with self.assertRaises(StartupGuardBlocked) as cm:
             rt._ensure()
-        self.assertIn("approval-guard", str(cm.exception))
+        self.assertIn("拒绝启动", format_block_message(cm.exception))
         self.assertFalse(
             rt._initialized,
             "阻断后不得把 Runtime 标记为已初始化（否则后续调用会跳过护栏）",
@@ -240,10 +242,10 @@ class RunnerWiringTests(StartupGuardEnvMixin, unittest.TestCase):
 
         self._set(APPROVAL="off")
         rt = AgentRuntime(db_path="var/tmp/guard_wiring_probe4.db")
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(StartupGuardBlocked):
             rt._ensure()
         # 第二次尝试：必须仍然被拦住
-        with self.assertRaises(RuntimeError):
+        with self.assertRaises(StartupGuardBlocked):
             rt._ensure()
         self.assertFalse(rt._initialized)
 
