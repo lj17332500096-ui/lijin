@@ -11,14 +11,14 @@ import time
 from pathlib import Path
 
 from agents import function_tool
-from dotenv import load_dotenv
 
 from code_exec import _exec_enabled, _file_target, _project_dir, run_python_impl
 from runtime.key_patterns import has_key
 from runtime.provider_errors import call_with_provider_retry, provider_public_text
 
 BASE_DIR = Path(__file__).resolve().parent
-load_dotenv(BASE_DIR / ".env")
+# P0-1：此处曾有 import 期 load_dotenv(BASE_DIR / ".env")（且指向 runtime/.env，本就不存在）。
+# 唯一显式加载点是进程入口 agent.py / main.py —— 模块层只读，不写进程环境。
 
 MAX_ATTEMPTS = 3
 CODE_CTX = 8000

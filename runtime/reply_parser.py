@@ -19,12 +19,11 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from dotenv import load_dotenv
-
 from schemas import AgentReply
 
 BASE_DIR = Path(__file__).resolve().parents[1]
-load_dotenv(BASE_DIR / ".env")
+# P0-1：此处曾有 import 期 load_dotenv(BASE_DIR / ".env")。它让进程环境依赖 import 顺序。
+# 唯一显式加载点是进程入口 agent.py / main.py —— 模块层只读，不写进程环境。
 
 KINDS = {"answer", "plan", "note", "questions", "done"}
 KIND_ALIASES = {"type": "kind", "message": "content", "answer": "content",

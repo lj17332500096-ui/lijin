@@ -17,12 +17,13 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from dotenv import load_dotenv
 from openai import OpenAI
 from runtime_paths import PROJECT_ROOT, RUNTIME_ROOT
 
 BASE_DIR = PROJECT_ROOT
-load_dotenv(BASE_DIR / ".env")
+# P0-1：此处曾有 import 期 load_dotenv(BASE_DIR / ".env")。它让进程环境依赖 import 顺序，
+# 并使任何读取 os.getenv 的模块（如 runtime/approval.py 的审批门）行为不可测。
+# 唯一显式加载点是进程入口 agent.py / main.py —— 模块层只读，不写进程环境。
 
 SUMMARY_DIR = RUNTIME_ROOT / "summaries"
 

@@ -57,6 +57,11 @@ from tools import (
 )
 
 BASE_DIR = Path(__file__).resolve().parent
+# P0-1：进程入口的**唯一显式** .env 加载点（另一个是 main.py）。
+# 必须保留且必须早于下面所有 provider / 工具构造：本文件在 import 期就读取
+# .env 里的 provider 配置与 SKILLS=，若此处不加载，模块层 os.getenv 只会读到 None。
+# 反面纪律：任何 runtime/* 模块都不得在 import 期 load_dotenv ——
+# 那会让进程环境依赖 import 顺序，并使护栏开关（如 APPROVAL）可被单行未跟踪配置绕过。
 load_dotenv(BASE_DIR / ".env")
 
 # 技能（.env 的 SKILLS= 启用）：工具进入 Runtime；完整指令按需读取

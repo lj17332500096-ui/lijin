@@ -40,6 +40,8 @@ from runtime.execution import (
 )
 
 BASE_DIR = Path(__file__).resolve().parent
+# P0-1：进程入口的**唯一显式** .env 加载点（另一个是 agent.py）。必须早于 Runtime 构造。
+# 任何 runtime/* 模块都不得在 import 期 load_dotenv，理由见 agent.py 同处注释。
 load_dotenv(BASE_DIR / ".env")
 
 _KIND_LABELS = {
