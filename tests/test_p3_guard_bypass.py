@@ -199,6 +199,53 @@ class AntiHeuristicDeclarationTests(_EnvMixin, unittest.TestCase):
                 )
 
 
+class GuardIsStartupOnlyTests(_EnvMixin, unittest.TestCase):
+    """设计边界：护栏是**启动期一次性**断言，运行中改 env 不复查。
+
+    P3 测试工程师指出这条用例在我重写文件时被弄丢了，这里补回并把
+    **边界本身**写成断言（它是有意设计，不是 bug）：
+
+    - 优点：Run 执行中途改 `APPROVAL` 不会让已开始的 Run 半途换语义，
+      一次 Run 内的审批行为保持一致；
+    - 代价：进程长期存活时（daemon），事后把 `APPROVAL` 关掉**不会**被察觉。
+      缓解方式是重启进程 —— 而 daemon 的启动期断言每次重启都会跑。
+
+    所以这里断言"不抛"（记录边界），而不是"应该抛"（那会与设计冲突）。
+    """
+
+    def test_runtime_started_earlier_then_env_off_keeps_guard_silent(self) -> None:
+        from runtime.runner import AgentRuntime
+
+        os.environ["APPROVAL"] = "on"
+        rt = AgentRuntime(db_path=str(_tmp_db("guard_boundary")))
+        rt._ensure()          # 启动期：APPROVAL=on -> 通过
+
+        os.environ["APPROVAL"] = "off"   # 运行中改 env
+        try:
+            rt._ensure()      # 已初始化 -> 早退分支，不复查护栏
+        except StartupGuardBlocked:      # pragma: no cover - 若未来改成复查则失败
+            self.fail(
+                "护栏变成了运行期复查：这是设计边界的改变。"
+                "若是有意为之（更强的安全语义），请同步更新本用例的 docstring"
+                "与 runtime/startup_guard.py 的说明，并评估对长驻 daemon 的影响。",
+            )
+        self.assertTrue(rt._initialized)
+
+    def test_fresh_runtime_still_blocks_after_env_change(self) -> None:
+        """**边界不可绕过**：新构造的 Runtime 仍会在启动期拦住（对照上一条）。"""
+        from runtime.runner import AgentRuntime
+
+        os.environ["APPROVAL"] = "off"
+        rt = AgentRuntime(db_path=str(_tmp_db("guard_boundary_fresh")))
+        with self.assertRaises(StartupGuardBlocked):
+            rt._ensure()
+
+
+def _tmp_db(name: str) -> Path:
+    import tempfile
+    return Path(tempfile.mkdtemp(prefix=f"{name}_")) / "agent.db"
+
+
 class OrdinaryFailuresStillToleratedTests(_EnvMixin, unittest.TestCase):
     """**反向用例**：普通异常不得被当成护栏阻断。
 

@@ -614,6 +614,47 @@ async def _run_with_mcp_cleanup(awaitable):
         await close_servers()
 
 
+#: 审批护栏拒绝启动的退出码。须与 cli.app.EXIT_GUARD_BLOCKED 一致
+#: （78 / EX_CONFIG：与"一般运行失败(1)"区分，处置方式不同 —— 改配置 vs 看报错）。
+_EXIT_GUARD_BLOCKED = 78
+
+
+def _guard_block_exit(exc: BaseException) -> "SystemExit":
+    """把审批护栏的启动期阻断转成可读提示 + 专用退出码。
+
+    P3 收尾：`StartupGuardBlocked` 继承 `BaseException`，所以 `except Exception`
+    捕不到它 —— 这是**故意**的（避免被"局部失败不影响整体"的兜底静默吞掉）。
+    代价是每个进程入口都必须**显式**接住，否则用户看到的是裸崩栈而不是
+    "护栏拒绝启动、缺哪个声明"。
+
+    P3 之前只有默认入口（经 cli.app.run_cli）接了，`--daemon` / `--tui` /
+    `--run-task` 三个分支漏接 —— 安全语义仍然正确（异常照常上抛、进程非 0
+    退出），但运维看到的是 traceback 而不是可操作提示。
+    """
+    from runtime.startup_guard import format_block_message
+
+    print(format_block_message(exc), file=sys.stderr)
+    # 从 cli.app 复用同一个常量会形成 main -> cli.app 的导入环
+    # （cli.app 顶层会拉 agents SDK，main 又是 SDK 的宿主）。这里显式对齐数值，
+    # 并在 test_p3_guard_bypass.py 里断言两处一致。
+    exit_code = _EXIT_GUARD_BLOCKED
+    return SystemExit(exit_code)
+
+
+def _run_guarded(coro_factory, *args, **kwargs):
+    """执行一个可能触发护栏的入口调用，阻断时转成可读退出。
+
+    收口成单一函数而非在四处各写一遍 try/except：漏接一处就又是一次裸崩栈，
+    而漏接在测试里很难发现（默认入口是绿的）。
+    """
+    from runtime.errors import StartupGuardBlocked
+
+    try:
+        return coro_factory(*args, **kwargs)
+    except StartupGuardBlocked as exc:
+        raise _guard_block_exit(exc) from None
+
+
 def main() -> None:
     ensure_utf8_console()
     # 审计 D3：结构化日志（opt-in，FORGE_STRUCTURED_LOG=1）。默认不挂 handler，
@@ -726,12 +767,19 @@ def main() -> None:
         return
     if args.run_task:
         check_api_key()
-        raise SystemExit(asyncio.run(_run_with_mcp_cleanup(
-            run_scheduled_task_once(args.run_task, args.max_turns)
-        )))
+        raise SystemExit(_run_guarded(
+            lambda: asyncio.run(_run_with_mcp_cleanup(
+                run_scheduled_task_once(args.run_task, args.max_turns)
+            ))
+        ))
     if args.daemon:
         check_api_key()
-        asyncio.run(_run_with_mcp_cleanup(daemon_loop(args.max_turns)))
+        # 守护进程的启动动作发生在 daemon_loop 内部（横幅之后），所以阻断可能
+        # 在"常驻任务进程已启动"打印之后才抛 —— 这不是 bug，是启动时序：
+        # 横幅先出、随后第一次真正建 Runtime 时才触发断言。退出码仍为 78。
+        _run_guarded(lambda: asyncio.run(_run_with_mcp_cleanup(
+            daemon_loop(args.max_turns)
+        )))
         return
 
     # 默认入口：CLI 消息平台（进程内直连 Runtime，带命令体系/过程展示/诊断码）
@@ -739,8 +787,8 @@ def main() -> None:
         check_api_key()
         from cli.tui.app import run_tui
 
-        raise SystemExit(
-            run_tui(
+        raise SystemExit(_run_guarded(
+            lambda: run_tui(
                 session_name=args.session,
                 mode=args.mode,
                 debug=args.debug,
@@ -748,7 +796,7 @@ def main() -> None:
                 history_limit=args.history,
                 auto_summary=not args.no_auto_summary,
             )
-        )
+        ))
     check_api_key()
     from cli.app import run_cli
 
