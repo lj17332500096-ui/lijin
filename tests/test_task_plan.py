@@ -73,14 +73,15 @@ class LocalSearchRoutingTests(unittest.TestCase):
         tools = self.TOOLS + ["anysearch_search", "anysearch_batch_search"]
         plan = infer_task_plan("使用 AnySearch MCP 搜索 LangGraph 官方文档", tools)
 
-        # 断言**逐字沿用迁移前的期望**：required_tools 为空。
-        # 原因（实测对照 dd634d1 的旧实现）：这句问句不含 external_research
-        # 规则词（`搜索` 后面没跟"资料/最新"等），旧实现同样不产出任何阶段。
-        # 我一度把它改成"必须路由到 anysearch_search"，那是**凭空加严**——
-        # 会让本用例从"守住既有行为"变成"要求新行为"，属另一种形式的弱化。
-        # 这里保留原期望，工具选择由 LLM 选择器负责（P1-7 已把这份权威交回）。
+        # 断言逐字沿用 P1-7 迁移时的期望（required_tools 为空），未加严。
+        # 注：P3 修了意图门误伤之后，本条输入**不再**被误判为"能力问句"，
+        # 于是 external_research 阶段正常产出 —— 这是修复带来的**改善**
+        # （原先一条明确的搜索请求被当成盘点问句，反而丢了搜索阶段）。
+        # P1-7 的权威性不受影响：required_tools 仍恒空，工具授权只来自
+        # LLM 选择器 + Runtime 兜底。
         self.assertEqual(plan["required_tools"], [])
-        self.assertEqual(plan["phases"], [])
+        self.assertEqual([p["phase"] for p in plan["phases"]], ["external_research"])
+        self.assertIn("anysearch_search", plan["phases"][0]["tools"])
 
     def test_explicit_anysearch_search_tool_name_is_respected(self) -> None:
         tools = self.TOOLS + ["anysearch_search", "anysearch_batch_search"]
