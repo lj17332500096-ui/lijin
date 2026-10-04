@@ -25,14 +25,30 @@ _SECRET_PATTERNS = [
     re.compile(r"(?i)(api[_-]?key|authorization|password|passwd|secret|token)\s*[:=]\s*[^\s,;\"']{6,}"),
 ]
 
+#: 追加在 _SECRET_PATTERNS **之后**执行的补充规则（补真实漏网，2026-09-27）。
+#:
+#: 为什么单独一档：`_SECRET_PATTERNS` 里那条通用规则
+#: `(api[_-]?key|authorization|...)\s*[:=]\s*[^\s,;"']{6,}` 会**先**吃掉
+#: `Authorization: Bearer` 里的 `Bearer` 一词（它满足 `[^\s,;"']{6,}`），
+#: 于是真正要打码的 token 反而裸露在后面。实测：
+#:   'headers: Authorization: Bearer supersecrettoken123'
+#:     → 'headers: *** supersecrettoken123'    ← 凭据仍泄露
+#: 顺序颠倒（Bearer 规则在前）即可：它会把 `Bearer <token>` 整段换成 `***`。
+#:
+#: 两条都刻意**保留非凭据部分**，以免牺牲可诊断性：
+#:   - Bearer/Basic 规则只打码凭据段，保留 `Authorization:` 这个字段名；
+#:   - URL 规则用捕获组保留 scheme，host:port 完整保留 —— 排查时
+#:     「连的是哪台机器」往往正是关键信息。
+_SUPPLEMENT_PATTERNS = [
+    re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._\-+/=]{8,}"),
+    re.compile(r"(?i)\b([a-z][a-z0-9+.\-]*://)[^/\s:@]+:[^/\s@]+@"),
+]
+
 
 def redact_value(obj: Any) -> Any:
     """深拷贝并脱敏字符串（审计入库前调用；失败时保守返回打码对象）。"""
     if isinstance(obj, str):
-        out = obj
-        for pattern in _SECRET_PATTERNS:
-            out = pattern.sub("***", out)
-        return out
+        return redact_text(obj)
     if isinstance(obj, dict):
         return {str(k): redact_value(v) for k, v in obj.items()}
     if isinstance(obj, (list, tuple)):
@@ -42,6 +58,11 @@ def redact_value(obj: Any) -> Any:
 
 def redact_text(text: str) -> str:
     out = str(text or "")
+    # 补充规则先跑：必须在通用规则之前，否则 `Authorization: Bearer <token>`
+    # 里的 `Bearer` 会先被通用规则吃掉，token 反而裸露（见 _SUPPLEMENT_PATTERNS）。
+    for pattern in _SUPPLEMENT_PATTERNS:
+        # 保留 scheme（`\1`）：host:port 是定位「连的是哪台机器」的关键信息。
+        out = pattern.sub(lambda m: f"{m.group(1)}***" if m.lastindex else "***", out)
     for pattern in _SECRET_PATTERNS:
         out = pattern.sub("***", out)
     return out

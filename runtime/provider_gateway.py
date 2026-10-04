@@ -256,6 +256,47 @@ def _persist_reset(run_id: str) -> None:
         pass
 
 
+#: 失败尝试记录里 error_message 的最大长度。够放下异常类型 + 首行原因，
+#: 又不会把整段 HTML 错误页/堆栈灌进 detail_json（该列入库上限 4000 字符）。
+_ERROR_MESSAGE_MAX = 500
+
+
+def _error_fields(exc: BaseException) -> dict[str, str]:
+    """把异常转成可落库的诊断字段（脱敏后）。
+
+    为什么需要它：`provider_internal_error` 的对外文案是「详情见运行记录」，
+    但修复前尝试记录里**没有任何能定位原因的字段** —— 只有 kind/status/latency_ms。
+    `kind` 是分类结果（同一 kind 可能是十种完全不同的故障），`status` 常常是 None。
+    于是那句话是空话：真要定位只能靠对照实验重跑（上一轮排查为此花了三轮）。
+
+    脱敏：复用 A8「四条审计出口统一脱敏」的 `runtime.audit.redact_text`，
+    不另写一套 —— 异常消息里确实会出现 API key / Authorization 头 /
+    带凭据的 base URL（`OPENAI_BASE_URL=https://user:pw@host` 会被 SDK
+    原样拼进连接错误消息）。
+
+    保留可定位性：异常类名 + HTTP 状态码 + provider 名都在（分别由
+    `error_type` / 既有的 `status` / 既有的 `tag` 承载），脱敏只打码凭据本身。
+    """
+    from runtime.audit import redact_text
+
+    error_type = type(exc).__name__
+    # 诊断代码绝不能把原故障换成新故障：异常对象的 __str__ 可能自己抛
+    # （SDK 包装类里并不罕见），此时退回类名，保留可诊断性且不掩盖真因。
+    try:
+        raw = f"{error_type}: {exc}"
+    except Exception:  # noqa: BLE001 - __str__ 抛错不能连带打挂记录路径
+        raw = error_type
+    message = redact_text(raw)
+    # 超长错误页（HTML/整段响应体）对定位没有额外价值，只会把 detail_json 顶满。
+    if len(message) > _ERROR_MESSAGE_MAX:
+        message = message[:_ERROR_MESSAGE_MAX] + "…(truncated)"
+    # `error` 是**读者真正在用的那个键**：`task_manager.record_provider_attempt`
+    # 把它写进 provider_attempts.error 列，`/diag`（cli/commands.py）显示的
+    # 正是这一列。修复前没有任何调用方写它 ⇒ 该列恒为空 ⇒ /diag 永远只显示 "-"，
+    # 与「判据必须与生产端写出的值对齐」直接冲突。故此处一并写。
+    return {"error_type": error_type, "error_message": message, "error": message}
+
+
 def record_attempt(run_id: str, meta: dict[str, Any]) -> None:
     if not run_id:
         return
@@ -593,6 +634,7 @@ class ResilientModel(Model):
                         "status": getattr(exc, "status_code", None),
                         "latency_ms": round((time.monotonic() - attempt_start) * 1000, 1),
                         "tokens_output": False,
+                        **_error_fields(exc),
                     })
                     wait = retry_policy(kind, local_attempts, headers=getattr(exc, "headers", None))
                     if wait is not None and local_attempts + 1 < max_attempts:
@@ -679,6 +721,7 @@ class ResilientModel(Model):
                                 "error_kind": kind, "tokens_output": True,
                                 "interrupted_reason": "mid_stream_error",
                                 "latency_ms": round((time.monotonic() - attempt_start) * 1000, 1),
+                                **_error_fields(exc),
                             })
                             raise _mark(exc, kind, public, rid)
                         record_attempt(run_id, {
@@ -686,6 +729,7 @@ class ResilientModel(Model):
                             "status": getattr(exc, "status_code", None),
                             "tokens_output": False,
                             "latency_ms": round((time.monotonic() - attempt_start) * 1000, 1),
+                            **_error_fields(exc),
                         })
                         wait = retry_policy(kind, local_attempts,
                                             headers=getattr(exc, "headers", None))
@@ -795,6 +839,7 @@ class ResilientModel(Model):
                         "kind": kind, "tag": tag, "attempt": local_attempts,
                         "status": getattr(exc, "status_code", None),
                         "latency_ms": round((time.monotonic() - attempt_start) * 1000, 1),
+                        **_error_fields(exc),
                     })
                     wait = retry_policy(kind, local_attempts,
                                         headers=getattr(exc, "headers", None))
@@ -815,9 +860,12 @@ class ResilientModel(Model):
                     break
         except asyncio.CancelledError:
             raise
+        # 终态记录也带上真实异常：用户看到的 provider_internal_error 正是在这里
+        # 抛出的，而它此前只记了 error_kind（分类）—— 分类相同的原因有无数种。
         record_attempt(run_id, {
             "kind": "exhausted", "error_kind": last_kind, "fallback_used": used_fallback,
             "elapsed_ms": round((time.monotonic() - started) * 1000, 1),
+            **(_error_fields(last_exc) if last_exc is not None else {}),
         })
         if last_exc is None:  # pragma: no cover
             from runtime.provider_errors import ProviderTransportError
