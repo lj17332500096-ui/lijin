@@ -3601,7 +3601,7 @@ class AgentRuntime:
                     build_tool_selection_catalog, tool_selection_input,
                 )
                 from runtime.runctx import current as _selection_ctx
-                from runtime.task_plan import infer_task_plan, plan_required_tools
+                from runtime.task_plan import infer_task_plan
 
                 _analysis = _state.get("analysis") or {}
                 # P2-4：筛选成本埋点起点（墙钟）。与决策事件里的
@@ -3667,8 +3667,19 @@ class AgentRuntime:
                 ))
                 _unknown_names = [name for name in _requested_names
                                   if name not in _available_set][:32]
-                _required_names = [name for name in plan_required_tools(_runtime_plan)
-                                   if name in _available_set]
+                # P1-7：规则不再是授权来源。
+                # 原式 `plan_required_tools(_runtime_plan) ∩ 可用集` 会把正则命中的
+                # 工具**并入** LLM 已选中的名字 —— 那等于让规则悄悄否决 LLM 的选择，
+                # 使"语义判断从规则迁到 LLM"在授权链最外层失效。
+                # 现在 task_plan 降级为提示（phases），required_tools 恒空；
+                # 这里再显式钉一个空列表，让"授权只来自 LLM 选择器 + Runtime 兜底"
+                # 这条性质在**调用点**也可读（而不是只靠上游数据为空）。
+                #
+                # 影响面：本次改动**只收窄、不放宽**。工具变少只发生在
+                # "LLM 漏选 + 正则刚好补上"，此时由既有兜底
+                # empty_selection_full_tools_fallback 接管（全量暴露）——
+                # 最坏退化为"暴露全部工具"，不会退化为"无可用工具"。
+                _required_names: list[str] = []
                 if _is_supplement:
                     _selected_names = list(dict.fromkeys(
                         _langgraph_selected_tool_names + _valid_names + _required_names

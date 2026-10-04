@@ -1,16 +1,59 @@
-"""Runtime-owned task plan inference for explicit multi-action requests.
+"""Runtime-owned task plan **hints** for explicit multi-action requests.
 
-This module defines ordered phases and required tool candidates for the
+This module defines ordered phases and candidate tool names for the
 LangGraph workflow. It does not authorize tool execution; Runner/RunContext
 enforce phase order and all execution gates.
+
+P1-7（2026-10-04）：本模块从"工具选择器"降级为"结构化提示"。
+
+# 为什么要降级
+
+`infer_task_plan` 原先是一个**用正则实现的工具选择器**：13 条中文关键词规则
+（`天气|气温|温度` → `get_weather` 等）决定工具集，且其结果会被
+`runner._workflow_select_tools` **并入** LLM 选择器已选中的名字。
+
+两个问题：
+1. **违反分工宪法**（`AGENTS.md`：面向业务语义的判断绝不能用关键字/正则）。
+   "用户是否在说天气"是业务语义，正是宪法禁止用正则做的判断。
+2. **LLM 的选择被规则悄悄否决**：LLM 选了什么不重要，正则命中就会把工具
+   加回来 —— 这让"语义判断从规则迁到 LLM"在授权链最外层失效。
+
+# 降级后的契约（权威性变了，结构没变）
+
+| 字段         | 角色                                   | 是否参与授权 |
+|--------------|----------------------------------------|--------------|
+| `phases`     | 阶段顺序建议 + 命中规则标注（可观测）   | ❌ 不参与     |
+| `required_tools` | **恒为空**（保留字段以兼容消费方）   | ❌ 不参与     |
+| `match_kind` | 决策来源：llm / rule_hint / none       | 仅观测       |
+
+Runtime 独占工具授权：LLM 选择器（`runtime/api_workflow.py`）出建议，
+Runtime 做交集与兜底，`runner.py` 不再把本模块的输出并入授权集。
+开关 `FORGE_TASK_PLAN_RULE_HINT=off` 可让 phases 也一并置空（完全交给 LLM），
+实现见 `02-design/P1_7_TASK_PLAN_BOUNDARY_20261004.md`。
 """
 
 from __future__ import annotations
 
+import os
 import re
 from typing import Any
 
+#: P1-7 回退开关。缺省 on = 保留规则作为**提示**（可观测、可对比）；
+#: 设为 off 时 phases 也置空 = 完全交给 LLM 选择器。
+RULE_HINT_ENV = "FORGE_TASK_PLAN_RULE_HINT"
+_TRUTHY = ("on", "true", "1", "yes")
 
+
+def rule_hint_enabled() -> bool:
+    """规则提示是否启用（只影响 `phases`，永不影响授权）。"""
+    return (os.getenv(RULE_HINT_ENV) or "on").strip().lower() in _TRUTHY
+
+
+#: 动作 → 能力 的**关键词提示表**（P1-7 起仅用于生成 `phases` 提示，不参与授权）。
+#:
+#: 它是"违规被降级"而不是"违规被删除"：删掉会丢失阶段顺序提示与可观测性，
+#: 保留它则让 LLM 选择器多一个参考维度。权威性已由 `required_tools` 恒空收回。
+#: 设计说明见 02-design/P1_7_TASK_PLAN_BOUNDARY_20261004.md。
 _ACTION_CAPABILITY_RULES: tuple[tuple[str, re.Pattern[str], tuple[str, ...]], ...] = (
     ("external_fact", re.compile(
         r"天气|气温|温度|天气预报|几点了|现在时间|当前时间|今天日期|当前日期", re.I,
@@ -53,8 +96,12 @@ def infer_task_plan(query: str, available: list[str] | None = None) -> dict[str,
     """Build a deterministic ordered plan for explicit actions in the request.
 
     ``available`` is the Runtime registry snapshot used to bind each phase to
-    an installed tool. The returned tools are requirements for routing, not
-    permissions. Runtime execution gates remain authoritative.
+    an installed tool. The returned tools are **hints for the LLM selector and
+    for observability, not permissions** — Runtime execution gates remain
+    authoritative (P1-7).
+
+    P1-7：`required_tools` 恒为空列表（保留字段仅为兼容既有消费方），
+    规则命中只体现在 `phases[].tools` 与 `phases[].matched_rule` 上。
     """
     text = query or ""
     # Broad questions about whether the Agent can access local/workspace files
@@ -65,10 +112,11 @@ def infer_task_plan(query: str, available: list[str] | None = None) -> dict[str,
         from runtime.capability_introspection import looks_like_capability_query
         if looks_like_capability_query(text):
             return {
-                "schema_version": 1,
+                "schema_version": 2,
                 "required_tools": [],
                 "required_capabilities": [],
                 "phases": [],
+                "match_kind": "none",
             }
     except Exception:
         # Preserve ordinary planning if capability-introspection is unavailable.
@@ -160,18 +208,40 @@ def infer_task_plan(query: str, available: list[str] | None = None) -> dict[str,
             })
             required.extend(name for name in extract_tools[:1] if name not in required)
 
+    # P1-7：规则命中**不再**产出授权级工具集。
+    # - `required` 在整个函数里照常累积，仅用于生成 phases 的工具与
+    #   required_capabilities（可观测 / 给 LLM 参考），到此处**刻意丢弃**；
+    # - `required_tools` 恒为空：调用方（runner._workflow_select_tools）即使
+    #   仍调用 plan_required_tools()，拿到的也是空列表 —— 用"数据为空"而不是
+    #   "改调用点"来收回授权，能同时防住其它潜在消费方。
+    # - `match_kind` 让决策来源可观测、可回归。
+    if not rule_hint_enabled():
+        # 回退档：连提示也不给，phases 置空 = 完全交给 LLM 选择器。
+        phases = []
+
     return {
-        "schema_version": 1,
-        "required_tools": required,
+        "schema_version": 2,
+        # P1-7：恒空。保留字段仅为兼容既有消费方（runner 仍在读它）。
+        "required_tools": [],
         "required_capabilities": list(dict.fromkeys(
-            capability_of(name) for name in required
+            capability_of(name) for phase in phases for name in phase.get("tools", [])
         )),
         "phases": phases,
+        "match_kind": "rule_hint" if phases else "none",
     }
 
 
 def plan_required_tools(plan: dict[str, Any] | None) -> list[str]:
-    """Return a stable, unique required-tool list from a Runtime plan."""
+    """Return a stable, unique required-tool list from a Runtime plan.
+
+    P1-7：**本函数不再是授权来源。** 自 P1-7 起 `infer_task_plan` 产出的
+    `required_tools` 恒为空（规则降级为 `phases` 提示），因此本函数对
+    `infer_task_plan` 的结果恒返回空列表。
+
+    保留本函数是为了**不破坏调用方契约**（runner 仍会调用它），
+    并让"规则不得回流成授权"这条性质由**数据**保证而非仅靠约定。
+    工具授权的唯一来源是 LLM 选择器 + Runtime 交集/兜底。
+    """
     if not isinstance(plan, dict):
         return []
     tools = plan.get("required_tools")
