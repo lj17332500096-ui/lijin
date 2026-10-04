@@ -25,6 +25,7 @@
 （Approval → FileScope → 记账）接管；挂载后调用 refresh_tool_wrappers() 重新包装。
 """
 
+import asyncio
 import json
 import logging
 import os
@@ -486,6 +487,46 @@ async def ensure_connected() -> bool:
     return bool(mounted_total)
 
 
+#: anyio 在「跨 task 退出 cancel scope」时抛的 RuntimeError 消息片段。
+#: 出处：anyio/_backends/_asyncio.py::CancelScope.__exit__ —— `current_task() is not
+#: self._host_task` 时抛 "Attempted to exit cancel scope in a different task than it
+#: was entered in"。另一条同族消息是 "...isn't the current task's current cancel scope"。
+_ANYIO_CROSS_TASK_MSGS = (
+    "cancel scope in a different task",
+    "current cancel scope",
+)
+
+#: anyio 因 cancel scope 主动取消时抛的 CancelledError 消息片段（同样属良性噪声）。
+#: 实测 anyio 的原文是 "Cancelled via cancel scope <id> by <Task ...>"（首字母大写），
+#: 故一律按小写比对，避免大小写写错导致静音失效。
+_ANYIO_CANCELLED_MSGS = (
+    "cancelled via cancel scope",
+)
+
+
+def _is_cross_task_teardown_noise(exc: BaseException) -> bool:
+    """只判定「良性跨 task 关停噪声」这一种情况，绝不 blanket 吞 RuntimeError。
+
+    为什么这一类是良性的：MCP stdio 的 anyio task group 在 **connect 所在 task**
+    里进入，其 `__aexit__` 必须在**同一个 task** 里执行。而 Textual 的
+    `run_worker`（cli/tui/app.py::_run_async）把每一轮对话放进独立 task，
+    `close_servers()` 却运行在主 task —— 关停时结构性地跨了 task。
+    底层 MCP 子进程在该分支里**已经拿到 terminate/SIGKILL**（见
+    mcp/client/stdio/__init__.py 的 shutdown 序列 finally），所以残留的只是
+    anyio 作用域 bookkeeping 的报错，不是「子进程没关掉」。
+
+    判定刻意收紧到「类型 + 消息」双条件：只认 anyio 自己的作用域错误，
+    其他 RuntimeError（真 bug）照旧冒泡。若将来上游修好了这段，
+    条件不再命中，本函数自动退化为空转。
+    """
+    text = str(exc).lower()
+    if isinstance(exc, RuntimeError):
+        return any(m in text for m in _ANYIO_CROSS_TASK_MSGS)
+    if isinstance(exc, asyncio.CancelledError):
+        return any(m in text for m in _ANYIO_CANCELLED_MSGS)
+    return False
+
+
 async def close_servers() -> list[str]:
     """在创建 MCP 连接的同一事件循环中有序关闭并清理模块状态。
 
@@ -499,13 +540,30 @@ async def close_servers() -> list[str]:
     for server in servers:
         try:
             await server.cleanup()
-        except Exception as exc:
+        except BaseException as exc:  # noqa: BLE001 - 关停必须逐个隔离，见下
+            if _is_cross_task_teardown_noise(exc):
+                # 已定位的良性跨 task 关停噪声：降级为一行 debug。
+                # 修复前这里走 _logger.warning(..., exc_info=True)，6 个 server
+                # 各打一条完整 traceback ≈ 43 行，直接糊在用户终端上。
+                # 刻意**不附 exc_info**：异常对象仍挂在 cap.records 上，
+                # 排查时可临时把本 logger 调到 DEBUG 复现完整堆栈。
+                _logger.debug("MCP %s teardown: benign cross-task cancel scope noise (%s)",
+                              getattr(server, "name", "?"), type(exc).__name__)
+                continue
+            # CancelledError 继承 BaseException 而非 Exception：修复前的
+            # `except Exception` 抓不到它 ⇒ 一个 server 的取消会**中断整个循环**，
+            # 后面所有 server 都不清理（子进程残留）。这里逐个隔离后继续。
             message = (
                 f"{getattr(server, 'name', 'MCP')} cleanup: "
                 f"{type(exc).__name__}: {str(exc)[:160]}"
             )
             errors.append(message)
-            _logger.warning("MCP server cleanup failed: %s", message, exc_info=True)
+            if isinstance(exc, Exception):
+                _logger.warning("MCP server cleanup failed: %s", message, exc_info=True)
+            else:
+                # BaseException（取消/退出）不附 traceback：它不是需要追查的缺陷，
+                # 附上只会把同样的噪音再放大一份。
+                _logger.warning("MCP server cleanup interrupted: %s", message)
 
     if _mounted_names:
         names = set(_mounted_names)
