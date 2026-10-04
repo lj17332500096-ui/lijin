@@ -70,6 +70,9 @@ Thumbs.db
 # 浏览器自动化日志
 .playwright-mcp/
 
+# 专家团知识底座（wiki-creator）：可由 raw/ 重新编译的产物，不入库
+.wiki-creator/
+
 # 大型二进制/备份
 *.zip
 *.tar.gz
