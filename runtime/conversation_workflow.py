@@ -6,6 +6,7 @@ evidence, persistence, approvals, and terminalization.
 """
 from __future__ import annotations
 
+import os
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, Literal, TypedDict
 
@@ -30,7 +31,33 @@ class ConversationState(TypedDict, total=False):
 
 
 NodeHandler = Callable[[ConversationState], Awaitable[Any]]
-MAX_EXECUTION_ATTEMPTS = 6
+
+#: P2-3：执行阶段的有界重试预算（6 次执行上限 + 1 次补充）。
+#: 缺省值不变；可由部署方按渠道/成本覆盖，无需改代码。
+#: 读取时机：模块导入时一次（与既有常量语义一致），非法值退回缺省。
+#:
+#: 为什么不用 `re.search` 之类的"文本里有数字就用它"：那是关键字匹配，
+#: 且配置错误会静默把安全上限改小/改大。这里只接受**纯数字**，
+#: 并夹在 [1, 50] 内 —— 越界说明配置写错了，宁可用缺省也不接受。
+MAX_EXECUTION_ATTEMPTS_ENV = "FORGE_MAX_EXECUTION_ATTEMPTS"
+_EXECUTION_ATTEMPTS_MIN = 1
+_EXECUTION_ATTEMPTS_MAX = 50
+_DEFAULT_EXECUTION_ATTEMPTS = 6
+
+
+def _resolve_execution_attempts() -> int:
+    """读执行重试预算：纯数字 + 区间夹取，非法值退回缺省 6。"""
+    raw = str(os.getenv(MAX_EXECUTION_ATTEMPTS_ENV) or "").strip()
+    if not raw:
+        return _DEFAULT_EXECUTION_ATTEMPTS
+    try:
+        value = int(raw)
+    except ValueError:
+        return _DEFAULT_EXECUTION_ATTEMPTS
+    return max(_EXECUTION_ATTEMPTS_MIN, min(_EXECUTION_ATTEMPTS_MAX, value))
+
+
+MAX_EXECUTION_ATTEMPTS = _resolve_execution_attempts()
 
 
 def _handler_update(result: Any, key: str) -> dict[str, Any]:
