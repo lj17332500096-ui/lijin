@@ -145,50 +145,57 @@ class AllEntryBranchesGuardedTests(unittest.TestCase):
         return False
 
     def test_no_unguarded_runtime_entry(self) -> None:
-        """**反向断言**：凡会建 Runtime 的入口，必须被接住。
+        """**反向断言**：凡会建 Runtime 的入口调用点，必须在护栏壳内。
 
-        不写成"这 3 个名字是否被包住"（白名单），因为白名单在新增入口时
-        恰好失效 —— 而"漏接入口"正是 P1-3 的复发路径。
+        两个设计要点（都是被 P3 测试工程师的中和实验逼出来的）：
+
+        1. **不按名字判定入口**。原实现用 `GUARDED_CALLS` 白名单，只检查
+           "这 3 个名字是否被包住" —— 注入第 4 个漏网入口照样全绿。
+           改为：从 `main()` 里找出所有**会传递地触达建 Runtime** 的调用
+           （`_reaches_runtime` 闭包分析），不看名字。
+           这项改动当场抓出真实漏网入口 `chat_voice`（`--voice`），见 main.py。
+        2. **按调用点判定，不按函数名判定**。同一函数被调两次时，
+           若按"函数名是否在壳内出现过"判定，壳内那一次会把壳外那次**掩盖**掉
+           —— 注入实验正是这种形态。必须按 **AST 节点身份**判断每次调用的位置。
         """
         funcs = self._module_functions()
         main_fn = funcs["main"]
-        tree = ast.parse(MAIN.read_text(encoding="utf-8"))
 
-        # main() 里被调用的所有模块级函数
-        called: set[str] = set()
+        # _run_guarded(...) 调用子树里的所有节点 —— 用节点身份而非名字判断归属
+        guarded_nodes: set[int] = set()
         for node in ast.walk(main_fn):
-            if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                called.add(node.func.id)
-
-        # 其中哪些会建 Runtime
-        runtime_entries = {
-            name for name in called
-            if name in funcs and self._reaches_runtime(funcs[name], funcs)
-        }
-
-        # 哪些被 _run_guarded 包住
-        guarded: set[str] = set()
-        for node in ast.walk(main_fn):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+            if (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
                     and node.func.id == "_run_guarded"):
-                continue
-            for sub in ast.walk(node):
-                if isinstance(sub, ast.Call) and isinstance(sub.func, ast.Name) \
-                        and sub.func.id in funcs:
-                    guarded.add(sub.func.id)
+                guarded_nodes.update(id(sub) for sub in ast.walk(node))
 
-        unprotected = sorted(runtime_entries - guarded - self.SELF_GUARDED)
+        unprotected: list[str] = []
+        checked = 0
+        for node in ast.walk(main_fn):
+            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+                continue
+            name = node.func.id
+            if name not in funcs or name in self.SELF_GUARDED:
+                continue
+            if not self._reaches_runtime(funcs[name], funcs):
+                continue
+            checked += 1
+            if id(node) not in guarded_nodes:
+                unprotected.append(f"{name}@line{node.lineno}")
+
         self.assertEqual(
             unprotected, [],
-            f"这些会建 Runtime 的入口没有护栏壳：{unprotected}。"
-            " 护栏阻断会表现为裸崩栈而非可读提示。"
-            " 修法：用 _run_guarded(...) 包起来；若它自接了护栏，"
-            "请加进 SELF_GUARDED 并在该模块内补上 except StartupGuardBlocked。",
+            "这些会建 Runtime 的调用点没有护栏壳：" + ", ".join(unprotected)
+            + "。护栏阻断会表现为裸崩栈而非可读提示。"
+              " 修法：用 _run_guarded(...) 包起来；若它自接了护栏，"
+              "请加进 SELF_GUARDED 并在该模块内补上 except StartupGuardBlocked。",
         )
-        # 顺带确认分析器不是"什么都没找到"（否则上面的空集恒真）
-        self.assertIn(
-            "daemon_loop", runtime_entries,
-            "可达性分析没识别出 daemon_loop -> Runtime 路径，分析器本身失效",
+        # 防分析器退化成"什么都没检查"（否则上面的空集恒真）。
+        # 数到 3：voice / daemon / run-task 三个是模块级函数调用；
+        # run_tui 走 `from cli.tui.app import run_tui` 局部导入（在 main() 内
+        # 是 ImportFrom 而非模块级函数），故不计入本分析的 checked。
+        self.assertGreaterEqual(
+            checked, 3,
+            f"只识别到 {checked} 个需检查的 Runtime 入口调用点，可达性分析可能已失效",
         )
 
     def test_self_guarded_entry_really_guards(self) -> None:
