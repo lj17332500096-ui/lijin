@@ -755,7 +755,11 @@ def main() -> None:
 
     if args.voice:
         check_api_key()
-        chat_voice(
+        # P3 收尾遗漏的第 4 个入口：--voice 同样会建 Runtime（chat_voice ->
+        # AgentRuntime.get_default），此前既没套壳、也没进任何清单 ——
+        # 是 test_p3_main_entry_guard 改成"可达性反向断言"后被自动发现的。
+        # 手工清点入口必然漏（tester 也只点清了 4 个分支），故一并补上。
+        _run_guarded(lambda: chat_voice(
             args.session,
             args.mode,
             args.debug,
@@ -763,7 +767,7 @@ def main() -> None:
             args.history,
             auto_summary=not args.no_auto_summary,
             speak_replies=not args.no_speak,
-        )
+        ))
         return
     if args.run_task:
         check_api_key()
