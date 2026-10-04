@@ -151,6 +151,77 @@ class CapabilityInquiriesStillRecognisedTests(unittest.TestCase):
         )
 
 
+class CapabilityRecallTests(unittest.TestCase):
+    """**召回守门人**（P3 收尾新增）。
+
+    # 为什么必须加这一类
+
+    P3 修误伤时把接受集收得过紧，代价是 **25 条盘点语料里丢了 7 条**
+    （召回 20/25 → 13/25，28% 退化）。成因：`_INQUIRY_SHAPE_RE` 只认
+    "疑问词 + 中心词"的**固定语序**，于是这些全漏：
+        你会什么 / 可用工具有哪些 / 把插件列出来 / 你有什么capability /
+        现在支持啥功能 / 你会哪些东西 / 工具有哪些
+    —— 中文疑问代词既可前置（"有什么工具"）也可后置（"工具有哪些"），
+    而中心词还常被省略（"你会什么"）。
+
+    漏召回方向是安全的（多给工具 ≠ Run 空转），但用户体验会退步：
+    用户问"你会什么"不再走能力盘点，答案退回模型自行推断 ——
+    正是能力自省层要消除的行为。
+
+    教训：**收紧误伤的同时必须同时测召回**。只测"该放行的没被拦"，
+    会在另一个方向静默退化 —— 我第一版 9 条自证样本恰好全含中心词，
+    整类漏掉了。
+    """
+
+    def test_fresh_capability_queries_recalled(self) -> None:
+        fresh = [
+            "你会什么",
+            "可用工具有哪些",
+            "把插件列出来",
+            "你有什么capability",
+            "现在支持啥功能",
+            "你会哪些东西",
+            "工具有哪些",
+        ]
+        missed = [q for q in fresh if not cap.looks_like_capability_query(q)]
+        self.assertEqual(
+            missed, [],
+            "盘点问句漏召回（用户问能力却拿不到清单）：\n  " + "\n  ".join(missed),
+        )
+
+    def test_center_word_both_orders(self) -> None:
+        """中心词 + 疑问词的**两种语序**都必须成立（中文后置 / 英文前置）。"""
+        for q in ("有哪些工具", "工具有哪些", "what tools", "tools available"):
+            with self.subTest(q=q):
+                self.assertTrue(
+                    cap.looks_like_capability_query(q),
+                    f"中心词与疑问词的语序未被覆盖：{q!r}",
+                )
+
+    def test_second_person_interrogative_without_center_word(self) -> None:
+        """第二人称 + 疑问动词，中心词省略（"你会什么"）—— tester 建议的形态。"""
+        for q in ("你会什么", "你会哪些东西", "你有什么", "你会干啥"):
+            with self.subTest(q=q):
+                self.assertTrue(
+                    cap.looks_like_capability_query(q),
+                    f"第二人称疑问形态未被覆盖：{q!r}",
+                )
+
+    def test_howto_questions_still_excluded(self) -> None:
+        """实施性问句（求方法）不得被当成盘点 —— `tools=[]` 会让它答非所问。"""
+        for q in (
+            "MCP 怎么接入自己的服务",
+            "如何安装插件",
+            "怎么开发一个 MCP 服务",
+            "how do I list all tools in this repo",
+        ):
+            with self.subTest(q=q):
+                self.assertFalse(
+                    cap.looks_like_capability_query(q),
+                    f"实施性问句被当成盘点问句 -> 会被清空工具：{q!r}",
+                )
+
+
 class KnownRecallGapDocumentedTests(unittest.TestCase):
     """已知边界：`能干/做啥/干啥` 变体**漏召回**（方向安全，本轮不修）。
 
@@ -161,12 +232,27 @@ class KnownRecallGapDocumentedTests(unittest.TestCase):
     """
 
     def test_synonym_variants_are_known_missed(self) -> None:
+        """口语化变体仍是已知漏召回（P3 收尾实测确认未修）。
+
+        注意与 `CapabilityRecallTests` 的分工：那里守的是"**结构**形态必须召回"
+        （语序/中心词省略/英文后置），这里守的是"**词表扩展**不许悄悄进来"。
+        两者都绿，才说明既没漏形态、也没退回加词路线。
+        """
         for q in ("你能干", "你做啥", "你干啥"):
             with self.subTest(q=q):
                 self.assertFalse(
                     cap.looks_like_capability_query(q),
-                    "该变体当前是已知漏召回；若现在被识别了，请连同 _CAPABILITY_RE "
-                    "一起复核是否走了加词路线（AGENTS.md 分工宪法禁止）",
+                    "该口语变体仍是已知漏召回；若现在被识别了，请检查是否走了"
+                    "往 _CAPABILITY_RE 堆词的路线（AGENTS.md 分工宪法禁止）",
+                )
+
+    def test_extreme_minimal_queries_remain_known_gap(self) -> None:
+        """中心词与第二人称都缺失的极简问句：已知缺口，固化为边界。"""
+        for q in ("有什么新东西", "有啥"):
+            with self.subTest(q=q):
+                self.assertFalse(
+                    cap.looks_like_capability_query(q),
+                    "该极简问句属已知漏召回边界；若被修复请同步更新 docstring 的边界清单",
                 )
 
     def test_missed_recall_direction_is_safe(self) -> None:
