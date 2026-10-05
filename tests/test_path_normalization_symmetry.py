@@ -45,6 +45,13 @@ from pathlib import Path
 
 BASE = Path(__file__).resolve().parents[1]
 
+#: ⚠️ **解释器一律用 `sys.executable`，禁止硬编码 `.venv/Scripts/python.exe`**
+#: （10-05 CI run 37326450894 实据）：CI 上**没有 `.venv`** —— 用的是
+#: `actions/setup-python` 装的 `C:\hostedtoolcache\windows\Python\3.11.9\x64\python.exe`。
+#: 硬编码会让本护栏自己抛 `FileNotFoundError: [WinError 2]` ⇒ 判据自身崩掉，
+#: 而**本地有 venv 时永远发现不了** —— 又是「本地绿 = 假绿」。
+#: 通用铁律：**判据里凡引用解释器/运行时绝对路径，都是portability 雷**。
+
 #: 受影响的测试文件（2026-10-05 CI 上这 14 条红过）
 AFFECTED = [
     "tests/test_office_docs.py",
@@ -162,8 +169,16 @@ class ShortPathRootSymmetryTests(unittest.TestCase):
         site_file.write_text(_SITE_CUSTOMIZE, encoding="utf-8")
         try:
             # ① **先验证注入机制本身生效**（本项目栽过两次「注入没生效却继续跑」）
+            # ⚠️ **必须用 `sys.executable`，不能硬编码 `.venv/Scripts/python.exe`**
+            # （10-05 CI 实据）：CI 上**没有 `.venv`** —— 用的是
+            # `actions/setup-python` 装的 `C:\hostedtoolcache\windows\Python\3.11.9\x64\
+            # python.exe`。硬编码会让本护栏自己抛
+            # `FileNotFoundError: [WinError 2]` ⇒ 判据自身崩掉，
+            # 而且**本地有 venv 时永远发现不了**（典型的「本地绿 = 假绿」）。
+            # `sys.executable` 在本地指向 .venv 解释器、在 CI 指向 setup-python
+            # 那个，两边都对。
             chk = subprocess.run(
-                [str(BASE / ".venv/Scripts/python.exe"), "-c",
+                [sys.executable, "-c",
                  "import tempfile; print(tempfile.gettempdir())"],
                 cwd=str(BASE), capture_output=True, text=True,
                 encoding="utf-8", errors="replace", timeout=60,
@@ -178,7 +193,7 @@ class ShortPathRootSymmetryTests(unittest.TestCase):
 
             # ② 真正跑测试
             p = subprocess.run(
-                [str(BASE / ".venv/Scripts/python.exe"), "-m", "pytest", *AFFECTED,
+                [sys.executable, "-m", "pytest", *AFFECTED,
                  "-q", "-p", "no:cacheprovider", "--no-header"],
                 cwd=str(BASE), capture_output=True, text=True,
                 encoding="utf-8", errors="replace", timeout=1800,

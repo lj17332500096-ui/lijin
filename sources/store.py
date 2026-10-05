@@ -240,6 +240,37 @@ def chunks_by_ids(project_id: str, cids: Iterable[int]) -> list[dict[str, Any]]:
         return [dict(r) for r in rows]
 
 
+def all_ready_chunks(project_id: str, limit: int = 5000) -> list[dict[str, Any]]:
+    """取项目下全部「已就绪」chunk（供 Python 侧关键词评分用）。
+
+    ⚠️ **为什么需要它**（10-05 CI 实据）：FTS5 的 `unicode61` 分词器把**中文整段
+    当成一个 token**（已最小复现：内容「按钮必须放在右下角且带确认弹窗。」用
+    `"按钮"` / `"右下角"` / `"确认弹窗"` 查，命中数一律为 **0**）⇒
+    `sources/retriever.py` 的 FTS 检索对**中文恒失效**。
+    本地之所以看不见，是因为 `rag.py` 的 ONNX 向量把结果兜住了；而
+    `requirements.txt` 无 onnxruntime、模型目录 `models/bge-small-zh-v1.5`
+    也不入库 ⇒ **CI 上向量必然不可用** ⇒ lexical 失效暴露成
+    `mode='no_results'`、检索 0 条。
+
+    `rag.py::_bm25_rank` 是纯 Python 倒排 + BM25（`_tokens` 对中文产出相邻
+    二元组），**中文一直正常** —— 它压根没用 FTS5。两套检索实现，一套好一套坏。
+    本函数给 retriever 提供同等的原料，让它能在 Python 侧补算中文召回。
+
+    EXISTS 守卫与 `chunks_by_ids` 完全一致：只要 parse_status='ok' 且
+    index_status='ready' 的 Source（未就绪的 chunk 不该被召回）。
+    """
+    with _conn() as conn:
+        rows = conn.execute(
+            "SELECT id, cid, project_id, source_id, title, content, heading, "
+            "section_path, start_line, end_line, page_number, token_count, seq, "
+            "content_hash FROM source_chunks WHERE project_id=? "
+            "AND EXISTS (SELECT 1 FROM project_sources s WHERE s.id = source_chunks.source_id "
+            "            AND s.task_id = source_chunks.project_id AND s.parse_status='ok' "
+            "            AND s.index_status='ready') "
+            "ORDER BY seq LIMIT ?", (project_id, limit)).fetchall()
+        return [dict(r) for r in rows]
+
+
 def vector_model_used(project_id: str) -> str | None:
     with _conn() as conn:
         row = conn.execute(

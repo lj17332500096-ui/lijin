@@ -104,6 +104,15 @@ CHANGE_TEST_MAP: list[tuple[tuple[str, ...], list[str]]] = [
     #「本地全绿」在这里不是证据。
     (("tools.py", "rag.py", "code_exec.py", "project_edit.py"),
      ["tests/test_path_normalization_symmetry.py"]),
+    # 检索链路（10-05 CI run 37326450894 实据）：FTS5 的 unicode61 分词器把
+    # **中文整段当一个 token**（"按钮" 对 "按钮必须放在右下角…" 命中 0），
+    # 而 sources 侧曾只走 FTS 那条路 ⇒ 中文检索恒失效。本地全绿是因为
+    # rag.py 的 ONNX 向量兜住了；而 requirements.txt 无 onnxruntime、
+    # 模型目录 models/bge-small-zh-v1.5 也不入库 ⇒ **CI 上向量必然不可用**
+    # ⇒ 掩盖消失，暴露成 mode='no_results'。
+    # 这条护栏专门钉住「**无向量时中文仍能召回**」+「无关中文不误召回」。
+    (("sources/retriever.py", "sources/store.py", "sources/indexer.py"),
+     ["tests/test_cjk_retrieval_without_vectors.py", "tests/test_sources_rag.py"]),
 ]
 
 VENV_PY = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
