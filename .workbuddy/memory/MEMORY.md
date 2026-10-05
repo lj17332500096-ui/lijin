@@ -83,6 +83,20 @@
 - **凭"代码看起来脆弱"改代码也是错**：`pilot.pause(数字)` 确实是固定 `asyncio.sleep`
   （无参才走 `wait_for_idle(0)` 确定性等待），但**无失败实据 ⇒ 待观察而非待修**。
   这类写法全项目 28 处，大改风险远大于收益。真要改**先造出稳定复现**。
+  同类：tests/ 里 `my_creative_agent` 硬编码共 15 处，**实测只有 6 处是真缺陷**，
+  其余 4 个文件在异名副本里 85 passed（有 fixture 保护或属注释）⇒ **只改实测红的**。
+- **「本地全绿」这个前提本身要被检验，不能默认**。写 `var/sim_clean_runner.py`：
+  移开本机 `.env` → `git archive HEAD` 导出干净副本 → 按 workflow 的job 级 env
+  精确设键 → 跑全量。**这是「能否正常运行」的直接证据，比读 workflow 文本可靠**。
+  实测据此抓出workflow 手段（补 `.env` / 建目录）**修不了的 P0**：
+  `test_tools.py` 硬编码了仓库目录名，同一份代码仅因副本目录名不同就翻转
+  （`my_creative_agent` 3 passed / `lijin` 3 failed）—— `actions/checkout` 的
+  clone 目录**就是仓库名**，本地 `my_creative_agent` 只是巧合。
+- **⚠️ 模拟环境必须逐条照抄 workflow 的步骤，漏一步就造出假红灯**。
+  第一版模拟漏了 ci.yml 的「Prepare runner-absent directories」，多出 15 条误报
+  （`web/llama-ui` 缺失 → `import webapp` 抛 RuntimeError → 波及
+  `test_ui_isolation` 2 + `test_api_layer_phase_c` 10）。补上后 12 条消失。
+  判据：**模拟的失败数≠ 真实失败数时，先查模拟本身**，别急着改产品代码。
 - **「可达性分析的断言」自身也要防空集恒真**：加下界自检（如"识别到 ≥3 个入口"）。
 - **中和实验要固化成常驻用例**，不能只留在会话里（否则权重被改回去时无人知道当初为何
   加它）。**配套写构造性用例**验证中间推论（用临时目录造文件集，不依赖真实规模），
