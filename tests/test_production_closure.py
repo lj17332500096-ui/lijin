@@ -133,6 +133,275 @@ class CancelSemanticsTests(unittest.TestCase):
         self.assertEqual(state.state, TaskState.COMPLETED)
 
 
+class CancelDeliveryTests(unittest.TestCase):
+    """取消必须**确定地**送达执行体，且不得把真故障误判成「已取消」。
+
+    背景（生产缺陷，见 commit message）：LangGraph 会捕获 node 抛出的
+    ``CancelledError`` 并继续驱动下一个 node，所以「取消过一次」不等于
+    「之后不会再执行」。取消因此必须被当作**持续条件**：任何执行入口都要
+    重新判定，否则用户已取消而模型仍在被调用。
+
+    这些用例不依赖盲等sleep：桩在**确定的关键点**发信号，测试等信号再取消，
+    测的是「取消必须生效」这个契约，而不是「取消落在哪个竞态窗口」。
+    """
+
+    def setUp(self) -> None:
+        self.tmp = Path(tempfile.mkdtemp(prefix="pccancel2_"))
+        self.mgr = _manager(self.tmp)
+        self.container = self.mgr.get_or_create_container("proj-cancel2")
+        self._orig_execute_turn = runtime_execution.execute_turn
+
+    def tearDown(self) -> None:
+        import shutil
+
+        runtime_execution.execute_turn = self._orig_execute_turn
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _runtime_with(self, stub_factory):
+        """按给定的 execute_turn 桩建runtime，并记录被真正调用过的 agent 名。"""
+        from runtime.runner import AgentRuntime
+
+        runtime = AgentRuntime(db_path=str(self.tmp / "agent.db"))
+        runtime._ensure()
+        runtime_execution.execute_turn = workflow_model_stub(stub_factory(runtime))
+        return runtime
+
+    def test_cancel_while_execution_parked_lands_cancelled(self):
+        """取消发生在**执行阶段模型调用正park 着**时：必须落 cancelled（计数断言）。
+
+        这是原缺陷的确定性复现。原测试用盲等 ``sleep(0.3)`` 制造取消时机：
+        实测在 0.3s 时执行节点**已经被进入**（桩已park 在 ``gate.wait()`` 上），
+        取消落在「node 已进入但取消尚未被消费」的窗口 —— 修复前 3/3 卡 running，
+        全量跑时负载偏移就变绿。这里改为**等桩明确发信号**后再取消，时机确定：
+        修复后稳定落 cancelled。
+
+        gate 在取消之后才 release：若生产代码吞掉取消并继续，桩会被唤醒去跑下一轮，
+        计数断言即可抓到「取消后仍调模型」。
+        """
+        entered_exec = asyncio.Event()
+        gate = asyncio.Event()
+        exec_calls: list[str] = []
+
+        def _factory(runtime):
+            async def _fake(mode, message, session=None, debug=False, max_turns=20,
+                            history_limit=None, agent=None, audit=None,
+                            stream_events_cb=None, provider=None):
+                name = str(getattr(agent, "name", "") or "")
+                if name == "全能助手":
+                    exec_calls.append(name)
+                    # 先发信号再 park：测试据此确保「node 已进入」这一事实，
+                    # 不依赖 sleep 猜时机（盲等会让本用例退化成假绿）。
+                    entered_exec.set()
+                    await gate.wait()
+                    return json.dumps({
+                        "kind": "answer", "summary": "s", "content": "完成",
+                        "questions": [], "saved_file": None,
+                        "next_step": None}, ensure_ascii=False)
+                return json.dumps({
+                    "kind": "answer", "summary": "s", "content": "ok",
+                    "questions": [], "saved_file": None,
+                    "next_step": None}, ensure_ascii=False)
+
+            return _fake
+
+        runtime = self._runtime_with(_factory)
+        run = _mk_run(self.mgr, self.container["id"])
+
+        async def _scenario():
+            spawn = runtime.spawn_run_task(run.id, runtime.run_turn(
+                run.goal, session=None, session_id="proj-s", mode="async",
+                task_id=run.id, metadata={"channel": "web"}))
+            # 确定点：桩明确告知执行节点已进入且停在模型调用上。
+            await asyncio.wait_for(entered_exec.wait(), timeout=30)
+            await asyncio.sleep(0)
+            self.assertTrue(runtime.cancel_run(run.id))
+            try:
+                await asyncio.wait_for(asyncio.shield(spawn), timeout=15)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            # 取消之后再放行 gate：若生产代码吞掉取消并继续推进，桩会被唤醒去跑
+            # 下一轮 —— 计数断言即可抓到「取消后仍调模型」。
+            gate.set()
+            await asyncio.sleep(0.5)
+            return runtime.tasks.get_task(run.id)
+
+        state = asyncio.run(_scenario())
+        self.assertEqual(state.state, TaskState.CANCELLED)
+        # 计数断言（存在性断言无效：多阶段只要出现一次就算过）。
+        self.assertEqual(len(exec_calls), 1, "取消后不得再启动新一轮执行")
+        evs = [e.event_type for e in runtime.tasks.list_events(run.id)]
+        self.assertNotIn("task.completed", evs)
+        self.assertNotIn("task.failed", evs)
+        self.assertEqual(evs.count("task.cancelled"), 1)
+        entered_exec = asyncio.Event()
+        gate = asyncio.Event()
+        exec_calls: list[str] = []
+
+        def _factory(runtime):
+            async def _fake(mode, message, session=None, debug=False, max_turns=20,
+                            history_limit=None, agent=None, audit=None,
+                            stream_events_cb=None, provider=None):
+                name = str(getattr(agent, "name", "") or "")
+                exec_calls.append(name)
+                if name == "全能助手":
+                    entered_exec.set()
+                    await gate.wait()  # 停在执行阶段的模型调用上
+                    return json.dumps({
+                        "kind": "answer", "summary": "s", "content": "完成",
+                        "questions": [], "saved_file": None,
+                        "next_step": None}, ensure_ascii=False)
+                return json.dumps({
+                    "kind": "answer", "summary": "s", "content": "ok",
+                    "questions": [], "saved_file": None,
+                    "next_step": None}, ensure_ascii=False)
+
+            return _fake
+
+        runtime = self._runtime_with(_factory)
+        run = _mk_run(self.mgr, self.container["id"])
+
+        async def _scenario():
+            spawn = runtime.spawn_run_task(run.id, runtime.run_turn(
+                run.goal, session=None, session_id="proj-s", mode="async",
+                task_id=run.id, metadata={"channel": "web"}))
+            # 确定点：桩明确告知已停在执行阶段的模型调用上（此时 gate 仍关闭）。
+            await asyncio.wait_for(entered_exec.wait(), timeout=30)
+            self.assertTrue(runtime.cancel_run(run.id))
+            try:
+                await asyncio.wait_for(asyncio.shield(spawn), timeout=15)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            # 取消之后再放行 gate：若生产代码错误地继续推进，桩会被唤醒并
+            # 再跑一轮 —— 这正是我们要检出的「取消后仍调模型」。
+            gate.set()
+            await asyncio.sleep(0.5)
+            return runtime.tasks.get_task(run.id)
+
+        state = asyncio.run(_scenario())
+        self.assertEqual(state.state, TaskState.CANCELLED)
+        # 计数断言（存在性断言无效：多阶段只要出现一次就算过）。
+        # 取消之后不得再启动新一轮执行。
+        self.assertEqual(
+            len(exec_calls), 1,
+            "取消后不得再启动新一轮执行")
+        evs = [e.event_type for e in runtime.tasks.list_events(run.id)]
+        self.assertNotIn("task.completed", evs)
+        self.assertNotIn("task.failed", evs)
+        self.assertEqual(evs.count("task.cancelled"), 1)
+
+    def test_real_failure_is_not_misreported_as_cancelled(self):
+        """真故障必须落failed，**不得**被误判成「已取消」（反向鉴别力）。
+
+        防止把取消做成 blanket 吞异常：``CancelledError`` 继承 ``BaseException``，
+        普通 ``Exception``（模型故障）必须走failed 路径。
+
+        故障注入在**执行阶段**：分析阶段对普通异常有刻意的降级策略
+        （``conversation.analysis.fallback`` → 转execute），那是既有契约，
+        不能拿来当故障注入点。
+        """
+        boom = RuntimeError("provider exploded")
+
+        def _factory(runtime):
+            async def _fake(mode, message, session=None, debug=False, max_turns=20,
+                            history_limit=None, agent=None, audit=None,
+                            stream_events_cb=None, provider=None):
+                name = str(getattr(agent, "name", "") or "")
+                if name == "全能助手":
+                    raise boom
+                return json.dumps({
+                    "kind": "answer", "summary": "s", "content": "ok",
+                    "questions": [], "saved_file": None,
+                    "next_step": None}, ensure_ascii=False)
+
+            return _fake
+
+        runtime = self._runtime_with(_factory)
+        run = _mk_run(self.mgr, self.container["id"])
+
+        async def _go():
+            spawn = runtime.spawn_run_task(run.id, runtime.run_turn(
+                run.goal, session=None, session_id="proj-s", mode="async",
+                task_id=run.id, metadata={"channel": "web"}))
+            try:
+                await asyncio.wait_for(asyncio.shield(spawn), timeout=30)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                pass
+            return runtime.tasks.get_task(run.id)
+
+        state = asyncio.run(_go())
+        self.assertNotEqual(runtime.is_cancel_requested(run.id), True)
+        self.assertEqual(state.state, TaskState.FAILED)
+        evs = [e.event_type for e in runtime.tasks.list_events(run.id)]
+        # 计数断言：真故障不得产生任何 cancelled 痕迹。
+        # 注意：``task.failed`` 的重复写入是 HEAD 既有问题（与本修复无关，
+        # 已用 HEAD/修复后逐事件对比确认一致），此处不断言其计数。
+        self.assertEqual(evs.count("task.cancelled"), 0)
+        self.assertNotIn("task.completed", evs)
+
+    def test_cancel_after_terminal_does_not_reopen_task(self):
+        """已终结的任务再被取消：不得被改回 running/cancelled（终态不可篡改）。"""
+        gate = asyncio.Event()
+
+        def _factory(runtime):
+            async def _fake(mode, message, session=None, debug=False, max_turns=20,
+                            history_limit=None, agent=None, audit=None,
+                            stream_events_cb=None, provider=None):
+                gate.set()
+                return json.dumps({
+                    "kind": "answer", "summary": "s", "content": "OK",
+                    "questions": [], "saved_file": None,
+                    "next_step": None}, ensure_ascii=False)
+
+            return _fake
+
+        runtime = self._runtime_with(_factory)
+        run = _mk_run(self.mgr, self.container["id"])
+
+        async def _go():
+            spawn = runtime.spawn_run_task(run.id, runtime.run_turn(
+                run.goal, session=None, session_id="proj-s", mode="async",
+                task_id=run.id, metadata={"channel": "web"}))
+            await asyncio.wait_for(asyncio.shield(spawn), timeout=30)
+            return runtime.tasks.get_task(run.id)
+
+        done = asyncio.run(_go())
+        self.assertEqual(done.state, TaskState.COMPLETED)
+        events_before = len(runtime.tasks.list_events(run.id))
+        # 终态之后再请求取消：必须不改动终态、不新增 cancelled 事件。
+        runtime.cancel_run(run.id)
+        after = runtime.tasks.get_task(run.id)
+        self.assertEqual(after.state, TaskState.COMPLETED)
+        evs = [e.event_type for e in runtime.tasks.list_events(run.id)]
+        self.assertEqual(evs.count("task.cancelled"), 0)
+        self.assertEqual(evs.count("task.completed"), 1)
+        self.assertGreaterEqual(len(runtime.tasks.list_events(run.id)), events_before)
+
+    def test_finalize_cancelled_is_idempotent_under_concurrent_calls(self):
+        """并发重复收口：终态只写一次，且不会被并发调用互相覆盖。"""
+        from runtime.runner import AgentRuntime
+
+        runtime = AgentRuntime(db_path=str(self.tmp / "agent.db"))
+        runtime._ensure()
+        run = _mk_run(self.mgr, self.container["id"])
+        runtime.tasks.transition(run.id, TaskState.RUNNING, reason="test")
+
+        async def _go():
+            return await asyncio.gather(
+                asyncio.to_thread(runtime.finalize_cancelled, run.id),
+                asyncio.to_thread(runtime.finalize_cancelled, run.id),
+                asyncio.to_thread(runtime.finalize_cancelled, run.id),
+            )
+
+        results = asyncio.run(_go())
+        state = runtime.tasks.get_task(run.id)
+        self.assertEqual(state.state, TaskState.CANCELLED)
+        self.assertEqual(sum(1 for r in results if r is True), 1,
+                         "并发收口必须恰好一次成功（其余幂等返回 False）")
+        evs = [e.event_type for e in runtime.tasks.list_events(run.id)]
+        self.assertEqual(evs.count("task.cancelled"), 1)
+        self.assertEqual(evs.count("run.terminal"), 1)
+
+
 class WriteAheadAndRecoverTests(unittest.TestCase):
     """PHASE2：副作用执行前有 durable pending；恢复时标记 unknown，绝不自动重放。"""
 

@@ -395,6 +395,17 @@ class AgentRuntime:
     # P0：run_id → asyncio.Task（用户取消必须能找到真实在飞执行任务）
     _run_tasks: dict[str, asyncio.Task] = field(default_factory=dict)
     _cancel_requested: set[str] = field(default_factory=set)
+    # run_id → 该 Run 当前**真正在执行体里**的 asyncio.Task 集合。
+    #
+    # 为什么不能只靠 _run_tasks：run_turn 的执行体由 LangGraph 驱动，
+    # LangGraph 为每个 node 自建 task（RunnableCallable.ainvoke）。_run_tasks 登记的
+    # 是 spawn_run_task 的**外层** task，它只是 await 整个图 —— 真正卡在
+    # execute_turn / 模型调用上的是 LangGraph 的**内层** node task。
+    # 取消落在「node 之间」（LangGraph 调度器自己的 await）时，CancelledError
+    # 到不了内层 node task，图会继续驱动后续节点：用户已取消，模型还在被调用，
+    # 且外层因仍在等内层而永不返回 → finalize_cancelled 永不调用 → 卡 running。
+    # 登记内层 task 让取消能真正抵达执行体。
+    _active_exec_tasks: dict[str, set[asyncio.Task]] = field(default_factory=dict)
 
 
     @property
@@ -2135,29 +2146,93 @@ class AgentRuntime:
 
     def unregister_run_task(self, task_id: str) -> None:
         self._run_tasks.pop(task_id, None)
+        self._active_exec_tasks.pop(task_id, None)
         self._cancel_requested.discard(task_id)
+
+    def _register_exec_task(self, task_id: str) -> "asyncio.Task | None":
+        """登记「当前真正在执行体里」的 task，供 cancel_run 精确取消。
+
+        由执行体入口（``_workflow_api_call`` 与 execute_turn 调用处）调用：那一刻
+        ``asyncio.current_task()`` 就是 LangGraph 为当前 node 建的**内层** task，
+        也就是真正卡在模型调用上的那个。取消抵达它，``CancelledError`` 才能
+        沿 await 链传回 ``spawn_run_task`` 的 ``except CancelledError``。
+        """
+        try:
+            current = asyncio.current_task()
+        except Exception:
+            current = None
+        if current is None:
+            return None
+        self._active_exec_tasks.setdefault(task_id, set()).add(current)
+        return current
+
+    def _unregister_exec_task(self, task_id: str, task: "asyncio.Task | None") -> None:
+        """撤销内层 task 登记（正常结束/异常退出都必须调用，否则集合无界增长）。"""
+        if task is None:
+            return
+        holders = self._active_exec_tasks.get(task_id)
+        if holders is None:
+            return
+        holders.discard(task)
+        if not holders:
+            self._active_exec_tasks.pop(task_id, None)
 
     def cancel_run(self, task_id: str) -> bool:
         """请求取消一个真实在飞 Run：标记 + 取消对应 asyncio.Task。
 
-        只标记/取消，DB 终态由 run_turn 的 CancelledError 收口统一完成
-        （不会出现 CANCELLED 后又跑到 COMPLETED 的竞态）。
+        只标记/取消，DB 终态由 run_turn / spawn_run_task 的 CancelledError 收口
+        统一完成（不会出现 CANCELLED 后又跑到 COMPLETED 的竞态）。
 
         P1-2：这里额外先停掉该 Run 已登记的子进程树。``CancelledError`` 必须等到最内层
         await 才会被抛出，而同步工具正阻塞在 worker 线程的 ``communicate()`` 上 —— 光标记
         不会让它的副作用停下。先杀树（幂等）才让「取消」名副其实。
+
+        取消**两层** task（缺一不可）：
+        - 外层 ``_run_tasks``：spawn_run_task 建的 managed task，负责最终收口；
+        - 内层 ``_active_exec_tasks``：LangGraph 为 node 建的执行 task，真正卡在
+          模型调用上。只取消外层时，若取消落在「node 之间」，CancelledError
+          到不了内层，图会继续驱动后续节点 —— 用户已取消而模型仍在被调用，
+          且外层永不返回，Run 永久卡在 running。
         """
         self._cancel_requested.add(task_id)
         _kill_cancelled_side_effects(task_id)
+        # 先摘出内层集合：避免「取消过程中图又登记新 node task」造成漏取消。
+        inner = tuple(self._active_exec_tasks.get(task_id, ()))
+        if inner:
+            self._active_exec_tasks.pop(task_id, None)
+        cancelled_any = False
+        for inner_task in inner:
+            try:
+                if not inner_task.done():
+                    inner_task.cancel()
+                    cancelled_any = True
+            except Exception:  # noqa: BLE001 - 取消路径不得抛，真正的原因不能被掩盖
+                # 取消路径上不得抛：真正的原因（内层的 CancelledError）不能被掩盖。
+                pass
         task = self._run_tasks.get(task_id)
         if task is not None and not task.done():
             task.cancel()
             return True
-        # 任务未在 registry（尚未启动/已结束）：由调用方决定 DB 收口
-        return False
+        # 任务未在 registry（尚未启动/已结束）：由调用方决定 DB 收口。
+        # 内层已取消也算「取消已受理」—— 它的 CancelledError 会向上传播收口。
+        return cancelled_any
 
     def is_cancel_requested(self, task_id: str) -> bool:
         return task_id in self._cancel_requested
+
+    def _raise_if_cancelled(self, task_id: str, stage: str) -> None:
+        """取消是**持续条件**，不是一次性事件：任何执行入口都要重新检查。
+
+        为什么必须反复检查：LangGraph 会捕获 node 抛出的 CancelledError 并继续驱动
+        下一个 node（实测：取消命中分析节点后，图仍继续进入执行节点调模型）。
+        因此「取消过一次」不等于「之后不会再执行」—— 每进入一次执行入口都必须
+        重新判定，否则用户已取消而模型仍在被调用，取消语义对用户就是谎言。
+
+        只抛 CancelledError（``BaseException`` 子类）：既能让 LangGraph 停止驱动，
+        又不会被任何 ``except Exception`` 结构性地吞掉。
+        """
+        if self.is_cancel_requested(task_id):
+            raise asyncio.CancelledError(f"user cancel requested (stage={stage})")
 
     def spawn_run_task(self, task_id: str, coro) -> asyncio.Task:
         """以受管方式在后台启动一个 Run 执行任务（Web 主链入口）。
@@ -3243,54 +3318,64 @@ class AgentRuntime:
                 activity.set_phase(phase_label)
             _stage_started = time.perf_counter()
             _usage_before = dict(_tg_usage or {})
+            # 取消是持续条件：进入任何执行入口前重新判定（LangGraph 会吞掉 node的
+            # CancelledError 并继续驱动下一个 node，只靠「取消时那一次」不够）。
+            self._raise_if_cancelled(task.id, stage)
+            # 登记内层执行 task：此刻 current_task 就是 LangGraph 为本 node 建的 task，
+            # 取消必须能抵达它（见 cancel_run 的两层取消说明）。
+            _exec_task = self._register_exec_task(task.id)
             self.tasks.add_event(task.id, f"{stage}.started", {
                 "run_id": task.id, "model": requested_model or "unknown",
                 "authority": "runtime_workflow_api_no_tools",
             })
             attempt_log.append(f"{requested_model or 'unknown'}:{stage}")
             try:
-                # Keep the Runtime boundary compatible with injected execution
-                # adapters used by embedders and offline harnesses. The
-                # production adapter accepts ``provider``; older callables
-                # may not expose that optional keyword.
-                import inspect as _inspect
-
-                _execute_kwargs = {
-                    "session": None, "debug": False, "max_turns": 1,
-                    "agent": workflow_agent, "audit": collector,
-                    "stream_events_cb": None,
-                }
                 try:
-                    _parameters = _inspect.signature(execute_turn).parameters.values()
-                    _accepts_provider = any(
-                        _parameter.name == "provider"
-                        or _parameter.kind == _inspect.Parameter.VAR_KEYWORD
-                        for _parameter in _parameters
+                    # Keep the Runtime boundary compatible with injected execution
+                    # adapters used by embedders and offline harnesses. The
+                    # production adapter accepts ``provider``; older callables
+                    # may not expose that optional keyword.
+                    import inspect as _inspect
+
+                    _execute_kwargs = {
+                        "session": None, "debug": False, "max_turns": 1,
+                        "agent": workflow_agent, "audit": collector,
+                        "stream_events_cb": None,
+                    }
+                    try:
+                        _parameters = _inspect.signature(execute_turn).parameters.values()
+                        _accepts_provider = any(
+                            _parameter.name == "provider"
+                            or _parameter.kind == _inspect.Parameter.VAR_KEYWORD
+                            for _parameter in _parameters
+                        )
+                    except (TypeError, ValueError):
+                        _accepts_provider = True
+                    if _accepts_provider:
+                        _execute_kwargs["provider"] = run_provider
+                    raw = await run_with_wall_limit(
+                        execute_turn(
+                            "async", prompt, **_execute_kwargs,
+                        ),
+                        effective_budget, task,
                     )
-                except (TypeError, ValueError):
-                    _accepts_provider = True
-                if _accepts_provider:
-                    _execute_kwargs["provider"] = run_provider
-                raw = await run_with_wall_limit(
-                    execute_turn(
-                        "async", prompt, **_execute_kwargs,
-                    ),
-                    effective_budget, task,
-                )
-                parsed = structured_output(raw, schema)
-            except asyncio.CancelledError:
-                self.tasks.add_event(task.id, f"{stage}.failed", {
-                    "run_id": task.id, "reason": "cancelled",
-                    "latency_ms": round((time.perf_counter() - _stage_started) * 1000),
-                })
-                raise
-            except Exception as exc:
-                self.tasks.add_event(task.id, f"{stage}.failed", {
-                    "run_id": task.id, "error_type": type(exc).__name__,
-                    "error": str(exc)[:300],
-                    "latency_ms": round((time.perf_counter() - _stage_started) * 1000),
-                })
-                raise
+                    parsed = structured_output(raw, schema)
+                except asyncio.CancelledError:
+                    self.tasks.add_event(task.id, f"{stage}.failed", {
+                        "run_id": task.id, "reason": "cancelled",
+                        "latency_ms": round((time.perf_counter() - _stage_started) * 1000),
+                    })
+                    raise
+                except Exception as exc:
+                    self.tasks.add_event(task.id, f"{stage}.failed", {
+                        "run_id": task.id, "error_type": type(exc).__name__,
+                        "error": str(exc)[:300],
+                        "latency_ms": round((time.perf_counter() - _stage_started) * 1000),
+                    })
+                    raise
+            finally:
+                # 无论正常/异常/取消都必须撤销登记，否则 _active_exec_tasks 无界增长。
+                self._unregister_exec_task(task.id, _exec_task)
             self.tasks.add_event(task.id, f"{stage}.completed", {
                 "run_id": task.id, "status": "completed",
                 "latency_ms": round((time.perf_counter() - _stage_started) * 1000),
@@ -3921,6 +4006,12 @@ class AgentRuntime:
                 )
                 if source_warning:
                     _composed_msg = _composed_msg + "\n" + source_warning
+                # 取消是持续条件：进入执行入口前重新判定，防止 LangGraph 在吞掉上一次
+                # CancelledError 后又驱动本节点调模型。
+                self._raise_if_cancelled(task.id, "execute")
+                # 登记内层执行 task：这是真正跑 execute_turn（模型调用）的 LangGraph
+                # node task，取消必须能抵达它，否则取消落在「node 之间」时会被吞掉。
+                _main_exec_task = self._register_exec_task(task.id)
                 try:
                     _exec_kwargs = {
                         "session": session,
@@ -3954,6 +4045,9 @@ class AgentRuntime:
                     )
                 finally:
                     gate.end()
+                    # 正常/异常/取消都必须撤销内层登记（与 gate.end() 同一finally，
+                    # 保证取消时也执行）。
+                    self._unregister_exec_task(task.id, _main_exec_task)
                 try:
                     from tools import clear_active_memory_binding
 
