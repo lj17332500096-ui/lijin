@@ -80,17 +80,63 @@ class ArtifactClickInteractionTests(unittest.TestCase):
                     assert isinstance(item, ArtifactItem)
                     await pilot.pause()
 
+                    # ⚠️ 这里等的是「**组件已挂载**」而不是「屏已弹出」
+                    # （2026-10-05 负载压测实据，8 次里2 次红）。
+                    # 先按「等屏弹出」写过一版，**负载下仍红** ⇒ 真因是
+                    # `textual.css.query.NoMatches: No nodes match
+                    # '#artifact-preview-content'` —— 屏 push 成功但子树还在
+                    # compose 中，`query_one` 抛 `NoMatches`。
+                    # ⇒ 必须轮询「组件能取到」这个条件本身。
+                    #
+                    # 为什么不用固定 `pilot.pause(0.1)`：那只是把「概率红」
+                    # 变成「概率红但慢」，机器一慢又挂（同文件下方那条测试的注释
+                    # 已记录过这个教训）。统一上限 5s（50 × 0.1s）。
                     await pilot.click(f"#{item.view_button_id}")
-                    await pilot.pause(0.1)
-                    assert isinstance(app.screen, ArtifactPreviewScreen)
-                    app.screen.query_one("#artifact-preview-content")
-                    assert "第一行" in app.screen.content
+                    widget = None
+                    for _ in range(50):
+                        await pilot.pause(0.1)
+                        if isinstance(app.screen, ArtifactPreviewScreen):
+                            try:
+                                widget = app.screen.query_one(
+                                    "#artifact-preview-content")
+                                break
+                            except Exception:
+                                continue          # 子树还没 compose 完，继续等
+                    self.assertIsInstance(
+                        app.screen, ArtifactPreviewScreen,
+                        "5s 内预览屏没弹出——点击未生效或 push_screen 未完成。",
+                    )
+                    self.assertIsNotNone(
+                        widget,
+                        "5s 内预览屏弹出了但 '#artifact-preview-content' 始终取不到"
+                        "——屏 push 成功但子树未 compose 完（NoMatches）。",
+                    )
+                    preview = app.screen
+                    for _ in range(50):
+                        await pilot.pause(0.1)
+                        if "第一行" in getattr(preview, "content", ""):
+                            break
+                    self.assertIn(
+                        "第一行", preview.content,
+                        "5s 内预览内容没出现——组件已挂载但内容未填充（另一类故障）。",
+                    )
 
                     await pilot.press("escape")
-                    await pilot.pause()
+                    for _ in range(50):
+                        await pilot.pause(0.1)
+                        if not isinstance(app.screen, ArtifactPreviewScreen):
+                            break
+                    self.assertNotIsInstance(
+                        app.screen, ArtifactPreviewScreen,
+                        "5s 内 escape 没退回主屏——后续点击会被屏挡住。",
+                    )
+
                     with patch("cli.tui.artifacts.reveal_artifact") as reveal:
                         await pilot.click(f"#{item.folder_button_id}")
-                        await pilot.pause(0.1)
+                        for _ in range(50):
+                            await pilot.pause(0.1)
+                            if reveal.called:
+                                break
                         reveal.assert_called_once_with(path.resolve())
 
         asyncio.run(_run())
