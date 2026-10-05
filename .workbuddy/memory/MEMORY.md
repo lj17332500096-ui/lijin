@@ -5,15 +5,21 @@
 > `docs/acceptance/`、`docs/architecture/`。发现本文件超限被截断时，优先补 §0/§2/§6，
 > 已完成事项只留一行指针。
 
-## 0. 路线铁律（用户强制）
-- **Laya 路线是主攻路线，永不放弃。** 任何诊断结果（负增益/坍缩/校准失败）只能作为
-  「当前 checkpoint/训练配置有问题」的证据，**不得**推导为「放弃 Laya」。任何建议中出现
-  「放弃/停止/不再投入 Laya」措辞都是违规。正确解法是给接回路径。
-- **Laya 现状（10-01 迁移后）**：LangGraph 工具筛选替代了关键词 Router + Laya 快筛；
-  `aa05c1f`「Retire legacy Tool Router and Laya pipeline」把 `laya/` 20 个脚本 +
-  `annotation/` + `benchmark/layer_behavior/` 整体退役，**主干现零引用**。
-  **文件仍在 git 历史里**：`git checkout aa05c1f^ -- laya/` 即可恢复（已核实）。
-  接回方案 L0~L4 见复审报告 §6。**10-04/05 两轮 Laya 一行代码未动。**
+## 0. 路线决策（用户 2026-10-05 定，已结案）
+- **路线：工具路由用 LangGraph，不再接回 Laya 路由头。** 用户明确决策「laya 不接回了，
+  用 LangGraph 代替」。此项**已由管家节点裁决结案**，不再作为待办，也不要再以
+  「Laya 是主攻路线」为由建议接回或重投。
+- 决策理由（用户认可的技术判断，非"放弃"）：关键词 Tool Router 用规则做语义判断，
+  违反 `AGENTS.md` 分工宪法，已被 LLM 选择器正确取代；Laya 独立pipeline 与 LangGraph 图
+  重复且绕过 Runtime 授权链。详见 `docs/audits/MIGRATION_POST_REVIEW_2026-10-04.md` §6.1
+  的三件区分表（该节是**决策依据的存档**，不是待实施方案）。
+- **资产现状（保留，不清理）**：`laya/_laya_inspect/laya-main/` 是 2.7M 源码 fork；
+  另有权重 `var/models/laya-tool-route-v2/`（2.1G，含 safetensors + 多个 gguf）与
+  训练数据 `data/laya_forge/`（3.2G）。**这两处被 `.gitignore` 排除（`var/*` 第 43 行、
+  `data/` 第 20 行），从未进 git，无法用任何 git 操作恢复**，只存在本机 F 盘。
+  历史基线留档：GPU(8099 SYCL) 关键词 74.2%、CPU 微调前 30%、1 epoch 15.43%（坍缩）。
+  若将来需要复现基线或训练新头，这两处是唯一来源，**清理前必须先备份**。
+- Laya 接入层索引约定护栏见 §7（仅在重新启用该方向时才有意义）。
 
 ## 1. 架构与边界
 - 单 Agent + 单主链 + 极厚外围治理（harness 型）。入口 `main.py`（`--classic`/`--voice`/
