@@ -206,6 +206,20 @@
 - **workflow 报0 jobs / 秒失败 ⇒ 先怀疑「文件被拒绝执行」，不是「测试挂」**。
   诊断顺序：① `actionlint`（含注释）→ ② `jobs` 数（0 ⇒ 文件级问题）
   → ③ YAML 解析 → ④ 才看步骤日志。
+- **CI 红了但本地全绿 ⇒ 逐条排除，别猜**。已排除清单（10-05，shard 0 为例）：
+  env 变量（用 CI 全部 env 跑 ⇒ 370 passed）、Python 版本（本地 venv 也是 3.11.15）、
+  收集阶段（--co 正常）、pwsh 变量类型（`$files` 是单行 String）。
+  **别误判 requirements 缺包** —— `ci.yml` 里已显式 `pip install pytest pypdf`。
+  排除法只能排除，**不能定位**；真正定位要靠 CI 自己报（在 `Run tests` 里
+  `Tee-Object` 落盘 + 失败写 `$GITHUB_STEP_SUMMARY`，免登录即可看）。
+- **PS 5.1 的 `Get-Content` 对无 BOM 的 UTF-8 按 ANSI 代码页解码** ⇒ 中文变乱码
+  ⇒ 引号被破坏 ⇒ parser 报**假语法错误**。读 UTF-8 文件必须用
+  `[IO.File]::ReadAllText($p, [Text.Encoding]::UTF8)`。`check_workflow_shells.py`
+  曾因此报假错（已修，中和 4/4）。
+- **pwsh 脚本里不要写成对反引号**（被当转义符）——要 Markdown 围栏用
+  `[string][char]96 * 3`。
+- **护栏报红要先确认对象是对的**。曾差点去改 workflow，实际错的是校验器自己的
+  编码假设 —— 与「pytest 报出的用例名 ≠ 根因」同源：**报错的出处 ≠ 出错的地方**。
 - **本机拉 actionlint**：`releases/download` 被拦（HTTP 000），走
   `api.github.com/repos/rhysd/actionlint/releases/assets/<id>` +
   `Accept: application/octet-stream`。已装于
@@ -247,11 +261,15 @@
   总时长是否撞 runner 超时、依赖拉取可达性、并发压力用例在共享 runner 的表现。
   **验证入口**：`.github/workflows/ci.yml`（跑法）+ `docs/operations/
   CI_FIRST_RUN_HANDOVER_2026-10-05.md` §2（首跑后必做清单，含归因纪律）。
-- ~~三个 workflow 从未在真实 GitHub runner 上验证~~ **10-05 已首跑，但被文件级问题挡住**
-  （**待重跑**）：`ci.yml` 在 `f418183` 上 `completed/failure` 但 **jobs=0**，
-  真因是**注释里的双花括号字面量**导致 GitHub 拒绝执行整个文件（详见 §2.7）。
-  修完+ 加了 `tests/test_ci_workflow_expr_syntax.py` 护栏，**尚未重跑**。
-  `guard-consistency.yml` 只在 PR 触发、`nightly.yml` 是 cron ⇒ 本次 push 本就不跑。
+- ~~三个 workflow 从未在真实 GitHub runner 上验证~~ **10-05 已跑两次，结论如下**
+  （验证入口：run `37307762085`（`20aa47b`）、run `37309584768`（`f16888d`））：
+  - **第1 次（`f418183`）**：`jobs=0` 秒失败 ⇒ workflow 文件被 GitHub 拒绝执行，
+    真因是**注释里的双花括号字面量**（GitHub 连注释一起求值）。**已修+ 加护栏**。
+  - **第 2 次（`20aa47b`）**：**jobs=4 全部真跑** ⇒ 表达式修复生效；4 片全红在
+    `Run tests`，但**本地用 CI 全部env 跑 shard 0 = 370 passed 全绿** ⇒
+    **CI 与本地仍有未定位差异**。日志/artifact 需登录才能下载，故已让 CI 把
+    失败摘要写进 `$GITHUB_STEP_SUMMARY`（打开 run 页面即可见）。
+  - `guard-consistency.yml` 只在 PR 触发、`nightly.yml` 是 cron ⇒ push 本就不跑。
 - ~~跨会话遗留三条~~ **10-05 已全部撤销：记忆过期，实际早已修完**。逐条实测：
   ① `provider_internal_error` 的「详情见运行记录」不再为空话 ——
      `95888af` 加了 `_error_fields()`（脱敏后写 `error_type`/`error_message`/`error`
