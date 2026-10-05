@@ -22,6 +22,13 @@
 - Laya 接入层索引约定护栏见 §7（仅在重新启用该方向时才有意义）。
 
 ## 1. 架构与边界
+- **给「要用户拍板的建议」之前，必须先读约束文件**。10-05 教训：我在没读
+  `.wiki-creator/wiki/SCHEMA.md` 的情况下给了 4 个主题名建议，而该文件第 18 行写着
+  「主题**永不合并**，仅 >1000 页才建议拆分」（且`lint.py` 只实现 `oversized_topics`、
+  **无任何合并逻辑**）⇒主题划分**近似不可逆**。读完后发现建议方向完全错。
+  **建议的方向性错误比措辞错误严重得多**：把「按内容分类」误当成无害练习，
+  实际是消耗一份不可回滚的决定。判据：若一个建议一旦被采纳就难以撤回，
+  先花 1 分钟读约束再开口。
 - 单 Agent + 单主链 + 极厚外围治理（harness 型）。入口 `main.py`（`--classic`/`--voice`/
   `--daemon`/`--tui`/`--run-task`）+ `cli/app.py::run_cli`。
 - UI 层冻结（`webapp.py`/`llama_bridge.py`），仅 `FORGE_ENABLE_UI=1` 可起；`webapp.py`
@@ -166,22 +173,15 @@
   `known_failures` 保持零条目。
 
 ## 6. 待办（按用户优先级）
-- **~~Laya 接回~~ 已结案**（见 §0，用户 10-05 裁决「用 LangGraph 代替」）。**不要再列为待办。**
-  唯一遗留的开放项是 `.wiki-creator/` SCHEMA 主题清单待用户确认
-  （建议：`harness-review`/`guardrail-config-governance`/`state-resilience`/
-  `ai-architecture-migration`）—— 但该wiki 是复审知识的沉淀，与 Laya 决策无关，
-  用户未批准前不启动。
-- **P2 剩余**（10-05 已完成：structured_log 假异常噪声、护栏审计漏报 MCP 工具、
-  `router.py` 正则路由免责注释+护栏、`test_ci_shard` 判据根因。**过程与数据见
-  `2026-10-05.md` §1~§2**）。**唯一还挂着的**：`runtime_paths.py override=False`
-  认知风险（未取证，按「无源不修」原则须先有实据）。
-- **已撤销的无源结论**：`test_tui_artifacts.py` 偶发红（4 份 junit 里从未失败、
-  16 核满载复现不出）、`ci_shard.py` 3 个零收集文件（实测 4 片全非空）。
-  **`pilot.pause(数字)` 固定等待全项目 28 处属「待观察」不是「待修」** ——
-  客观脆弱但无失败实据，真要改先造出稳定复现。
-- **跨会话遗留三条**：① `provider_gateway.py:591 record_attempt` 不记真实异常类型/消息 →
-  `provider_internal_error` 时「详情见运行记录」是空话（修时守 A8 脱敏）；② MCP 退出时 6 个
-  stdio server 各报一遍 anyio cancel scope 跨 task `RuntimeError`（~50 行用户可见噪音）；
+- **P2 技术项全部清空**（10-05）。**wiki 知识库首批已编译**（1 桶
+  `agent-harness-engineering` / 9 页，lint 零硬告警，`.wiki-creator/` 已 gitignore）。
+- **唯一剩余待用户决定项**：是否 push 触发三个 workflow 在真实 GitHub runner 首跑
+  （本地全绿不代表 CI 绿：`.env`/`web/llama-ui`/`var/*` 在 runner 不存在，
+  `windows-*` 默认 pwsh）。
+- **跨会话遗留三条**（未修，均无实据故障触发）：① `provider_gateway.py:591`
+  `record_attempt` 不记真实异常类型/消息 → `provider_internal_error` 时
+  「详情见运行记录」是空话（修时守A8 脱敏）；② MCP 退出时 6 个 stdio server 各报一遍
+  anyio cancel scope 跨 task `RuntimeError`（~50 行用户可见噪音）；
   ③ `llama_bridge.py:928-930` 审批死分支（bundle 命中数 0；同族：非流式路径
   `approval_required=True` 命中数 0——改 OpenAI 响应体风险高于改桥层自有字段）。
 - **三个 workflow 从未在真实 GitHub runner 上验证。**
