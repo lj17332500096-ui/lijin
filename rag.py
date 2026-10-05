@@ -25,6 +25,7 @@ from pathlib import Path
 
 from agents import function_tool
 from dotenv import load_dotenv
+from runtime.tool_errors import tool_failure_error_function
 from runtime_paths import generated_path
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -734,7 +735,7 @@ def _search_note(index: RagIndex) -> str:
     return f"（向量模型未就绪，本次为关键词检索；把模型放到 {model_dir or EMBED_DEFAULT_DIR} 即可启用语义检索）"
 
 
-@function_tool
+@function_tool(failure_error_function=tool_failure_error_function)
 def index_workspace(directory: str = ".", max_files: int = 800) -> str:
     """扫描本地文档并建立检索索引（RAG 第一步）。
     directory 是工作区内的目录（默认整个工作区）；max_files 是索引文件数上限。
@@ -760,7 +761,7 @@ def index_workspace(directory: str = ".", max_files: int = 800) -> str:
     )
 
 
-@function_tool
+@function_tool(failure_error_function=tool_failure_error_function)
 def search_documents(query: str, directory: str = ".", top_k: int = 5) -> str:
     """在本地文档索引里检索最相关的片段（RAG 查询）。
     query 是自然语言问题；directory 指定在哪个目录里找（默认工作区根目录）；

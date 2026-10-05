@@ -1,17 +1,42 @@
-openai-agents>=0.22.0
+# ⚠️ **上界不是保守，是必需**（10-05 CI run 37350998914 实据教训）
+#
+# 本文件原先写 `openai-agents>=0.22.0`（**无上界**），于是：
+#   - 本地 venv固定 0.22.0
+#   - CI 每次 `pip install` 拉**当时最新版**
+#   ⇒ 同一份代码、同一份测试，两边结论不同。
+# 实际踩到的：0.22.0 的 `default_tool_error_function` 返回
+# `"... Please try again. Error: {str(error)}"`（带 detail）；
+# 新版出于安全加固（不把原始异常泄露给模型）**删掉了该后缀**
+# ⇒ `test_outside_workspace_rejected` 在 CI 红、本地绿，
+#   且**本地怎么复现都复现不出来**（试过短名 tempdir / 无向量 / 同形短名根，
+#   全都绿）。
+#
+# 教训：**「本地绿」的前提是依赖集相同**。开放上界让这个前提天然不成立，
+# 于是任何依赖行为变更都会伪装成「代码缺陷」，把排查成本推到极高。
+#
+# 策略：给每个 `>=` 加**兼容上界**（下一个minor 版本的下一位）。
+# 上界过紧（`==`）会让安全补丁也装不上；上界缺失则等于没有 CI 护栏。
+# 升级流程：本地 `pip install -U` → 跑全量 → 改这里的上界 → 提交。
+
+openai-agents>=0.22.0,<0.24
 langgraph>=1.0,<2
-python-dotenv>=1.0.0
-requests>=2.31.0
+python-dotenv>=1.0.0,<2
+requests>=2.31.0,<3
 textual>=8,<9
 
 # Office 文档读取/生成（docx/xlsx/pptx）
-python-docx>=1.1.0
-openpyxl>=3.1.0
-python-pptx>=1.0.0
+python-docx>=1.1.0,<2
+openpyxl>=3.1.0,<4
+python-pptx>=1.0.0,<2
 
 # ---- 可选：PDF 文档入库（RAG 读取 PDF 文本层），不装则自动跳过 PDF ----
-# pip install pypdf
+# pip install "pypdf>=4,<7"
 
 # ---- 可选：向量 RAG（语义检索），不装则自动降级为纯关键词检索 ----
 # pip install fastembed
 # 同时把 ONNX 向量模型放到项目 models\bge-small-zh-v1.5\（格式见 README）
+#
+# ⚠️ 向量相关依赖**故意不写进本文件**：`requirements.txt` 保持「最小可运行集」。
+# 这正是 10-05 那个中文检索缺陷能潜伏这么久的原因 ——
+# `onnxruntime` / 模型目录都不在依赖里 ⇒ **CI 上向量必然不可用**，
+# 而本地有向量兜底 ⇒ 本地全绿。判「本地绿」前先问「它依赖什么，那东西在 CI 上在吗」。

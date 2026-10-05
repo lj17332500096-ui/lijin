@@ -113,6 +113,15 @@ CHANGE_TEST_MAP: list[tuple[tuple[str, ...], list[str]]] = [
     # 这条护栏专门钉住「**无向量时中文仍能召回**」+「无关中文不误召回」。
     (("sources/retriever.py", "sources/store.py", "sources/indexer.py"),
      ["tests/test_cjk_retrieval_without_vectors.py", "tests/test_sources_rag.py"]),
+    # 工具错误可见性（10-05 CI run 37350998914 实据）：requirements.txt 写
+    # `openai-agents>=0.22.0`（**开放上界**）⇒ CI 装到当时最新版，而新版
+    # `default_tool_error_function` 出于安全加固**删掉了 `Error: {error}` 后缀**
+    # ⇒ 依赖该 detail 的断言在 CI 红、本地（0.22.0）绿。
+    # 修法是给工具装 `failure_error_function`（官方机制），只放行**业务边界错误**。
+    # 这条护栏会**自己模拟新版 SDK**（本地 0.22.0 对新版零鉴别力），
+    # 且双向：业务错误必须可见 / 内部错误（含本机路径）必须隐藏。
+    (("rag.py", "runtime/tool_errors.py"),
+     ["tests/test_tool_error_visibility.py", "tests/test_rag.py"]),
 ]
 
 VENV_PY = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"

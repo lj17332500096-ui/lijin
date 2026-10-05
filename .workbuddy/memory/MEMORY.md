@@ -265,6 +265,25 @@
 - **8.3 缩写有长度阈值**：目录名太短（如 `ci8_root`，6 字符）时
   `GetShortPathNameW` **原样返回**（ret=50）⇒ 造短名的实验静默 NOOP。
   探针目录名要够长（护栏里用 26 字符）。
+- **⚠️ 判据里凡引用「解释器/运行时绝对路径」都是 portability 雷**：
+  硬编码 `.venv/Scripts/python.exe` ⇒ CI 上（用 `actions/setup-python` 的
+  hostedtoolcache 解释器，**根本没有 .venv**）抛 `FileNotFoundError: [WinError 2]`
+  ⇒ 判据自身崩。**本地有 venv 时永远发现不了**。用 `sys.executable`。
+
+### 2.9 SQLite FTS5 的中文是结构性失效（不是写法问题）- FTS5 默认 `unicode61` 分词器把**中文整段当一个 token**。已最小复现：内容
+  「按钮必须放在右下角且带确认弹窗。」用 `"按钮"` / `"右下角"` / `"确认弹窗"` 查，
+  命中数一律 **0**。**把查询改成二元组 OR 同样 0 hits** ⇒ **任何查询侧改法都无效**。
+- **本项目有两套检索实现，一套好一套坏**：`rag.py` **压根没用 FTS5**，
+  是纯 Python 倒排 + BM25（`_bm25_rank` + `_tokens` 对中文产**相邻二元组**），
+  **中文一直正常**；`sources/retriever.py` 走真 FTS5 ⇒ 中文恒失效。
+  修法是给 sources 侧补 Python 侧 BM25 兜底（`cjk_bigrams` +
+  `_python_lexical_search`），**不改 FTS5 建表**（不需重建索引/升 INDEX_VERSION）。
+- **为什么长期没人发现**：本地有 ONNX 向量把结果兜住了。而
+  `requirements.txt` **无 onnxruntime**、模型目录 `models/bge-small-zh-v1.5`
+  **不入库** ⇒ **CI 上向量必然不可用** ⇒ 掩盖消失。
+  **「本地绿」在有外部资源兜底时不是证据** —— 要问「这依赖什么，它在 CI 上在吗」。
+- 护栏 `tests/test_cjk_retrieval_without_vectors.py`（钉住前提 + 双向端到端
+  + 反空转自检），已挂 `CHANGE_TEST_MAP`。
 - **注入实验后必须看到标记，否则「修复前也绿」是假绿**。本日连续四次栽：
   ① TEMP 指短名 ⇒ mkdtemp 拼出双层路径；② `-p conftest` 找不到模块；
   ③ 对 **tempdir 本身**取短名（本机无 8.3 缩写）⇒ `[INJECT-NOOP]`
@@ -273,6 +292,35 @@
 - **护栏里的「条件表达式语句」是空动作**：`os.rmdir(p) if os.path.isdir(p) else None`
   语法合法但**什么都不做** ⇒ 每次跑留垃圾目录 ⇒ 短名序列漂移 ⇒ 后续注入 NOOP。
   必须写成真正的 `if` 块。
+- **⚠️ 依赖开放上界 = 没有 CI 护栏**（10-05 实据，本项目最贵的一次排查）：
+  `requirements.txt` 曾写 `openai-agents>=0.22.0`（**无上界**）。本地固定 0.22.0，
+  CI 每次装当时最新版 ⇒ **同一份代码两边结论不同**。实际踩到：新版
+  `default_tool_error_function` 出于安全加固**删掉了 `Error: {error}` 后缀**
+  ⇒ 一条断言 CI 红本地绿，且**本地怎么复现都复不出**（短名/无向量/同形短名根
+  三条件齐备仍绿）。现已全部加**兼容上界**。
+  - 上界取「下一个 minor 的下一位」（`<0.24` 而非 `==0.22.0`）：
+    `==` 过紧（安全补丁装不上），无上界等于没有护栏。
+  - **「本地绿」的前提是依赖集相同**。看到 `>=` 无上界就要意识到这一点。
+  - **「无 detail 的错误文案」是依赖版本变化的强信号**：grep 上游源码确认
+    该串**只有一处**产生且**总是带后缀** ⇒ 输出不带 ⇒ 只能是版本不同。
+    这个推理能一步定位到依赖层，比调路径快得多。
+  - 业务上必须让模型看到的错误 ⇒ 用官方 `failure_error_function`
+    （`runtime/tool_errors.py`），**只放行 `ValueError`**，
+    内部异常（含本机路径）不放行。护栏 `tests/test_tool_error_visibility.py`
+    **自己模拟新版 SDK**（本地对新版零鉴别力，不模拟等于没测）。
+
+### 2.10 CI 诊断可见性（排查前先确认能拿到失败详情）
+- 匿名可读性实测：`jobs/<id>/logs` **403**、artifact **401**、
+  step summary 只能网页渲染、`check-runs/<id>/annotations` 200
+  但**只有 "exit code 1" 无测试名**、**`raw.githubusercontent.com` 200** ✅。
+- 本项目已让 CI 失败时把摘要推到 `ci-diagnostics` 分支
+  （`ci-diag/run-<run_id>-shard-<n>.md`），**文件名必须带 run id**
+  ——`fail-fast: false` 下多 shard 并发，同名会互相覆盖。
+- **教训：遇到「CI 红本地绿」，第一步是打通失败详情的自动获取，
+  再开始猜。** 10-05 那次根因只是一行依赖声明，
+  但因日志读不到 + 依赖集不同，白白花了 4 轮 CI。
+- **诊断脚本也要本地实跑**（不能只靠 YAML 合法）——
+  在真 git 仓库里跑一遍，当场抓到 `git config user.name"..."` 缺空格这类错。
 
 ## 3. 评测方法论
 - n=50 检 ≈±28pp，n=100 ≈±20pp，检 10pp 需 n≈400。任何「提升 X%」必给样本量与 CI。
@@ -310,7 +358,7 @@
   总时长是否撞 runner 超时、依赖拉取可达性、并发压力用例在共享 runner 的表现。
   **验证入口**：`.github/workflows/ci.yml`（跑法）+ `docs/operations/
   CI_FIRST_RUN_HANDOVER_2026-10-05.md` §2（首跑后必做清单，含归因纪律）。
-- ~~三个 workflow 从未在真实 GitHub runner 上验证~~ **10-05 已跑三次**：
+- ~~三个 workflow 从未在真实 GitHub runner 上验证~~ **10-05 已跑 5 次，正在第 6 次**：
   - **第 1 次（`f418183`）**：`jobs=0` 秒失败 ⇒ workflow 被拒绝执行，真因是
     **注释里的双花括号字面量**（GitHub 连注释一起求值）。**已修 + 加护栏**。
   - **第 2 次（`20aa47b`）**：`jobs=4` 全部真跑 ⇒ 表达式修复生效；4 片全红，
@@ -318,7 +366,21 @@
   - **第 3 次（`f16888d`）**：拿到日志 ⇒ **真因是 8.3 短名导致的路径规范化
     不对称**（14 条红）+ **cp1252 编码**（1 条）。**已全部修 + 加护栏
     `tests/test_path_normalization_symmetry.py`**，中和实验 14 failed → 61 passed。
-  - **待办：尚未重跑验证**（run `37309584768` 之后的修复还没push 过）。
+  - **第 4 次（`1c5a516`）**：shard 1/2/3 全绿，shard 0 剩 1 条 ⇒
+    `TRUSTED_PROJECT_PATH_RE` 字符白名单**不含 `~`**（`RUNNER~1`）⇒ 已修（§2.8）。
+  - **第 5 次（`ce2c6e9`）**：4 条红、**失败分片两轮间完全反转**（起初误判 flaky）。
+    两个真根因：① 我的护栏硬编码 `.venv` ⇒ CI 上 `WinError 2`（§2.8 portability 雷）；
+    ② **FTS5 对中文恒失效**（§2.9），被本地 ONNX 向量掩盖，CI 无向量才暴露。
+    **已修 + 加护栏 `test_cjk_retrieval_without_vectors.py`**（中和 4 failed ✅）。
+  - **第 6 次（`cf32e88`）**：验证上述修复。**仍未定位**：
+    `test_rag.py::KeywordSearchTests::test_outside_workspace_rejected` 在 CI 上返回
+    **无 detail** 的 `An error occurred while running the tool.`（本地普通/短名
+    tempdir 均复现不出，短名下实测是**带 detail** 的）⇒ 与「本地复现不出」类
+    问题同族，需 CI 日志才能定。**匿名 API 读 logs 是 403**，只能靠
+    `$GITHUB_STEP_SUMMARY`（免登录）或用户贴。
+  - **已知既有失败（非本轮引入，HEAD 对照证实）**：`test_rag` 两条断言与
+    `test_sources_rag` **同进程组合跑**才红（单跑 13 passed）。分片把两个文件
+    分到不同 shard，故 CI 上不同时出现。详见 `2026-10-05.md` §20。
   - `guard-consistency.yml` 只在 PR 触发、`nightly.yml` 是 cron ⇒ push 本就不跑。
 - ~~跨会话遗留三条~~ **10-05 已全部撤销：记忆过期，实际早已修完**。逐条实测：
   ① `provider_internal_error` 的「详情见运行记录」不再为空话 ——
