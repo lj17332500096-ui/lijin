@@ -15,8 +15,26 @@ PROJECT_ROOT = Path(__file__).resolve().parent
 try:
     from dotenv import load_dotenv
 
+    # ⚠️ `override=False` 是**有意**的，不要改成 `override=True`（那是 dotenv 默认值，
+    # 也是最容易被当作「修 bug」顺手改掉的参数）。
+    #
+    # 语义：真实环境变量恒胜，`.env` 只能填空、不能降级。P0-2 启动护栏
+    # （`FORGE_APPROVAL_FAILCLOSED` / `FORGE_UNATTENDED`）正是靠这条才可信 ——
+    # 运维显式设的 `off` / 显式的「未声明」不会被 `.env` 里残留的
+    # `on` / `scheduled` 改回去。改成 `override=True` 就等于把 `.env` 提升为
+    # 可以覆盖显式安全配置的权威，fail-closed 护栏静默退化为「看 .env 说话」，
+    # 且**不会报任何错**。
+    #
+    # 本文件被所有模块传递导入（code_exec / tools / skills_loader / rag /
+    # project_edit / integrations.* 经它 POLLUTES），是进程里 `.env` 的唯一注入口，
+    # 所以这个参数的影响面是全局的。
+    # 该语义已由 `tests/test_dotenv_precedence.py` 锁定（子进程实测 os.environ
+    # 最终值，不grep 字面量），改动会让那几条精确报红。
     load_dotenv(PROJECT_ROOT / ".env", override=False)
 except Exception:
+    # dotenv 未安装时静默降级是刻意的（它只提供便利，不提供正确性）；
+    # 但代价是「.env 完全没生效」不会有任何提示 —— 故上面的测试用子进程
+    # 探针确认 .env 仍能填空，避免这里静默失败被漏掉。
     pass
 
 
