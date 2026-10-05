@@ -58,8 +58,28 @@ class WorkspaceFileToolTests(unittest.TestCase):
     def setUp(self) -> None:
         tools._last_repeat_calls.clear()
 
+    # 这组用例需要「工作区内的项目子目录」。**不要硬编码目录名** ——
+    # 本地 WORKSPACE_ROOT 下的子目录恰为 `my_creative_agent`，而 GitHub runner
+    # 上 actions/checkout 的 clone 目录是**仓库名**（本仓库 = `lijin`），
+    # 该子目录会变成 `lijin`。硬编码会让这些用例在 runner 上必然失败，
+    # 且报错极具误导性：「找不到目录 <tmp>/my_creative_agent」——
+    # 看起来像工具坏了，实则是测试把自己的仓库名写死了。
+    #
+    # 实测（2026-10-05）同一份代码仅因副本目录名不同就翻转：
+    #   副本目录名=my_creative_agent → 3 passed
+    #   副本目录名=lijin→ 3 failed
+    # **workflow 修不了这个**（.env / 建目录都救不了），只能改测试。
+    #
+    # 正确来源：项目根相对工作区根的**相对路径**（`_resolve_under_root` 就是
+    # 按 WORKSPACE_ROOT 解析的），不是 WORKSPACE_ROOT.name ——
+    # 后者是项目根的**父目录**名（本地恰好也叫 Byong-hermes，误导性极强）。
+    @property
+    def _root_name(self) -> str:
+        rel = tools.BASE_DIR.relative_to(tools.WORKSPACE_ROOT)
+        return rel.as_posix()
+
     def test_list_hides_env_and_venv(self) -> None:
-        out = call_tool(tools.list_workspace_files, directory="my_creative_agent")
+        out = call_tool(tools.list_workspace_files, directory=self._root_name)
         self.assertIn("目录:", out)
         self.assertNotIn("\n.env", out)
         self.assertNotIn(".venv", out)
@@ -69,25 +89,28 @@ class WorkspaceFileToolTests(unittest.TestCase):
         self.assertIn("只能读取工作区", out)
 
     def test_dotenv_rejected(self) -> None:
-        out = call_tool(tools.read_workspace_file, path="my_creative_agent/.env")
+        out = call_tool(tools.read_workspace_file, path=f"{self._root_name}/.env")
         self.assertIn("不允许读取", out)
 
     def test_missing_file_reports_error(self) -> None:
-        out = call_tool(tools.read_workspace_file, path="my_creative_agent/不存在_xyz.md")
+        out = call_tool(
+            tools.read_workspace_file, path=f"{self._root_name}/不存在_xyz.md")
         self.assertIn("找不到", out)
 
     def test_reads_text_file(self) -> None:
-        out = call_tool(tools.read_workspace_file, path="my_creative_agent/README.md", max_chars=300)
+        out = call_tool(tools.read_workspace_file,
+                        path=f"{self._root_name}/README.md", max_chars=300)
         self.assertIn("文件:", out)
         self.assertIn("全能助手", out)
 
     def test_repeat_list_call_reminds_model(self) -> None:
-        first = call_tool(tools.list_workspace_files, directory="my_creative_agent")
-        second = call_tool(tools.list_workspace_files, directory="my_creative_agent")
+        first = call_tool(tools.list_workspace_files, directory=self._root_name)
+        second = call_tool(tools.list_workspace_files, directory=self._root_name)
         self.assertIn("目录:", first)
         self.assertIn("提醒", second)
         # 不同参数不受影响
-        other = call_tool(tools.list_workspace_files, directory="my_creative_agent/tests")
+        other = call_tool(tools.list_workspace_files,
+                          directory=f"{self._root_name}/tests")
         self.assertIn("目录:", other)
 
 
