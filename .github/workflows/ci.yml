@@ -11,6 +11,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+# 只给 `contents: write` —— 失败时要把诊断摘要推到 `ci-diagnostics` 分支，
+# 否则匿名读不到失败原因（logs/artifact/summary 全部要登录，见该步骤注释）。
+# 其余权限一律不给（不读 secrets、不写 PR、不写 issues）。
+permissions:
+  contents: write
+
 jobs:
   pytest:
     # windows-latest 是**刻意**选择，不是省事：
@@ -129,8 +135,51 @@ jobs:
             $lines += Get-Content var/test-reports/pytest-out.txt -Tail 120
             $lines += $fence
             $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
-            exit $LASTEXITCODE
           }
+
+      # 上面的 if 块内**刻意不写** `exit $LASTEXITCODE`：
+      # 已实测（Tee-Object 管道 + if 块无 exit）pwsh 的最终退出码仍等于
+      # `$LASTEXITCODE`=pytest 的退出码 ⇒ Run tests 照样红 ⇒ 本步骤的
+      # `if: failure()` 照样触发。写了 exit 反而会让 job 在上一步终止、
+      # 本步骤永远不执行，诊断分支就永远推不上去。
+      - name: Publish failure diagnostics to ci-diagnostics branch
+        if: ${{ failure() && steps.shard.outputs.files != '' }}
+        shell: pwsh
+        # 为什么需要这一步（10-05 CI 定位困难实据）：
+        #   job summary / artifact / logs **都需要登录**才能看，匿名 API 读
+        #   `/logs` 是 403、`artifacts` 下载是 401、step summary 只在网页渲染。
+        #   结果是「本地复现不出来」时**拿不到失败原因**，只能等人贴日志。
+        #   把摘要推到专用分支后，`raw.githubusercontent.com` **匿名可读**
+        #   （已实测 200）⇒ 排查闭环，不必依赖人工转述。
+        #
+        # 只在失败时推；分支是纯诊断产物，不影响 main，也不参与任何 workflow。
+        run: |
+          New-Item -ItemType Directory -Force -Path ci-diag | Out-Null
+          $shard = "${{ matrix.shard }}"
+          $body = @("# shard $shard", "", "run: $env:GITHUB_RUN_ID", "", "pytest -q --tb=short", "")
+          $body += (Get-Content var/test-reports/pytest-out.txt -Tail 200)
+          # ⚠️ 文件名**必须带 run id**：`fail-fast: false` 下 4 个 shard 并发，
+          # 都往同名文件推会互相覆盖（force push 后只剩最后一个 shard 的）。
+          # 带 run id ⇒ 每次运行一组新文件，历史也留着可回查。
+          $file = "ci-diag/run-$env:GITHUB_RUN_ID-shard-$shard.md"
+          $body | Out-File -FilePath $file -Encoding utf8
+          git config user.name  "ci-diagnostics"
+          git config user.email "ci-diagnostics@users.noreply.github.com"
+          # 从远端已有分支增量构建（保留历史诊断文件），推不上去就新建。
+          git fetch origin ci-diagnostics --depth=1 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            git checkout -B ci-diagnostics FETCH_HEAD
+          } else {
+            git checkout --orphan ci-diagnostics
+            git rm -rf . --quiet 2>$null
+          }
+          git add $file
+          git commit -m "diag: shard $shard failure (run $env:GITHUB_RUN_ID)"
+          # 并发下 force push 后到先到：每个 shard 带不同文件名，
+          # 丢掉的那次 push 只影响本次运行的某个文件，重新 push 即可补回。
+          git push origin ci-diagnostics --force
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload report
         if: always()

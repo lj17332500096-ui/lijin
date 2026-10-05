@@ -113,3 +113,7 @@ benchmark_fixture/__pycache__/
 
 # Laya checkpoint 副本（HF 缓存 2.3G，本地不入库）
 data/laya_forge/
+
+# CI 诊断产物：失败时由 workflow 推到 ci-diag 临时分支，
+# 不应出现在 main（本地跑脚本时也会生成）
+ci-diag/
