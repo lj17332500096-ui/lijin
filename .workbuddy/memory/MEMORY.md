@@ -187,18 +187,29 @@
   `known_failures` 保持零条目。
 
 ## 6. 待办（按用户优先级）
-- **P2 技术项全部清空**（10-05）。**wiki 知识库首批已编译**（1 桶
-  `agent-harness-engineering` / 9 页，lint 零硬告警，`.wiki-creator/` 已 gitignore）。
+- **P2 技术项全部清空**（10-05，核对方式：全量 1565 passed / EXIT=0）。
+  **wiki 知识库首批已编译**（1 桶 `agent-harness-engineering` / 9 页，
+  见 `.wiki-creator/wiki/SCHEMA.md`，lint 零硬告警）。
 - **唯一剩余待用户决定项**：是否 push 触发三个 workflow 在真实 GitHub runner 首跑
   （本地全绿不代表 CI 绿：`.env`/`web/llama-ui`/`var/*` 在 runner 不存在，
-  `windows-*` 默认 pwsh）。
-- **跨会话遗留三条**（未修，均无实据故障触发）：① `provider_gateway.py:591`
-  `record_attempt` 不记真实异常类型/消息 → `provider_internal_error` 时
-  「详情见运行记录」是空话（修时守A8 脱敏）；② MCP 退出时 6 个 stdio server 各报一遍
-  anyio cancel scope 跨 task `RuntimeError`（~50 行用户可见噪音）；
-  ③ `llama_bridge.py:928-930` 审批死分支（bundle 命中数 0；同族：非流式路径
-  `approval_required=True` 命中数 0——改 OpenAI 响应体风险高于改桥层自有字段）。
-- **三个 workflow 从未在真实 GitHub runner 上验证。**
+  `windows-*` 默认 pwsh）。**已用干净副本模拟预演**：`lijin/` 目录下全量
+  1565 passed / EXIT=0（`tests/test_stale_memory_probes.py` 之外的独立验证，
+  过程见 `2026-10-05.md` §12）—— 但真跑仍有 3 条本地无法证伪的硬上限：
+  总时长是否撞 runner 超时、依赖拉取可达性、并发压力用例在共享 runner 的表现。
+  **验证入口**：`.github/workflows/ci.yml`（跑法）+ `docs/operations/
+  CI_FIRST_RUN_HANDOVER_2026-10-05.md` §2（首跑后必做清单，含归因纪律）。
+- **三个 workflow 从未在真实 GitHub runner 上验证**（与上条同源，
+  验证入口同 `CI_FIRST_RUN_HANDOVER_2026-10-05.md` §2）。
+- ~~跨会话遗留三条~~ **10-05 已全部撤销：记忆过期，实际早已修完**。逐条实测：
+  ① `provider_internal_error` 的「详情见运行记录」不再为空话 ——
+     `95888af` 加了 `_error_fields()`（脱敏后写 `error_type`/`error_message`/`error`
+     三个键，5 处调用点接入），`tests/test_provider_error_diagnostics.py` 10 passed；
+  ② MCP 退出噪音 —— `tests/test_mcp_teardown_noise.py` 12 passed；
+  ③ 审批死分支 —— `bf0616e` 已删除，`llama_bridge.py:915` 起有两条独立实测证据的说明。
+  **教训同「无源结论要撤销」：记忆条目也会因对应修复已完成而失效，
+  必须靠commit 追溯 + 跑测试双重取证，不能凭「记忆里写着待修」就动手。**
+  ⚠️ 加这条时发现同一待办在本文件里出现了两次（新写的带验证入口、旧的没带）——
+  **记忆自身也会发生「同一事实写两遍」的漂移**，与代码里名册漂移同源。已合并去重。
 - **评测遗留**：n=200 对照 3.0 vs 2.5；区间口径按 3.0 校准（T001/T031/T023/T050）；
   T040 false_completion 单独立 case；T008 终态 completed→waiting_user 复查；per-tool 预算 8→12。
 - **有意不提交**：`benchmark_fixture/_inline_*.py`（churn，建议 gitignore）、`code_sandbox/*`、
