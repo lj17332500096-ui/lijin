@@ -86,8 +86,20 @@ def _check_with_pwsh(body: str) -> str | None:
         result = Path(td) / "out.txt"
         # 单独 .ps1 执行，避免 -Command 的引号层级问题。
         harness = Path(td) / "check.ps1"
+        # ⚠️ 必须用 `[IO.File]::ReadAllText($path, [Text.Encoding]::UTF8)`，
+        # **不能**用 `Get-Content -Raw`（10-05 实测踩坑）。
+        #
+        # 原因：Windows PowerShell 5.1 的 `Get-Content` 对**无 BOM 的 UTF-8 文件**
+        # 按当前 ANSI 代码页解码。本仓workflow 的注释含大量中文，脚本又由
+        # Python `write_text(encoding="utf-8")` 写出（**不带 BOM**）⇒ 读进来是乱码
+        # ⇒ 双引号被破坏 ⇒ parser 报「字符串缺少终止符: "」这类**与真实语法
+        # 无关**的错误。实测：同一段脚本用 `ParseFile` 校验零错误，用
+        # `Get-Content -Raw` + `ParseInput` 报假错。
+        #
+        # 判据是「有没有解析错误」，不是「错误文案编码对不对」——
+        # 假错会让护栏变成噪声，**在最需要它的时候失去鉴别力**。
         harness.write_text(
-            "$b = Get-Content -LiteralPath $args[0] -Raw\n"
+            "$b = [IO.File]::ReadAllText($args[0], [Text.Encoding]::UTF8)\n"
             "$t = $null; $e = $null\n"
             "$null = [System.Management.Automation.Language.Parser]::ParseInput("
             "$b, [ref]$t, [ref]$e)\n"

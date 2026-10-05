@@ -105,26 +105,32 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path var/test-reports | Out-Null
-          # runner 会把双花括号表达式求值后**文本替换**进脚本，所以展开出来的是
-          # 一串字面量 token（不是某个变量），PowerShell 按空白拆成独立参数。
-          # 已实测：4 个路径 + -q 正确分成 5 个 argv。
-          # 反面提醒：若改成先存进变量再展开（`$files = ...; pytest $files`），
-          # PowerShell **不会**对变量做词分割 —— 整个空格串会作为单个参数传给
-          # pytest，报 "file or directory not found: a.py b.py c.py"（exit 4）。
-          # 本地实测过这个失败，故保持字面量展开，不要"顺手改成变量"。
+          # runner 会把双花括号表达式求值后**文本替换**进脚本，展开出来是一串
+          # 字面量 token，PowerShell 按空白拆成独立参数（已实测 4 路径 + -q → 5 argv）。
+          # 不要"顺手改成变量"：PowerShell 不对变量做词分割，整个空格串会作为
+          # 单个参数传给 pytest，报 "file or directory not found: a.py b.py" (exit 4)。
           #
-          # ⚠️ **本块必须单行，且注释里禁止出现双花括号**（10-05 首跑实测踩坑）：
-          # GitHub 会对 `run:` 块做表达式求值，**注释也不例外**。块内任何
-          # 形如「双花括号 + 内容」的写法都会被解析成真表达式；注释里写一个
-          # **字面量示例**（比如「双花括号里留空」）时，它同样被求值，解析器遇到
-          # 不完整的表达式就报 (Line:103, Col:14): An expression was expected，
-          # **后果是整个 workflow 拒绝执行、0 个 job 被创建**（run 秒失败）——
-          # 不是某一步失败，是全文件不可用。
-          # 所以：① 命令写成一行，不用 PowerShell 续行反引号；
-          #      ② 注释里要提表达式时，只写「双花括号」这四个字，别写符号本身。
-          # 校验：actionlint 1.7.12 能查出这类错误（本仓库
-          # scripts/check_workflow_shells.py 只查 shell 声明，两者互补）。
-          python -m pytest ${{ steps.shard.outputs.files }} -q --junitxml=var/test-reports/ci-${{ matrix.shard }}.xml -p no:cacheprovider
+          # ⚠️ 两条硬约束（10-05 首跑两次踩坑，改之前先读这段）：
+          #① 命令必须**单行**，不用 PowerShell 续行反引号。
+          # ② **注释里禁止出现双花括号**：GitHub 对 run: 块求值时**注释也不例外**，
+          #    注释里的字面量示例同样被求值 ⇒ 解析失败 ⇒ **整个文件被拒绝执行**
+          #    ⇒ 表现为 completed/failure 但 **jobs=0**（不是某步失败）。
+          #    要举例必须写到文件外的文档里。
+          #
+          # 失败诊断（10-05 第二次首跑：4 片全红但本地全绿，junit 需登录才能下载，
+          # 故把摘要直接写进 job summary —— 打开 run 页面即可看到，不必下载 artifact）：
+          python -m pytest ${{ steps.shard.outputs.files }} -q --junitxml=var/test-reports/ci-${{ matrix.shard }}.xml -p no:cacheprovider --tb=short 2>&1 | Tee-Object -FilePath var/test-reports/pytest-out.txt
+          if ($LASTEXITCODE -ne 0) {
+            # 用 [char]96 构造代码围栏，**不要在脚本里写反引号** ——
+            # PowerShell 会把成对的反引号当转义符，parser 直接报
+            # 「表达式或语句中包含意外的标记」（已被 check_workflow_shells 抓到）。
+            $fence = [string][char]96 * 3
+            $lines = @("## 分片 ${{ matrix.shard }} 失败（exit $LASTEXITCODE）", "", "$fence" + "text")
+            $lines += Get-Content var/test-reports/pytest-out.txt -Tail 120
+            $lines += $fence
+            $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+            exit $LASTEXITCODE
+          }
 
       - name: Upload report
         if: always()
