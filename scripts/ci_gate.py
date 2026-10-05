@@ -77,6 +77,13 @@ CHANGE_TEST_MAP: list[tuple[tuple[str, ...], list[str]]] = [
      ["tests/test_public_activity.py"]),
     (("runtime/provider_gateway.py",),
      ["tests/test_provider_errors.py"]),
+    # 记忆文件：改它要跑过期探针。
+    # 理由：MEMORY.md 里的「已知遗留」会因**对应修复已完成而失效**，而条目
+    # 读起来仍言之凿凿，下个会话会去"修"一个已修好的东西。改记忆时跑这条
+    # 探针，可在提交前就抓出「已修却没划掉」的条目。
+    #（`tests/test_stale_memory_probes.py` 会git 追溯 + 跑回归测试双重取证）
+    ((".workbuddy/memory/MEMORY.md",),
+     ["tests/test_stale_memory_probes.py"]),
 ]
 
 VENV_PY = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
