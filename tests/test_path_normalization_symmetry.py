@@ -78,12 +78,17 @@ def _short_name(long_path: str) -> str | None:
 _SITE_CUSTOMIZE = r'''
 # 让 tempfile.gettempdir() 返回 **8.3 短名**，模拟 GitHub runner 的 RUNNER~1。
 #
-# 关键点（v1/v2 实验失败的教训）：**tempdir 目录本身常常没有 8.3 短名**，
-# 短名只存在于它下面新建的子目录。所以要先建一个普通子目录、取它的短名，
-# 再把 tempdir 指到那个短名 —— 这样后续 mkdtemp 拿到的 root 才是短名形式。
+# ⚠️ 两条踩过的坑，缺一个实验就静默失去鉴别力：
+# ① **tempdir 目录本身常常没有 8.3 短名**（短名只存在于它下面新建的子目录），
+#    所以要先建一个子目录、取它的短名，再把 tempdir 指到那个短名。
+# ② **目录名不够长就不触发 8.3 缩写**！实测 `ci8_root`（6 字符）会让
+#    GetShortPathNameW **原样返回**（ret=50）⇒ 注入 NOOP ⇒
+#    「修复前也绿」是**假绿**（本项目已栽一次）。
+#    所以用 26 字符的长名，且 `test_shortname_root_is_available` 会独立断言
+#    「短名≠长名」，不满足就 skipTest 而不是静默恒绿。
 import ctypes as _c, os as _o, tempfile as _t
 try:
-    _plain = _o.path.join(_t.gettempdir(), "ci_shortname_root")
+    _plain = _o.path.join(_t.gettempdir(), "_CI_SHORTNAME_PROBE_LONG_")
     _o.makedirs(_plain, exist_ok=True)
     _b = _c.create_unicode_buffer(1024)
     _c.windll.kernel32.GetShortPathNameW(_plain, _b, 1024)
@@ -95,7 +100,8 @@ try:
         print("[SHORTNAME-INJECT-OK] " + _short, file=_s.stderr, flush=True)
     else:
         import sys as _s
-        print("[SHORTNAME-INJECT-NOOP]", file=_s.stderr, flush=True)
+        print("[SHORTNAME-INJECT-NOOP] short=%r long=%r" % (_short, _plain),
+              file=_s.stderr, flush=True)
 except Exception as _e:  # pragma: no cover
     import sys as _s
     print("[SHORTNAME-INJECT-ERR] " + repr(_e), file=_s.stderr, flush=True)
@@ -113,16 +119,24 @@ class ShortPathRootSymmetryTests(unittest.TestCase):
         """
         if os.name != "nt":
             self.skipTest("非 Windows，无 8.3 短名")
-        plain = os.path.join(tempfile.gettempdir(), "ci_shortname_probe")
+        plain = os.path.join(tempfile.gettempdir(), "_CI_SHORTNAME_CHECK_LONG_")
         os.makedirs(plain, exist_ok=True)
         try:
             short = _short_name(plain)
         finally:
-            os.rmdir(plain) if os.path.isdir(plain) else None
+            # ⚠️ 不能写成 `os.rmdir(plain) if os.path.isdir(plain) else None`
+            # —— 那是**表达式语句**，语法合法但**不做任何事**（原先就踩了：
+            # 每次跑都在 tempdir 里留一个目录，短名序列会漂移 ⇒ NOOP）。
+            if os.path.isdir(plain):
+                try:
+                    os.rmdir(plain)
+                except OSError:
+                    pass
         if short is None:
             self.skipTest(
-                "本机 tempdir 下无法生成 8.3 短名（可能关闭了 8.3 支持）—— "
-                "**本组测试无法证明修复有效**。这不是「通过」，是「没测」。"
+                "本机 tempdir 下无法生成 8.3 短名（可能关闭了 8.3 支持，或"
+                "目录名太短未触发 8.3 缩写）—— **本组测试无法证明修复有效**。"
+                "这不是「通过」，是「没测」。"
             )
         self.assertNotEqual(short, plain, "短名不应等于长名")
 
@@ -135,7 +149,7 @@ class ShortPathRootSymmetryTests(unittest.TestCase):
         if os.name != "nt":
             self.skipTest("非 Windows")
         # 先确认能造出短名（造不出就明确 skip，不静默恒绿）
-        plain = os.path.join(tempfile.gettempdir(), "ci_shortname_root")
+        plain = os.path.join(tempfile.gettempdir(), "_CI_SHORTNAME_PROBE_LONG_")
         os.makedirs(plain, exist_ok=True)
         short = _short_name(plain)
         if short is None:

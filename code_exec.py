@@ -30,12 +30,29 @@ WORKSPACE_ROOT = Path(os.getenv("WORKSPACE_ROOT") or BASE_DIR.parent).resolve()
 SANDBOX_ROOT = WORKSPACE_ROOT / "code_sandbox"
 
 PROJECT_RE = re.compile(r"^[A-Za-z0-9_-]+$")
-# P1-B(1)（2026-09-22）：受信根判定专用宽松路径正则——允许字母数字、_-. 和
+# P1-B(1)（2026-09-22）：受信根判定专用宽松路径正则——允许字母数字、_-. ~ 和
 # 路径分隔符 / \（覆盖 "my_creative_agent/benchmark_fixture" 相对路径与
 # "F:/Byong-hermes/..." 绝对路径这类"声明执行位置"型 project），但禁止 ".." 越界段。
 # 仅在 trusted_root_for / _project_dir 的受信判定分支使用；普通 project 名仍走严格 PROJECT_RE。
 # 越界（../ 、sibling 前缀、symlink）由 _canonical_under 在第二道继续拦截，本正则只放行合法路径进入判定。
-TRUSTED_PROJECT_PATH_RE = re.compile(r"^(?:[A-Za-z]:)?(?:[A-Za-z0-9_.\-/\\]+)$")
+#
+# ⚠️ **`~` 必须放行**（10-05 CI 实据）：GitHub Actions 的 runner 用户目录是
+# `C:\Users\runneradmin`，**8.3 短名形式为 `RUNNER~1`** —— `tempfile.gettempdir()`
+# 在 CI 上返回的就是这个短名。原字符类 `[A-Za-z0-9_.\-/\\]` **不含 `~`** ⇒
+# 整串 match 失败（`$` 锚定）⇒ `_trusted_path_ok` 返 False ⇒ `_project_dir`
+# 返 None ⇒ `trusted_root_for` 返 None ⇒
+# `tests/test_trusted_path_project.py::test_absolute_path_project_hitting_root_is_trusted`
+# 在 CI 上必红，而本地全绿（本地 tempdir 不含 `~`）。
+# 受控实验（双向对照）：造 `tilde~probe` ⇒ None；造 `plainprobe_nospaces` ⇒ 正常返回。
+#
+# **为什么放行 `~` 不削弱安全边界**：真正的越界防线是
+# ① `_TRUSTED_PATH_HAS_DOTDOT_RE`（拒 `..` 段）② `_canonical_under`（按路径分量
+# 比较，防sibling 前缀与 symlink 逃逸）。`tests/test_trusted_path_project.py` 里
+# `test_dotdot_project_rejected` / `test_outside_root_path_not_trusted` /
+# `test_sibling_prefix_not_trusted` 三条安全断言都**不依赖这个字符白名单** ——
+# 放行更多合法路径字符不会让越界路径通过。
+# 只加 `~`（**不扩到空格/中文**：那无实据，且中文路径另有编码维度）。
+TRUSTED_PROJECT_PATH_RE = re.compile(r"^(?:[A-Za-z]:)?(?:[A-Za-z0-9_.~\-/\\]+)$")
 # ".." 段在正则层就拒（保持原 PROJECT_RE 对 "../.." 的"项目名"拒绝语义），不进下游子树判定。
 _TRUSTED_PATH_HAS_DOTDOT_RE = re.compile(r"(^|/|\\)\.\.(/|\\|$)")
 
