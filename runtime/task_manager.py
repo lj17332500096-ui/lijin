@@ -682,6 +682,22 @@ class TaskManager:
                 "CREATE UNIQUE INDEX IF NOT EXISTS idx_tool_calls_invocation "
                 "ON tool_calls(invocation_id) WHERE invocation_id IS NOT NULL"
             )
+            # v7: task_events 补 event_key + 部分唯一索引（写重放的防御性加固）。
+            #
+            # `_retrying_write` 要求「传入的块必须对同一状态可安全重放」，而
+            # add_event 的 INSERT 不满足：重放会再插一行。event_key 在**块外**
+            # 生成（重放时是同一个值），靠唯一索引 + INSERT OR IGNORE 压成一条。
+            # 用部分索引（IS NOT NULL）以便旧行 event_key 为 NULL 时不受约束。
+            #
+            # **注意**：本轮 `task.failed` 落库 2 条的**真实根因不是重放**，
+            # 而是 `mark_failure` 与 `transition` 双写同一条事件（已单独修）。
+            # 此处保留 event_key 是纵深防御：若将来又有非幂等块被交给
+            # `_retrying_write`，至少不会静默产生重复行。
+            _ensure_columns(conn, "task_events", {"event_key": "TEXT"})
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_task_events_key "
+                "ON task_events(event_key) WHERE event_key IS NOT NULL"
+            )
             conn.execute(
                 "CREATE TABLE IF NOT EXISTS client_messages ("
                 " container_id TEXT NOT NULL, client_message_id TEXT NOT NULL,"
@@ -778,6 +794,11 @@ class TaskManager:
 
         幂等性要求：传入的块必须对同一状态可安全重放。已按此纪律标注各调用点；
         不满足者**不得**改用本方法（宁可保留裸 `_connect`）。
+
+        **「单语句」不等于幂等**（本轮踩过）：`add_event` 曾以「单语句 + 固定
+        payload」为由认定天然幂等，实际重放会多插一行。真故障路径下实测
+        `task.failed` 落库 2 条，两次都来自同一次 `mark_failure`。
+        判断标准是「重放后库里是否还是同一条」，不是「块里有几条语句」。
         """
         last_exc: sqlite3.Error | None = None
         for attempt in range(_WRITE_RETRIES):
@@ -1364,10 +1385,19 @@ class TaskManager:
         return task
 
     def mark_failure(self, task_id: str, error: str) -> Task:
-        task = self.transition(task_id, TaskState.FAILED)
+        """置FAILED。
+
+        状态流转事件 `task.failed` 由 `transition` 在同一事务里权威写入
+        （见其 docstring：状态更新与权威事件同事务提交，避免 state 已变而
+        事件缺失）。**不要再在这里 `add_event` 一次** ——
+        那会让同一次失败落库两条 `task.failed`（本轮实测），消费方无法区分
+        「失败了两次」与「失败了一次」。
+
+        错误信息通过 `transition(reason=...)` 进入权威事件的 payload。
+        """
+        task = self.transition(task_id, TaskState.FAILED, reason=str(error)[:400])
         with self._connect() as conn:
             conn.execute("UPDATE runs SET error_message = ? WHERE id = ?", (str(error)[:1000], task_id))
-        self.add_event(task_id, "task.failed", {"error": str(error)[:400]})
         return self.get_task(task_id) or task
 
     def update_usage(self, task_id: str, **fields: int | float | None) -> None:
@@ -1397,14 +1427,29 @@ class TaskManager:
     # ---------- 事件 ----------
 
     def add_event(self, task_id: str, event_type: str, payload: dict | None = None) -> TaskEvent:
-        # P0-4：用 `_retrying_write`。add_event 是并发下最频繁的写点（WAL 降级的
-        # 触发面），单语句 + 固定 payload，重放天然幂等。
+        # P0-4 用 `_retrying_write`（add_event 是并发下最频繁的写点，WAL 降级
+        # 触发面最大）。
+        #
+        # **重放幂等性**（纵深防御）：`_retrying_write` 要求「传入的块必须对同一
+        # 状态可安全重放」，而 INSERT 不满足 —— 重放会再插一行（`task_events`
+        # 只有自增主键、无业务唯一键）。故用 `event_key`（**块外**生成，重放时
+        # 值相同）+ 部分唯一索引 + INSERT OR IGNORE 把它压成一条。
+        # 不能改用 (task_id, event_type, created_at) 做唯一键：`created_at`
+        # 精度是**秒级**（utcnow_iso 用 timespec="seconds"），同一秒内的合法重复
+        # 事件（两次 task.running）会被误去重。
+        #
+        # **另**：状态流转事件（task.<state>）由 `transition` 在同事务里权威写入，
+        # 调用方**不得**再add_event 一次同名事件，否则同一次失败会落库两条。
         event = TaskEvent(task_id=task_id, event_type=event_type, payload=payload or {})
+        event_key = uuid.uuid4().hex
+        payload_json = json.dumps(event.payload, ensure_ascii=False)
 
         def _block(conn: sqlite3.Connection) -> None:
             conn.execute(
-                "INSERT INTO task_events (task_id, event_type, payload_json, created_at) VALUES (?,?,?,?)",
-                (task_id, event_type, json.dumps(event.payload, ensure_ascii=False), event.created_at),
+                "INSERT OR IGNORE INTO task_events "
+                "(task_id, event_type, payload_json, created_at, event_key) "
+                "VALUES (?,?,?,?,?)",
+                (task_id, event_type, payload_json, event.created_at, event_key),
             )
 
         self._retrying_write(_block)

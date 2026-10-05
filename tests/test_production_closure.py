@@ -333,8 +333,10 @@ class CancelDeliveryTests(unittest.TestCase):
         self.assertEqual(state.state, TaskState.FAILED)
         evs = [e.event_type for e in runtime.tasks.list_events(run.id)]
         # 计数断言：真故障不得产生任何 cancelled 痕迹。
-        # 注意：``task.failed`` 的重复写入是 HEAD 既有问题（与本修复无关，
-        # 已用 HEAD/修复后逐事件对比确认一致），此处不断言其计数。
+        #注意：``task.failed`` 的重复写入**已于 2026-10-05 修掉**
+        # （真因是 mark_failure 与 transition 双写同一条事件，不是重试；
+        #  见 tests/test_task_no_double_write.py）。此处只关心cancelled 痕迹，
+        # task.failed 的计数由那个文件专门锁。
         self.assertEqual(evs.count("task.cancelled"), 0)
         self.assertNotIn("task.completed", evs)
 
