@@ -225,6 +225,41 @@
   `Accept: application/octet-stream`。已装于
   `C:\Users\Administrator\actionlint\actionlint.exe`。
 
+### 2.8 Windows 路径与编码（本项目最大的跨平台隐性bug 源）
+- **⚠️ 路径落根必须「对称规范化」**：凡 `X.relative_to(Y)`，`X` 与 `Y`
+  **都要 `.resolve()`**。只做一侧 ⇒ Windows 上可能指向同一目录却**字符串不等**
+  ⇒ `ValueError` ⇒ 把「明明在根下」误判成越界。
+  两个方向都真实发生过：`target.resolve().relative_to(root)`（root 未规范化，
+  `tools.py`/`rag.py`）与 `target.relative_to(root.resolve())`。
+- **8.3 短名是主要触发条件**：GitHub runner 的 `tempfile.gettempdir()` 返回
+  `C:\Users\RUNNER~1\...`（**短名**），`target.resolve()` 展开成长名
+  `C:\Users\runneradmin\...` ⇒ 不等。**本地 tempdir 目录本身没有短名**
+  （短名只在其下的新建子目录）⇒ **本地全绿不是证据**。
+  护栏：`tests/test_path_normalization_symmetry.py`（用 `GetShortPathNameW`
+  真造短名根后跑那6 个文件），已挂 `CHANGE_TEST_MAP`。
+- **同一对路径在不同函数里必须得出相同结论**：`project_edit.py` 里
+  `_validate_target` 两边都 resolve（判「在根下」通过）、
+  `_rel_display` 只 resolve 一边（显示绝对路径）⇒ **写入成功但输出是绝对路径**。
+  改这类代码时**成对核查**。
+- **修路径显示/输出时必须保住输出格式**：`relative_to(...).as_posix()` 产出的是
+  给用户看的相对路径，改成绝对路径会让断言红、输出也没意义。
+  （agent 实测确认 `已写入 demo/utils/math.py` 未变。）
+- **子进程 stdout 编码**：`print` 中文在 `PYTHONIOENCODING=cp1252` 下抛
+  `UnicodeEncodeError` ⇒ 父脚本判「构建失败」。修法是**入口重配
+  `sys.stdout/stderr` 为 utf-8 + `errors="replace"`**（覆盖所有输出点，
+  含解释器自己写的 traceback），不是给每处 print 糊 try/except。
+  用 `getattr(stream, "reconfigure", None)` 守卫，pytest 捕获下的 StringIO 没有该方法。
+  **父子两侧都要改**：子进程改 UTF-8 后，父进程 `subprocess.run(text=True)`
+  会按 locale 解码变乱码 ⇒ 要同步 `encoding="utf-8"`。
+  ⚠️ 非 BMP emoji（`⚠️`）连 cp936 也编码不了，是最易触发的字符。
+- **`ast.parse` 读带 BOM 的文件会抛** `SyntaxError: invalid non-printable
+  character U+FEFF`（`tools.py` 有 BOM）⇒ 判据自身崩掉而不是报出该报的。
+  必须用 `encoding="utf-8-sig"`。
+- **注入实验后必须看到标记，否则「修复前也绿」是假绿**。本日连续三次栽：
+  ① TEMP 指短名 ⇒ mkdtemp 拼出双层路径；② `-p conftest` 找不到模块；
+  ③ 对 **tempdir 本身**取短名（本机无 8.3 缩写）⇒ `[INJECT-NOOP]`
+  ⇒ 那一刻的正确动作是**中止**并说「实验无鉴别力」，不是接受两个 exit=1。
+
 ## 3. 评测方法论
 - n=50 检 ≈±28pp，n=100 ≈±20pp，检 10pp 需 n≈400。任何「提升 X%」必给样本量与 CI。
 - 绝对值判据（「必须为 0」）在随机 harness 上不可满足 → 改「不劣于基线」检验。
@@ -261,14 +296,15 @@
   总时长是否撞 runner 超时、依赖拉取可达性、并发压力用例在共享 runner 的表现。
   **验证入口**：`.github/workflows/ci.yml`（跑法）+ `docs/operations/
   CI_FIRST_RUN_HANDOVER_2026-10-05.md` §2（首跑后必做清单，含归因纪律）。
-- ~~三个 workflow 从未在真实 GitHub runner 上验证~~ **10-05 已跑两次，结论如下**
-  （验证入口：run `37307762085`（`20aa47b`）、run `37309584768`（`f16888d`））：
-  - **第1 次（`f418183`）**：`jobs=0` 秒失败 ⇒ workflow 文件被 GitHub 拒绝执行，
-    真因是**注释里的双花括号字面量**（GitHub 连注释一起求值）。**已修+ 加护栏**。
-  - **第 2 次（`20aa47b`）**：**jobs=4 全部真跑** ⇒ 表达式修复生效；4 片全红在
-    `Run tests`，但**本地用 CI 全部env 跑 shard 0 = 370 passed 全绿** ⇒
-    **CI 与本地仍有未定位差异**。日志/artifact 需登录才能下载，故已让 CI 把
-    失败摘要写进 `$GITHUB_STEP_SUMMARY`（打开 run 页面即可见）。
+- ~~三个 workflow 从未在真实 GitHub runner 上验证~~ **10-05 已跑三次**：
+  - **第 1 次（`f418183`）**：`jobs=0` 秒失败 ⇒ workflow 被拒绝执行，真因是
+    **注释里的双花括号字面量**（GitHub 连注释一起求值）。**已修 + 加护栏**。
+  - **第 2 次（`20aa47b`）**：`jobs=4` 全部真跑 ⇒ 表达式修复生效；4 片全红，
+    本地全绿。**已让 CI 把失败摘要写进 `$GITHUB_STEP_SUMMARY`**（免登录可见）。
+  - **第 3 次（`f16888d`）**：拿到日志 ⇒ **真因是 8.3 短名导致的路径规范化
+    不对称**（14 条红）+ **cp1252 编码**（1 条）。**已全部修 + 加护栏
+    `tests/test_path_normalization_symmetry.py`**，中和实验 14 failed → 61 passed。
+  - **待办：尚未重跑验证**（run `37309584768` 之后的修复还没push 过）。
   - `guard-consistency.yml` 只在 PR 触发、`nightly.yml` 是 cron ⇒ push 本就不跑。
 - ~~跨会话遗留三条~~ **10-05 已全部撤销：记忆过期，实际早已修完**。逐条实测：
   ① `provider_internal_error` 的「详情见运行记录」不再为空话 ——

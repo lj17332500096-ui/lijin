@@ -168,6 +168,21 @@ def _resolve_under_root(path_str: str) -> Path | None:
 
     路径解析根是运行期边界：严格 Project（绑 WorkLocation）时落在 wl 内的路径
     以 WorkLocation 为根；其余语境（legacy 个人会话 / 非 wl 路径）仍是 WORKSPACE_ROOT。
+
+    ⚠️ **root 与 target 必须做对称的规范化**（10-05 CI 首跑实据）。
+    本函数对 `target` 做了 `.resolve()`，但对 `root` 没有 —— 两者在
+    Windows 上可能指向同一个目录却**字符串不等**，于是 `relative_to` 抛
+    ValueError，把「明明在根下」的路径误判成越界。
+
+    真实触发条件是 **8.3 短名**：GitHub runner 上 `tempfile.gettempdir()` 返回
+    `C:\\Users\\RUNNER~1\\...`（短名），`mkdtemp` 在其下建目录；测试把该路径
+    设为 `WORKSPACE_ROOT`。而 `target.resolve()` 会把短名**展开成长名**
+    （`C:\\Users\\runneradmin\\...`）⇒ `target.relative_to(root)` 失败 ⇒
+    报「只能读取工作区内的文件」。本地不复发是因为本地 tempdir 下的短名
+    与长名恰好一致（实测 `RESOLV~1` ↔ `resolve_exp_18wb1tbg`）。
+
+    修法：**两边都 `resolve()`**。这不是「为测试特殊化」—— 任何用户把
+    WORKSPACE_ROOT 配成短名/带 symlink/junction 的路径都会撞上同一问题。
     """
     root = WORKSPACE_ROOT
     target = Path(path_str).expanduser()
@@ -175,7 +190,13 @@ def _resolve_under_root(path_str: str) -> Path | None:
         target = root / target
     else:
         root = _active_read_root_for(target)
+    # 两边对称规范化：必须都在resolve 之后才比较，否则短名/长名不一致 ⇒ 误判越界
     target = target.resolve()
+    try:
+        root = Path(root).resolve()
+    except OSError:
+        # 根不可解析（如网络路径离线）时保持原样，让下面的 relative_to 决定
+        pass
     try:
         target.relative_to(root)
     except ValueError:

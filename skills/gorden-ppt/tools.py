@@ -152,8 +152,11 @@ def _build_pptx(template: Path, detail: Path | None, edits_json: str,
             cmd += ["--detail", str(detail)]
         if strict:
             cmd.append("--strict")
-        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=300,
-                              cwd=str(SKILL_DIR))
+        # build_pptx.py 入口已把自身 stdout/stderr 重配为 UTF-8，因此这里必须
+        # 显式按 UTF-8 解码：text=True 默认用系统 locale 编码，在中文 Windows /
+        # GitHub Actions runner 上是 cp1252，会把子进程的 UTF-8 中文输出解成乱码。
+        proc = subprocess.run(cmd, capture_output=True, encoding="utf-8",
+                              errors="replace", timeout=300, cwd=str(SKILL_DIR))
         tail = (proc.stdout or "")[-1800:] + (proc.stderr or "")[-600:]
         if proc.returncode != 0 or not output.is_file():
             return (f"构建失败（exit={proc.returncode}）：\n{tail.strip() or '无输出'}"

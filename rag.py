@@ -680,6 +680,17 @@ def _resolve_root(directory: str) -> Path:
         except Exception:
             root = WORKSPACE_ROOT
     target = target.resolve()
+    # ⚠️ root 与 target 必须**对称规范化**（同 tools.py::_resolve_under_root）。
+    # 真实触发条件是 Windows 8.3 短名：GitHub runner 上 `tempfile.gettempdir()`
+    # 返回 `C:\Users\RUNNER~1\...`，测试把该路径赋给模块级 WORKSPACE_ROOT；
+    # 而 `target.resolve()` 会把短名展开成长名 ⇒ 两侧字符串不等 ⇒ relative_to
+    # 抛 ValueError ⇒ 把「明明在根下」的目录误判成越界（CI 上表现为工具被吞成
+    # 'An error occurred while running the tool.'）。根不可解析时保持原样，
+    # 交给下面的 relative_to 决定。
+    try:
+        root = Path(root).resolve()
+    except OSError:
+        pass
     try:
         target.relative_to(root)
     except ValueError:

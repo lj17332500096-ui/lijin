@@ -402,7 +402,18 @@ def write_code_file(project: str, filename: str, content: str) -> str:
     project_dir.mkdir(parents=True, exist_ok=True)
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(content, encoding="utf-8")
-    return f"已写入 {target.relative_to(SANDBOX_ROOT).as_posix()}（{len(content)} 字符）。现在可以 run_python 运行它。"
+    # ⚠️ SANDBOX_ROOT 与 target 必须**对称规范化**（同 rag.py::_resolve_root）。
+    # `target` 来自 _file_target()，已被 .resolve() 成绝对长名；而 SANDBOX_ROOT
+    # 是模块级 WORKSPACE_ROOT / "code_sandbox"，测试里被赋成短名 tmp 目录且未
+    # resolve。Windows 8.3 短名（GitHub runner 上 tempfile.gettempdir() 返回
+    # `C:\Users\RUNNER~1\...`）会让两侧字符串不等 ⇒ relative_to 抛 ValueError
+    # ⇒ 被 function_tool 吞成 'An error occurred while running the tool.'。
+    # 两边都 resolve 后仍产出**相对路径**（形如 a/a.py），测试断言依赖这一点。
+    try:
+        rel = target.relative_to(Path(SANDBOX_ROOT).resolve()).as_posix()
+    except (ValueError, OSError):
+        rel = target.name  # 防御性兜底：非正常路径，不让整条写入崩掉
+    return f"已写入 {rel}（{len(content)} 字符）。现在可以 run_python 运行它。"
 
 
 @function_tool

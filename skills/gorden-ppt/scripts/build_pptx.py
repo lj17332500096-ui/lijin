@@ -311,7 +311,41 @@ def run(args) -> int:
     return 0
 
 
+def force_utf8_stdio() -> None:
+    """把 stdout/stderr 统一重配为 UTF-8，避免在非 UTF-8 环境下打印中文崩溃。
+
+    Windows 控制台 / GitHub Actions runner 的 ``sys.stdout.encoding`` 默认是
+    cp1252（ANSI 代码页），无法编码中文。本脚本大量输出中文提示（每条 edit 的
+    OK/WARN 行、溢出提示、结尾省略号告警），一旦触发 UnicodeEncodeError 就会
+    让整个构建以 exit=1 失败，调用方（``tools.py::_build_pptx``）只能报"构建失败"。
+
+    在入口统一重配一次，好过给每处 print 包 try/except：
+      - 覆盖所有 print（含 stderr 与解释器自身的 traceback），无需逐处维护；
+      - 不改变任何业务逻辑，纯粹是 I/O 层的编码兜底。
+
+    守卫说明：
+      - 仅在当前编码不是 UTF-8 时才动手，避免无谓地重置已经是 UTF-8 的流；
+      - 用 hasattr 检查 ``reconfigure``，因为脚本也可能被以被捕获/替换的流导入
+        （如 pytest 捕获、StringIO），此时不应替换别人的流对象；
+      - ``errors="replace"`` 作为最后兜底：即使重配后仍遇到无法编码的字符，
+        也只是显示为替换符，而不是抛异常把整次构建带崩。
+    """
+    for name in ("stdout", "stderr"):
+        stream = getattr(sys, name, None)
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        encoding = (getattr(stream, "encoding", "") or "").lower().replace("-", "")
+        if encoding.startswith("utf"):
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (ValueError, OSError):  # pragma: no cover - 取决于宿主环境
+            pass
+
+
 def main() -> int:
+    force_utf8_stdio()
     ap = argparse.ArgumentParser()
     ap.add_argument("template", type=Path)
     ap.add_argument("edits", type=Path)

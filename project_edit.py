@@ -143,13 +143,25 @@ def _rel_display(target: Path) -> str:
 
     Phase 33 修复：绑定 WorkLocation（写入根 ≠ BASE_DIR）时，
     target.relative_to(BASE_DIR) 会抛 ValueError 导致写入工具崩溃。
+
+    ⚠️ **两个根都必须 `resolve()`**（10-05 CI 首跑实据）。
+    与本文件 `_validate_target`（:80-83）**保持一致** —— 那里的校验是
+    `target.resolve().relative_to(root.resolve())`（两边都规范化），
+    所以判定「在根下」通过；但这里原来直接用未规范化的 `target` / `BASE_DIR`
+    去`relative_to`，**同一对路径在两个函数里结论相反**。
+
+    CI 上的实际表现：`tests/test_project_edit.py` 断言 diff 头是 `a/a.py`，
+    实际拿到 `a/C:/Users/runneradmin/AppData/Local/Temp/proj_edit_t_xxx/a.py`
+    —— 临时目录在 C 盘、BASE_DIR 在 D 盘，**跨盘符 `relative_to` 必抛
+    ValueError**，于是落进最后的 `as_posix()` 绝对路径回退。
+    本地不复现是因为本地临时目录恰好与项目同在 F 盘。
     """
     try:
-        return target.relative_to(_active_write_root()).as_posix()
-    except ValueError:
+        return target.resolve().relative_to(_active_write_root().resolve()).as_posix()
+    except (ValueError, OSError):
         try:
-            return target.relative_to(BASE_DIR).as_posix()
-        except ValueError:
+            return target.resolve().relative_to(BASE_DIR.resolve()).as_posix()
+        except (ValueError, OSError):
             return target.as_posix()
 
 

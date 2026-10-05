@@ -93,6 +93,17 @@ CHANGE_TEST_MAP: list[tuple[tuple[str, ...], list[str]]] = [
     ((".github/workflows/ci.yml",),
      ["tests/test_ci_workflow_expr_syntax.py",
       "tests/test_ci_workflow_shell_syntax.py"]),
+    # 路径落根的四个模块：改它们要跑「8.3 短名 root」下的对称性检查。
+    # 理由（10-05 首次 push 到 GitHub 的实据）：这四处都做过
+    # `X.relative_to(Y)` 判定，而**只对一侧做了 `.resolve()`**。
+    # 本地 tempdir 目录没有 8.3 短名 ⇒ 本地 1576 全绿；
+    # GitHub runner 的 tempdir 是 `C:\Users\RUNNER~1\...`（短名）⇒
+    # target.resolve() 展开成长名后 relative_to 失败 ⇒ **14 条测试变红**
+    # （test_office_docs 2 / test_dep_doctor 4 / test_trust 1 /
+    #  test_rag 5 / test_code_exec 1 + project_edit 的 diff 变绝对路径）。
+    #「本地全绿」在这里不是证据。
+    (("tools.py", "rag.py", "code_exec.py", "project_edit.py"),
+     ["tests/test_path_normalization_symmetry.py"]),
 ]
 
 VENV_PY = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
