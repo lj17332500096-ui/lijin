@@ -29,6 +29,24 @@ def default_model() -> str:
 # 该网关（apihub.agnes-ai.cn）对 reasoning_effort 的语义与 OpenAI 标准错位
 # （n=5 去噪：minimal 最浅 / low 最深 / medium / high 次之），coding 想深推理
 # 须选 low 而非 high。默认 off，显式 FORGE_REASONING_EFFORT=on 才注入。
+#
+# ## ⚠️ 本段违反 AGENTS.md 分工宪法，且**不要顺手打开**
+#
+# 下面是**关键词表做语义判断**（"出现 `bug`/`python` 就当编码任务"），正是
+# 分工宪法明令禁止的形态：语义识别/匹配必须交给 LLM，确定性规则只许用于
+# 结构与格式校验。
+#
+# 它默认 off、且 `.env`/`.env.example` 都没有配这个键，生产不受影响。
+# **实测的误命中率很高**（2026-10-05）：
+#     "介绍一下 Python 的历史"    -> low（应为medium，概念提问）
+#     "这个 bug 是什么意思"         -> low（应为 medium，只是问概念）
+#     "Debian bug 是什么"          -> low（应为 medium，与编码无关）
+# 关键词表无法区分「要写代码」与「问一个含该词的概念问题」。
+#
+# **正确做法**：真需要场景感知档位时，让 LLM 在规划时输出意图标签
+# （与 `docs/architecture/P1_7_TASK_PLAN_BOUNDARY_20261004.md` 里
+# task_plan 降级为 hints 的思路一致 —— 降级为提示，而不是在决策层重建规则）。
+# 在那之前，保持关闭。
 _CODING_SCENE_MARKERS = (
     "def ", "class ", "import ", "#include", "function ", "async ",
     "bug", "修复", "实现", "代码", "代码块", "单元测试", "集成测试",

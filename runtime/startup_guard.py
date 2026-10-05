@@ -31,7 +31,6 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from runtime.approval import GATED_DEFAULT
 from runtime.errors import StartupGuardBlocked
 from runtime.structured_log import slog
 
@@ -70,8 +69,23 @@ def _is_truthy(value: str) -> bool:
 
 
 def _side_effect_tools() -> list[str]:
-    """当前会被审批门管住、且具备真实副作用的工具名（排序保证可复现）。"""
-    return sorted(GATED_DEFAULT)
+    """当前**实际生效**的受管副作用工具名（排序保证可复现）。
+
+    必须复用 `ApprovalGate.gated_names` 这个权威实现，**不能**直接读
+    `GATED_DEFAULT`：后者只是静态派生（工具目录的 side_effect 元数据），
+    而 MCP / 技能类工具是在**运行期**经 `register_gated_names` 登记进
+    `_EXTRA_GATED` 的（`integrations/mcp_bridge.py:362`，
+    `policy == "approval"` 的 MCP 工具走这条），env 覆盖
+    （`APPROVAL_GATED_TOOLS=all` / 前缀）也只有 `gated_names` 才认。
+
+    阻断能力本来就不受影响（`should_gate` 读的是 `gated_names`），旧写法坏的是
+    **审计口径**：事件里的 `side_effect_tool_count` / `side_effect_tools`
+    会漏报运行期登记的高风险工具，让「护栏关闭时到底有多少工具失去保护」
+    这一关键信息失真。同一事实两处实现必然漂移 —— 这里收敛到单一来源。
+    """
+    from runtime.approval import ApprovalGate
+
+    return sorted(ApprovalGate(None).gated_names)  # type: ignore[arg-type]
 
 
 class GuardVerdict:
