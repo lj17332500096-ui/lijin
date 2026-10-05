@@ -358,29 +358,28 @@
   总时长是否撞 runner 超时、依赖拉取可达性、并发压力用例在共享 runner 的表现。
   **验证入口**：`.github/workflows/ci.yml`（跑法）+ `docs/operations/
   CI_FIRST_RUN_HANDOVER_2026-10-05.md` §2（首跑后必做清单，含归因纪律）。
-- ~~三个 workflow 从未在真实 GitHub runner 上验证~~ **10-05 已跑 5 次，正在第 6 次**：
+- ~~三个 workflow 从未在真实 GitHub runner 上验证~~
+  **10-05 已跑 9 次；`ci.yml` 首次全绿 = run `37354853191`（`c2ce000`），
+  随后 `bda43cc` / `041890a` 连续绿。** 历程与各次真因：
   - **第 1 次（`f418183`）**：`jobs=0` 秒失败 ⇒ workflow 被拒绝执行，真因是
     **注释里的双花括号字面量**（GitHub 连注释一起求值）。**已修 + 加护栏**。
-  - **第 2 次（`20aa47b`）**：`jobs=4` 全部真跑 ⇒ 表达式修复生效；4 片全红，
-    本地全绿。**已让 CI 把失败摘要写进 `$GITHUB_STEP_SUMMARY`**（免登录可见）。
-  - **第 3 次（`f16888d`）**：拿到日志 ⇒ **真因是 8.3 短名导致的路径规范化
-    不对称**（14 条红）+ **cp1252 编码**（1 条）。**已全部修 + 加护栏
-    `tests/test_path_normalization_symmetry.py`**，中和实验 14 failed → 61 passed。
-  - **第 4 次（`1c5a516`）**：shard 1/2/3 全绿，shard 0 剩 1 条 ⇒
+  - **第 2 次（`20aa47b`）**：`jobs=4` 全部真跑 ⇒ 表达式修复生效；4 片全红。
+    **已让 CI 把失败摘要写进 `$GITHUB_STEP_SUMMARY`**。
+  - **第 3 次（`f16888d`）**：拿到日志 ⇒ **8.3 短名导致路径规范化不对称**
+    （14 条红）+ **cp1252 编码**（1 条）。中和实验 14 failed → 61 passed。
+  - **第 4 次（`1c5a516`）**：shard 1/2/3 绿，shard 0 剩 1 条 ⇒
     `TRUSTED_PROJECT_PATH_RE` 字符白名单**不含 `~`**（`RUNNER~1`）⇒ 已修（§2.8）。
-  - **第 5 次（`ce2c6e9`）**：4 条红、**失败分片两轮间完全反转**（起初误判 flaky）。
-    两个真根因：① 我的护栏硬编码 `.venv` ⇒ CI 上 `WinError 2`（§2.8 portability 雷）；
-    ② **FTS5 对中文恒失效**（§2.9），被本地 ONNX 向量掩盖，CI 无向量才暴露。
-    **已修 + 加护栏 `test_cjk_retrieval_without_vectors.py`**（中和 4 failed ✅）。
-  - **第 6 次（`cf32e88`）**：验证上述修复。**仍未定位**：
-    `test_rag.py::KeywordSearchTests::test_outside_workspace_rejected` 在 CI 上返回
-    **无 detail** 的 `An error occurred while running the tool.`（本地普通/短名
-    tempdir 均复现不出，短名下实测是**带 detail** 的）⇒ 与「本地复现不出」类
-    问题同族，需 CI 日志才能定。**匿名 API 读 logs 是 403**，只能靠
-    `$GITHUB_STEP_SUMMARY`（免登录）或用户贴。
-  - **已知既有失败（非本轮引入，HEAD 对照证实）**：`test_rag` 两条断言与
-    `test_sources_rag` **同进程组合跑**才红（单跑 13 passed）。分片把两个文件
-    分到不同 shard，故 CI 上不同时出现。详见 `2026-10-05.md` §20。
+  - **第 5 次（`ce2c6e9`）**：4 条红。① 我的护栏硬编码 `.venv` ⇒ CI `WinError 2`
+    （§2.8 portability 雷）；② **FTS5 对中文恒失效**（§2.9），被本地向量掩盖。
+  - **第 6 次（`82e9eba`）**：2 条红，**根因是 `requirements.txt`依赖开放上界**
+    ⇒ CI 装到新版 SDK，其错误文案**删掉了 `Error:` 后缀**（§2.9）。已修+ 加护栏。
+  - **第 8 次（`c2ce000`）**：✅ **四片全绿，无异常步骤**。
+  - 已知既有失败（非本轮引入，HEAD 对照证实）：`test_rag` 两条断言与
+    `test_sources_rag` **同进程组合跑**才红（单跑 13 passed）。详见 `2026-10-05.md` §20。
+  - **TUI 负载 flaky 已修**（真因是 `textual` `NoMatches`：**屏 push 成功但子树
+    还在 compose 中**，屏是屏、组件是组件）。全仓 32 处 `pilot.pause(0.x)` 已用
+    **负载压测逐条实测**（4 压测进程 × 6 采样）：13 条**全部6/6 绿** ⇒
+    按「无实据不改」其余 12 处不动。护栏 `tests/test_tui_load_stability.py`。
   - `guard-consistency.yml` 只在 PR 触发、`nightly.yml` 是 cron ⇒ push 本就不跑。
 - ~~跨会话遗留三条~~ **10-05 已全部撤销：记忆过期，实际早已修完**。逐条实测：
   ① `provider_internal_error` 的「详情见运行记录」不再为空话 ——

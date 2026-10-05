@@ -174,6 +174,13 @@ jobs:
             git rm -rf . --quiet 2>$null
           }
           git add $file
+          # 只保留**最近 8 个**诊断文件：长期失败的项目每次 CI 都留一份会
+          # 无限累积（每次失败最多 4 个文件）。留 8 个≈两轮失败的量，
+          # 足够回查「这个问题持续多久了」，又不会把分支撑成垃圾场。
+          $stale = @(git ls-files "ci-diag/*.md" | Sort-Object | Select-Object -First -Skip 8)
+          if ($stale.Count -gt 0) {
+            git rm --quiet -- $stale
+          }
           git commit -m "diag: shard $shard failure (run $env:GITHUB_RUN_ID)"
           # 并发下 force push 后到先到：每个 shard 带不同文件名，
           # 丢掉的那次 push 只影响本次运行的某个文件，重新 push 即可补回。
