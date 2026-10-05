@@ -17,10 +17,18 @@ MEMORY.md §6 曾记着「跨会话遗留三条」待修，但逐条实测发现
 若条目已被修复却没划掉 ⇒ 这里报红。
 
 **判据设计**（按项目铁律「判据要对缺陷敏感」）：
-- 不 grep 记忆文本里的措辞（那只会锁住字面量，不证明代码状态）
+- 不 grep 记忆文本里的措辞来判「有没有问题」（那只会锁住字面量）
 - 而是对每个待查条目跑**真实的取证命令**（git 追溯 / 跑它的回归测试），
-  把「已修」这个事实变成可复现的判定
-- 条目在 MEMORY.md 里被划掉（`~~...~~` 或移出待办区）后，对应检查自动放行
+  把「已修」/「没修」这个事实变成可复现的判定
+- 条目在 MEMORY.md 里被划掉（`~~...~~` 或撤销措辞）后，对应检查自动放行
+- 唯一还用措辞的地方是「**它是否声称自己无源**」—— 那是判「撤销理由」，
+  不是判「状态」；状态永远来自外部取证
+
+**两条镜像判据**（缺一不可，方向不可反）：
+- `stale`：条目说「待修」，取证说「已修」⇒ 该划掉却没划 ⇒ 报红
+- `contradictions`：条目说「无源 ⇒ 已撤销」，取证说「还没修」⇒ 被掩埋 ⇒ 报红
+
+反向组合（「无源撤销」+「确实已修」）**不是矛盾**，那是正确的纠错记录，不得报错。
 """
 
 from __future__ import annotations
@@ -70,6 +78,24 @@ PROBES: list[tuple[str, str, str, str, tuple[str, ...]]] = [
         "llama_bridge.py",
         ("已全部撤销", "全部撤销"),
     ),
+    (
+        # 这条曾被我判为「无源 flaky」而撤销，**当天下午就在全量下红了**
+        # （负载下 6 次 3 红）。已修（`test_tui_artifacts.py:99` 改轮询）。
+        # 留在此表是为了：**若有人再把它标成"无源/已撤销"，这里会报红**。
+        #
+        # ⚠️ `retire_marks` 这里**故意不含「无源」**：它是全文裸子串匹配，
+        # 而「无源」在铁律正文里出现 3 次（L77/L95 等）⇒ 加上它会让
+        # `_entry_is_retired` 对本条**恒为 True**，判据与条目内容脱钩（恒真=永不鉴别）。
+        # 中和实验实测：仅用 mark='无源' 即得 retired=True（全文含该 mark）。
+        # 「无源」不是撤销**标记**，它是撤销**理由** —— 两者不可混用。
+        # 撤销标记只取完成态措辞（已撤销/已修/不成立/过期），理由交给
+        # `_claims_unsourced` 的句式判据去管。
+        "test_tui_artifacts",
+        "test",
+        "tests/test_tui_artifacts.py",
+        "tests/test_tui_artifacts.py",
+        ("已撤销", "已修", "不成立"),
+    ),
 ]
 
 
@@ -79,26 +105,91 @@ def _memory_text() -> str:
     return MEMORY.read_text(encoding="utf-8", errors="replace")
 
 
+_RETIRE_WORDS = ("已撤销", "已修", "过期", "实测不成立", "不成立")
+
+
 def _entry_is_retired(text: str, keyword: str, retire_marks: tuple[str, ...]) -> bool:
-    """条目是否已在记忆里被明确划掉/ 移出待办。
+    """条目是否已在记忆里被明确划掉 / 移出待办。
 
     判定三种形式：
     1. 含 `~~keyword~~`（Markdown 删除线）
-    2. 所在行附近出现「已撤销 / 已修 / 实测不成立 / 过期」等撤销措辞
+    2. **keyword 所在行或其紧邻行**出现「已撤销 / 已修 / 过期 / 实测不成立 / 不成立」
     3. 出现 `retire_marks` 里的**合并撤销标记**（如「已全部撤销」）
-       —— 供「多条并成一条撤销」的场景使用，见PROBES 的说明
+       —— 供「多条并成一条撤销」的场景使用，见 PROBES 的说明
+
+    **第2 条为什么必须限定「同一行或紧邻行」**（中和实验实测的恒真缺陷）：
+    初版是「只要全文**任意一行**含 keyword，且**任意一行**含撤销措辞 ⇒ retired」。
+    这两件事完全解耦 —— 实测 `test_tui_artifacts` 在 MEMORY.md 里出现 4 次，
+    其中 L91/L96 行自带「已修」「撤销」等词，于是无论该条目内容如何变，
+    retired 恒为 True，判据与被测状态脱钩。
+    **恒真的判据不是「宽松」，是「无鉴别力」** —— 它永远绿，也永远抓不到东西。
+    与 MEMORY.md §2.1「白名单断言在新增项时天然失效」同源：判据一旦与
+    被测对象解耦，就退化成恒真。
     """
-    for line in text.splitlines():
+    lines = text.splitlines()
+    for i, line in enumerate(lines):
         if keyword not in line:
             continue
-        if f"~~" in line and keyword in line.split("~~")[0] + "".join(
-            line.split("~~")[1::2]
-        ):
+        # 1. 删除线
+        if "~~" in line:
             return True
-        if any(w in line for w in ("已撤销", "已修", "过期", "实测不成立", "不成立")):
+        # 2. 撤销措辞：同行，或上/下一行（撤销理由常写在续行）
+        lo, hi = max(0, i - 1), min(len(lines), i + 2)
+        window = "\n".join(lines[lo:hi])
+        if any(w in window for w in _RETIRE_WORDS):
             return True
-    # 合并撤销标记可在别的行（本条的标题行写「已全部撤销：三条分别是…」）
+    # 3. 合并撤销标记可在别的行（本条的标题行写「已全部撤销：三条分别是…」）
     return any(mark in text for mark in retire_marks)
+
+
+#: 声称「这条结论没有来源」的**句式**（不是单个词）。
+#:
+#: 为什么必须用句式而非关键词「无源」二字：记忆里「曾把 X 当无源撤销」这类
+#: 叙述出现在**铁律正文**里（§2.1 那条铁律本身就在讲这个案例），
+#: 只看「有无源二字」会把铁律正文当成条目断言（中和实测：4 条误报）。
+#:
+#: 精确判据 = **该条目附近既说「无源」又说「已撤销/已划掉」**，
+#: 即「这条被判定为无源而撤销」这个**完整断言**，而非铁律里的泛泛表述。
+_UNSOURCED_PATTERNS = (
+    re.compile(r"无源.{0,20}(已撤销|撤销了|已划掉)"),
+    re.compile(r"(已撤销|撤销了).{0,20}无源"),
+    re.compile(r"无源\s*flaky"),
+    re.compile(r"flaky.{0,10}无源"),
+)
+
+
+def _context_blocks(text: str, keyword: str, before: int = 2, after: int = 2) -> list[str]:
+    """keyword 出现的**每一个**位置附近的上下文块（按块，不按单行）。
+
+    **为什么必须遍历全部出现处而不是只看第一处**（中和实验实测的漏检）：
+    keyword `test_tui_artifacts` 在 MEMORY.md 里出现 4 次，前3 次都在**铁律正文
+    的举例**里（L78 讲「从未有源 ⇒ 撤销」、L91 讲「撤销前先问取样负载」、
+    L100 讲「pytest 报出的用例名 ≠ 根因」），真正的条目状态在 L96。
+    初版只取首处⇒ 判据读的是铁律举例、**永远读不到条目本身**：
+    把 L96 改写成矛盾的「无源 flaky 记录已撤销」后，判据仍返回 `False`。
+
+    两个同源的教训：
+    - 与本文件 `test_pending_items_cite_evidence` 的「按块判定」同源
+    - 与 MEMORY.md §2.1「可达性要按**调用点**判、不能按函数名判」同源
+      （同一函数被调多次时，只看第一次会漏掉其余调用点上的真实状态）
+    """
+    lines = text.splitlines()
+    blocks: list[str] = []
+    for i, line in enumerate(lines):
+        if keyword not in line:
+            continue
+        lo, hi = max(0, i - before), min(len(lines), i + after + 1)
+        blocks.append("\n".join(lines[lo:hi]))
+    return blocks
+
+
+def _claims_unsourced(text: str, keyword: str) -> bool:
+    """条目是否**断言**「这个问题没有来源」（按句式判定，不受铁律正文干扰）。"""
+    return any(
+        p.search(block)
+        for block in _context_blocks(text, keyword)
+        for p in _UNSOURCED_PATTERNS
+    )
 
 
 def _probe_commit(anchor: str, path: str) -> tuple[bool, str]:
@@ -166,13 +257,15 @@ class RetiredMemoryProbeTests(unittest.TestCase):
 
         stale: list[str] = []
         unknown: list[str] = []
+        contradictions: list[str] = []
         for keyword, kind, arg, scope, marks in PROBES:
             if keyword not in text:
                 # 条目已从记忆里移除 ⇒ 本次不检查（不视为失败）
                 continue
-            if _entry_is_retired(text, keyword, marks):
-                continue  # 已在记忆里明确划掉 ⇒ 符合预期
 
+            # 先跑取证 —— **不论条目标注了什么状态**。
+            # 理由：判据不能靠「记忆里写了已修」就放行，那等于让记忆自己给自己
+            # 背书；取证是外部事实（git 历史 / 实际跑测试），记忆说了不算。
             if kind == "commit":
                 ok, detail = _probe_commit(arg, scope)
             elif kind == "test":
@@ -180,7 +273,33 @@ class RetiredMemoryProbeTests(unittest.TestCase):
             else:
                 ok, detail = False, "人工核实项，未自动化"
 
+            retired = _entry_is_retired(text, keyword, marks)
             label = f"{keyword}（{arg}@{scope}）"
+
+            if retired:
+                # 条目已划掉。只在一种情况下该报红：
+                #
+                # **条目声称「无源所以撤销了」，而取证说它【还没修】。**
+                #
+                # ⚠️ 判据方向曾写反过一次，这里记录原因（这是「测通过 ≠ 有鉴别力」
+                # 的又一实例，且比「注入没生效」更隐蔽 —— 它**确实有鉴别力**，
+                # 只是鉴别的是**错的方向**）：
+                # 初版判据是 `ok and _claims_unsourced`，即
+                # 「取证说已修 + 记忆说无源 ⇒ 矛盾」。但这个组合**不是矛盾**：
+                # 「我曾把它当无源撤销、后来证明是真问题并修好了」是**正确且有价值**
+                # 的记忆（MEMORY.md §2.1 L90-97 记的正是这件事），按初版反而会被
+                # 当成自相矛盾报错 —— **判据会把正确的记忆判成错的**。
+                #
+                # 真正该抓的反面是：说「无源、已撤销、不用管了」，实际却还坏着
+                # ⇒ 下个会话读到「已撤销」就跳过，一个真问题被永久掩埋。
+                # 这与 `stale` 分支（已修却没划掉）是**一对镜像**：
+                # 一个抓「该修的被记成不用修」，一个抓「该记的没记」。
+                if (not ok) and "暂不判红" not in detail and _claims_unsourced(text, keyword):
+                    contradictions.append(
+                        f"{label}: 条目声称「无源 ⇒ 已撤销」，但取证显示**尚未修复** —— "
+                        f"{detail}。真问题被「无源」掩埋，下个会话会跳过它。"
+                    )
+                continue
             if "暂不判红" in detail:
                 unknown.append(f"{label}: {detail}")
             elif ok:
@@ -191,6 +310,12 @@ class RetiredMemoryProbeTests(unittest.TestCase):
             stale, [],
             "MEMORY.md 里的「已知遗留」已被修复但未划掉 —— 下一个会话会去"
             "\"修\"一个已修好的东西：\n  " + "\n  ".join(stale),
+        )
+        self.assertEqual(
+            contradictions, [],
+            "MEMORY.md 把条目标为「无源 ⇒ 已撤销」，但取证显示它**还没修** —— "
+            "真问题被「无源」掩埋，下个会话读到「已撤销」就会跳过它：\n  "
+            + "\n  ".join(contradictions),
         )
         if unknown:
             print(f"[提示] {len(unknown)} 条无法自动判定，需人工核实：")

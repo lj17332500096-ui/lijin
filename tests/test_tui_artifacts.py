@@ -106,10 +106,29 @@ class ArtifactClickInteractionTests(unittest.TestCase):
                 app._chat_app = chat
                 async with app.run_test(size=(110, 32)) as pilot:
                     app._handle_command("/artifacts")
-                    await pilot.pause(0.1)
-                    items = [item for item in app.query_one(TuiPanels).msglog._items
-                             if isinstance(item, ArtifactItem)]
-                    assert len(items) == 1
+                    # **`pilot.pause(0.1)` 在负载下不够**（2026-10-05 实测，
+                    # 3 个并发压测进程在跑时 6 次里 3 次红，单跑/低负载必绿）。
+                    # 失败形态是 `assert 0 == 1`（items 为空）—— 命令还没
+                    # 被处理完就去查列表。
+                    #
+                    # 为什么不能只加大 0.1：那是把「概率红」变成「概率红但慢」，
+                    # 机器一慢又挂。正确做法是**等到条件成立**。
+                    # `pilot.pause()` 无参走 `wait_for_idle(0)`（确定性），但它等的是
+                    # 「app 当前空闲」，对「后台 worker 里的命令尚未完成」无感知 ——
+                    # 实测正是 `pilot.pause()` 后面立刻查 items 仍得到空列表。
+                    # 所以这里显式轮询直到 artifact 出现，上限 5s。
+                    items: list[ArtifactItem] = []
+                    for _ in range(50):          # 50 × 0.1s = 5s 上限
+                        await pilot.pause(0.1)
+                        items = [i for i in app.query_one(TuiPanels).msglog._items
+                                 if isinstance(i, ArtifactItem)]
+                        if items:
+                            break
+                    self.assertEqual(
+                        len(items), 1,
+                        "/artifacts 命令 5s 内没把 artifact 渲染成 action —— "
+                        "若 items 为空说明命令处理未完成（不是渲染缺失）",
+                    )
                     assert items[0].artifact_id == artifact["id"]
 
         asyncio.run(_run())
