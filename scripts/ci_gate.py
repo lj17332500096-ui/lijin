@@ -84,6 +84,15 @@ CHANGE_TEST_MAP: list[tuple[tuple[str, ...], list[str]]] = [
     #（`tests/test_stale_memory_probes.py` 会git 追溯 + 跑回归测试双重取证）
     ((".workbuddy/memory/MEMORY.md",),
      ["tests/test_stale_memory_probes.py"]),
+    # workflow 文件：改它要跑表达式语法 + shell 语法两条校验。
+    # 理由（10-05 首跑实测事故）：`ci.yml` 里有一处**注释**写了双花括号表达式
+    # 的字面量示例，GitHub 连注释一起求值 ⇒ 解析失败 ⇒ **整个文件被拒绝执行**，
+    # 表现为 `completed/failure` 但 **jobs=0**、check-runs=0、耗时同一秒。
+    # 本地 `yaml.safe_load` 完全查不出（YAML 层面合法），`check_workflow_shells.py`
+    # 也查不出（它查的是 shell 语法）。两者互补，都得跑。
+    ((".github/workflows/ci.yml",),
+     ["tests/test_ci_workflow_expr_syntax.py",
+      "tests/test_ci_workflow_shell_syntax.py"]),
 ]
 
 VENV_PY = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"

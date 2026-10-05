@@ -192,6 +192,24 @@
   是保留运算符 → 用 `Get-Content f | python x.py --stdin`。仓库有
   `scripts/check_workflow_shells.py` 按各步骤声明的 shell 实际解析。
 - **shell 校验器不能假设「没写 shell 就是 bash」**（误判过一次；正确反应是修判据非改对代码）。
+- **⚠️ workflow 要过三层校验，三层互补、缺一不可**（10-05 首跑 `jobs=0` 秒失败真因）：
+  ① `yaml.safe_load`（文件结构，**查不出**表达式问题，已实测）
+  ② `check_workflow_shells.py`（**各步骤声明的 shell** 能否解析 `run:` 脚本）
+  ③ **actionlint**（**表达式语法**，含注释里的）。仓库已有
+  `tests/test_ci_workflow_expr_syntax.py`（含 actionlint 调用 + 离线兜底判据）。
+- **⚠️ GitHub 求值表达式时【不区分代码与注释】**。在 `run:` 块或任何 workflow 的
+  注释里写「双花括号表达式」的**字面量示例**，同样被求值 ⇒ 解析失败 ⇒
+  **整个文件被拒绝执行**，表现为 `completed/failure` 但 **jobs=0、check-runs=0、
+  耗时同一秒**。想举例子必须写到**文件外**的文档里。
+  ⚠️ 同一个坑有镜像版：**写判据时也会被注释里的字样满足**
+  （`_EXPECTED_MATRIX_EXPR` 就是为此把匹配限定在表达式内）。
+- **workflow 报0 jobs / 秒失败 ⇒ 先怀疑「文件被拒绝执行」，不是「测试挂」**。
+  诊断顺序：① `actionlint`（含注释）→ ② `jobs` 数（0 ⇒ 文件级问题）
+  → ③ YAML 解析 → ④ 才看步骤日志。
+- **本机拉 actionlint**：`releases/download` 被拦（HTTP 000），走
+  `api.github.com/repos/rhysd/actionlint/releases/assets/<id>` +
+  `Accept: application/octet-stream`。已装于
+  `C:\Users\Administrator\actionlint\actionlint.exe`。
 
 ## 3. 评测方法论
 - n=50 检 ≈±28pp，n=100 ≈±20pp，检 10pp 需 n≈400。任何「提升 X%」必给样本量与 CI。
@@ -229,8 +247,11 @@
   总时长是否撞 runner 超时、依赖拉取可达性、并发压力用例在共享 runner 的表现。
   **验证入口**：`.github/workflows/ci.yml`（跑法）+ `docs/operations/
   CI_FIRST_RUN_HANDOVER_2026-10-05.md` §2（首跑后必做清单，含归因纪律）。
-- **三个 workflow 从未在真实 GitHub runner 上验证**（与上条同源，
-  验证入口同 `CI_FIRST_RUN_HANDOVER_2026-10-05.md` §2）。
+- ~~三个 workflow 从未在真实 GitHub runner 上验证~~ **10-05 已首跑，但被文件级问题挡住**
+  （**待重跑**）：`ci.yml` 在 `f418183` 上 `completed/failure` 但 **jobs=0**，
+  真因是**注释里的双花括号字面量**导致 GitHub 拒绝执行整个文件（详见 §2.7）。
+  修完+ 加了 `tests/test_ci_workflow_expr_syntax.py` 护栏，**尚未重跑**。
+  `guard-consistency.yml` 只在 PR 触发、`nightly.yml` 是 cron ⇒ 本次 push 本就不跑。
 - ~~跨会话遗留三条~~ **10-05 已全部撤销：记忆过期，实际早已修完**。逐条实测：
   ① `provider_internal_error` 的「详情见运行记录」不再为空话 ——
      `95888af` 加了 `_error_fields()`（脱敏后写 `error_type`/`error_message`/`error`

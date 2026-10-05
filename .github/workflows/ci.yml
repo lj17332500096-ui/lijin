@@ -22,12 +22,15 @@ jobs:
       fail-fast: false
       matrix:
         # 刻意用 **0-based** 片号，与 scripts/ci_shard.py 的 --shard-id 语义一致。
-        # 上一版写 matrix.shard: [1,2,3,4] 再在表达式里算 `${{ matrix.shard - 1 }}`，
+        # 上一版写 matrix.shard: [1,2,3,4] 再在表达式里做减一（把片号减 1），
         # 但 GitHub 表达式**没有减法运算符**（官方 operator 表只有
         # ( ) [ ] . ! < <= > >= == != && ||），那行会在求值期直接失败。
         # 与其依赖一个不存在的能力，不如让矩阵本身就等于 --shard-id。
         # 代价：artifact 名为 report-0..report-3（0-based）。这是刻意接受的 ——
         # 换来的是"矩阵值 == --shard-id"这条一眼可验的不变式。
+        # ⚠️ 注释里**不能写双花括号表达式**（GitHub 连注释一起求值，10-05 实测
+        # 踩过：注释里的示例表达式同样被解析，整个 workflow 0 job 秒失败）。
+        # 所以上面只说「做减一」而不写符号。需要举例时写到本文件外的文档里。
         shard: [0, 1, 2, 3]
     # P0-1 的前提：CI 上**没有** .env（它未被 git 跟踪）。
     #
@@ -102,16 +105,26 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path var/test-reports | Out-Null
-          # runner 会把 ${{ }} 求值后**文本替换**进脚本，所以展开出来的是
+          # runner 会把双花括号表达式求值后**文本替换**进脚本，所以展开出来的是
           # 一串字面量 token（不是某个变量），PowerShell 按空白拆成独立参数。
           # 已实测：4 个路径 + -q 正确分成 5 个 argv。
           # 反面提醒：若改成先存进变量再展开（`$files = ...; pytest $files`），
           # PowerShell **不会**对变量做词分割 —— 整个空格串会作为单个参数传给
           # pytest，报 "file or directory not found: a.py b.py c.py"（exit 4）。
           # 本地实测过这个失败，故保持字面量展开，不要"顺手改成变量"。
-          python -m pytest ${{ steps.shard.outputs.files }} -q `
-            --junitxml=var/test-reports/ci-${{ matrix.shard }}.xml `
-            -p no:cacheprovider
+          #
+          # ⚠️ **本块必须单行，且注释里禁止出现双花括号**（10-05 首跑实测踩坑）：
+          # GitHub 会对 `run:` 块做表达式求值，**注释也不例外**。块内任何
+          # 形如「双花括号 + 内容」的写法都会被解析成真表达式；注释里写一个
+          # **字面量示例**（比如「双花括号里留空」）时，它同样被求值，解析器遇到
+          # 不完整的表达式就报 (Line:103, Col:14): An expression was expected，
+          # **后果是整个 workflow 拒绝执行、0 个 job 被创建**（run 秒失败）——
+          # 不是某一步失败，是全文件不可用。
+          # 所以：① 命令写成一行，不用 PowerShell 续行反引号；
+          #      ② 注释里要提表达式时，只写「双花括号」这四个字，别写符号本身。
+          # 校验：actionlint 1.7.12 能查出这类错误（本仓库
+          # scripts/check_workflow_shells.py 只查 shell 声明，两者互补）。
+          python -m pytest ${{ steps.shard.outputs.files }} -q --junitxml=var/test-reports/ci-${{ matrix.shard }}.xml -p no:cacheprovider
 
       - name: Upload report
         if: always()
