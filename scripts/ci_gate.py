@@ -122,6 +122,15 @@ CHANGE_TEST_MAP: list[tuple[tuple[str, ...], list[str]]] = [
     # 且双向：业务错误必须可见 / 内部错误（含本机路径）必须隐藏。
     (("rag.py", "runtime/tool_errors.py"),
      ["tests/test_tool_error_visibility.py", "tests/test_rag.py"]),
+    # TUI 交互测试的 **负载下flaky**（10-05 实测：单跑 8/8 绿、负载下2/6 红）。
+    # 真因不是「等待时长不够」而是 `textual` 的
+    # `NoMatches: No nodes match '#artifact-preview-content'`
+    # —— 屏 push 成功但子树还在 compose 中（**屏是屏、组件是组件**）。
+    # 第一版改法（只等屏弹出）负载下**仍红**，这条负结果才否掉错误假设。
+    # 护栏同时固化「全仓 32 处固定 pause 的负载实测结论」——
+    # **无实据不改**，将来谁改回去会红。
+    (("tests/test_tui_artifacts.py", "cli/tui/"),
+     ["tests/test_tui_load_stability.py", "tests/test_tui_artifacts.py"]),
 ]
 
 VENV_PY = PROJECT_ROOT / ".venv" / "Scripts" / "python.exe"
