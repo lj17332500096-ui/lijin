@@ -117,14 +117,22 @@ class PdfIndexTests(unittest.TestCase):
         self._tmp = Path(tempfile.mkdtemp(prefix="rag_pdf_test_"))
         self._orig_index = rag.INDEX_PATH
         self._orig_setting = rag.EMBED_MODEL_SETTING
+        self._orig_embedder = rag._EMBEDDER
+        self._orig_embedder_loaded = rag._EMBEDDER_LOADED
+        self._orig_embed_error = rag._EMBED_ERROR
         rag.EMBED_MODEL_SETTING = "off"
         rag.INDEX_PATH = self._tmp / "rag_index.json"
+        # 三个向量全局一起重置（与 KeywordSearchTests 同理，见那里的根因链注释）
+        rag._EMBEDDER = None
         rag._EMBEDDER_LOADED = False
+        rag._EMBED_ERROR = None
 
     def tearDown(self) -> None:
         rag.EMBED_MODEL_SETTING = self._orig_setting
         rag.INDEX_PATH = self._orig_index
-        rag._EMBEDDER_LOADED = False
+        rag._EMBEDDER = self._orig_embedder
+        rag._EMBEDDER_LOADED = self._orig_embedder_loaded
+        rag._EMBED_ERROR = self._orig_embed_error
 
     @unittest.skipUnless(rag._pdf_support(), "需要 pypdf")
     def test_text_pdf_indexed_with_page(self) -> None:
@@ -155,16 +163,40 @@ class KeywordSearchTests(unittest.TestCase):
         self._orig_root = rag.WORKSPACE_ROOT
         self._orig_index = rag.INDEX_PATH
         self._orig_setting = rag.EMBED_MODEL_SETTING
+        self._orig_embedder = rag._EMBEDDER
+        self._orig_embedder_loaded = rag._EMBEDDER_LOADED
+        self._orig_embed_error = rag._EMBED_ERROR
         rag.WORKSPACE_ROOT = self._tmp
         rag.INDEX_PATH = self._tmp / "rag_index.json"
         rag.EMBED_MODEL_SETTING = "off"
+        # ⚠️ **三个全局必须一起重置，少一个就失去隔离**（2026-10-05 实测）。
+        # 只重置 `_EMBEDDER_LOADED` 是不够的：`_try_load_embedder` 在
+        # `_EMBEDDER_LOADED=False` 时会**重新**走 `_embed_enabled()`，
+        # 而本仓库 `models/bge-small-zh-v1.5/` 存在 ⇒ `EMBED_MODEL_SETTING=''`
+        # 时 `_embed_enabled()` 返回 True ⇒ **纯 BM25 测试悄悄变成 hybrid**。
+        #
+        # 症状（本条断言本该拦住它）：
+        #   `pytest tests/test_sources_rag.py tests/test_rag.py` ⇒ 2 failed
+        #   无关文档「菜谱.md」被召回、「量子力学入门」返回 3 条结果。
+        # 单跑 `tests/test_rag.py` 13 passed ⇒ **单跑绿不能证明隔离有效**。
+        #
+        # 根因链（已用 `var/_probe2.py` 逐段实测）：
+        #   sources 测试加载引擎 → `_EMBEDDER` = OnnxEmbedEngine
+        #   → tearDown 只把 `_EMBEDDER_LOADED` 置 False，对象留着
+        #   → 本类 setUp 同样只置 False
+        #   → `_try_load_embedder` 重新判定 ⇒ enabled=True ⇒ hybrid
+        rag._EMBEDDER = None
         rag._EMBEDDER_LOADED = False
+        rag._EMBED_ERROR = None
 
     def tearDown(self) -> None:
         rag.WORKSPACE_ROOT = self._orig_root
         rag.INDEX_PATH = self._orig_index
         rag.EMBED_MODEL_SETTING = self._orig_setting
-        rag._EMBEDDER_LOADED = False
+        # 三个一起还原（与 setUp 对称）——只还原一部分就是下一次污染的种子
+        rag._EMBEDDER = self._orig_embedder
+        rag._EMBEDDER_LOADED = self._orig_embedder_loaded
+        rag._EMBED_ERROR = self._orig_embed_error
 
     def test_index_and_search_keyword(self) -> None:
         out = call_tool(rag.index_workspace, directory=".")

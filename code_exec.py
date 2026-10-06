@@ -12,12 +12,13 @@
 超时、目录围栏、密钥剔除、输出截断；不做 OS 级隔离。
 """
 
+import hashlib
 import os
 import re
 import subprocess
 import sys
+import tempfile
 import time
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -115,6 +116,23 @@ def _trusted_code_roots() -> list[Path]:
     return out
 
 
+def _is_source_root(path: Path) -> bool:
+    """该路径是否就是项目源码根 BASE_DIR（仓库根本身）。
+
+    P0-blat（2026-10-06）：**免审批通道不等于允许把源码树当工作目录**。
+    受信根（FORGE_TRUSTED_CODE_ROOTS）被设成仓库根时，_project_dir 曾直接 `return root`，
+    使 run_python 以仓库根为 CWD 执行 LLM 生成代码（实测污染出 100 个 `blat` 垃圾文件）。
+    实测判据必须是「root 是否等于 BASE_DIR」，**不是**「resolved 是否等于 root」——
+    后者在污染场景（project="my_creative_agent" 纯项目名）根本不成立：
+    `Path("my_creative_agent").resolve()` 是 CWD/my_creative_agent，用 `break` 判据会漏修；
+    而在正常评测场景（受信根=benchmark_fixture、project=该根自身）反而会误伤免审批通道。
+    """
+    try:
+        return Path(path).resolve() == BASE_DIR.resolve()
+    except Exception:
+        return False
+
+
 def _project_dir(project: str) -> Path | None:
     # P1-B(1)：受信 resolve 分支用 _trusted_path_ok 放行路径型 project（相对 a/b、绝对 F:/...），
     # 拒 '..' 越界段；严格 PROJECT_RE 仍用于非受信场景的沙箱命名。越界安全由 _canonical_under 兜底。
@@ -129,14 +147,122 @@ def _project_dir(project: str) -> Path | None:
         resolved = Path(proj).resolve()
         for root in roots:
             if _canonical_under(resolved, root):
-                return root
+                if not _is_source_root(root):
+                    return root
+                # P0-2（2026-10-06）：这里**必须 continue 而不是 break**。
+                # break 跳出的是**整个 for 循环** ⇒ 当列表里第一个匹配的 root 就是
+                # 仓库根时，后续的合法受信根**再无机会被检查** ⇒
+                # FORGE_TRUSTED_CODE_ROOTS=<仓库根>,<仓库根>/benchmark_fixture
+                # + project=<仓库根>/benchmark_fixture/app 时，本该命中的
+                # benchmark_fixture 被跳过，合法 benchmark 评测通道失效。
+                # 实测：break 变体落 code_sandbox\app（丢了受信语义），
+                #       continue 变体落 benchmark_fixture（既不返回 BASE_DIR 又命中受信根）。
+                continue
     except Exception:
         pass
     # 受信基准根：project 名命中受信根目录名 → 以该根为沙箱 project（benchmark 本地验证）。
     for root in roots:
-        if root.name.lower() == proj.lower():
+        if root.name.lower() == proj.lower() and not _is_source_root(root):
             return root
-    return (SANDBOX_ROOT / proj).resolve()
+    return _sandbox_dir(proj)
+
+
+#: Windows 保留设备名：这些名字在 Win32 命名空间里是**设备**而非普通目录，
+#: `mkdir` 会失败或（更糟）静默指向设备。判定大小写不敏感，且**带扩展名也算**
+#: （`CON.txt` 同样是设备）—— 所以比对的是第一个 `.` 之前的部分。
+_WINDOWS_RESERVED_NAMES = frozenset(
+    {"CON", "PRN", "AUX", "NUL", "CLOCK$"}
+    | {f"COM{i}" for i in range(1, 10)}
+    | {f"LPT{i}" for i in range(1, 10)}
+)
+
+
+def _is_windows_reserved(name: str) -> bool:
+    """该目录名是否是 Windows 保留设备名（CON/NUL/COM1… 含带扩展名的形态）。"""
+    stem = (name or "").split(".", 1)[0].strip().upper()
+    return stem in _WINDOWS_RESERVED_NAMES
+
+
+def _path_is_within(child: Path, root: Path) -> bool:
+    """child 的**真实位置**（解析所有 symlink/junction 之后）是否仍位于 root 之内。
+
+    P0-1（2026-10-06）：目录级 junction/symlink 逃逸的**唯一正确判据**。
+
+    - 两边都 `os.path.realpath` ⇒ 目录级 junction 会被跟随展开（`.resolve()` 也一样）
+    - 两边都 `os.path.normcase` ⇒ Windows 大小写不敏感下 `C:\\Users\\ADMINI~1`
+      与长名、盘符大小写差异不会造成假阴性
+    - 比选用 `relative_to`（**按路径分量**），**绝不用 `startswith`/字符串前缀** ——
+      `code_sandbox_evil` 以 `code_sandbox` 开头，前缀比较会把它判成"在根内"
+      （本项目铁律，`_canonical_under` 同样遵守）
+    """
+    try:
+        c = Path(os.path.normcase(os.path.realpath(str(child))))
+        r = Path(os.path.normcase(os.path.realpath(str(root))))
+    except (OSError, ValueError):
+        return False
+    if c == r:
+        return True
+    try:
+        c.relative_to(r)
+        return True
+    except ValueError:
+        return False
+
+
+def _sandbox_leaf(proj: str) -> str:
+    """把任意 project 声明收敛成 SANDBOX_ROOT 下的一个安全、**无碰撞**目录名。
+
+    P2-1（2026-10-06）：上一版只取末段名字，导致 `'a/b'` 与 `'b'`、`'x/y/proj'`
+    与 `'proj'` 落进**同一目录**（实测可跨 project 读文件，隔离边界失效）。
+
+    方案：保留末段名字保证**可读性**（出错的路径一眼能看出是哪个 project），
+    再追加一小段**稳定哈希后缀**保证**唯一性**。哈希用 `sha1`（非 `hash()`——
+    后者带进程随机盐，跨进程不稳定，会让同一 project 每次落点不同）。
+    只在**确实有收敛/截断**时才加后缀：原本就是单个安全段名的输入
+    （`demo`、`m3_fixture` 等 benchmark/常用名）保持原样，零行为变更。
+    """
+    raw = (proj or "").strip()
+    leaf = Path(raw).name or "workspace"
+    safe = "".join(ch for ch in leaf if ch.isalnum() or ch in "_-") or "workspace"
+    if _is_windows_reserved(safe):
+        # 保留设备名不可用目录名；加前缀消歧（CON -> _CON）
+        safe = "_" + safe
+    # 「有损收敛」判定：只有当末段名被改写过、或原始声明不是单个安全段名时才加哈希
+    if safe == leaf and raw == safe and not _is_windows_reserved(safe):
+        return safe
+    digest = hashlib.sha1(raw.encode("utf-8", "replace")).hexdigest()[:10]
+    return f"{safe}__{digest}"
+
+
+def _sandbox_dir(proj: str) -> Path | None:
+    """把 project 声明收敛成 SANDBOX_ROOT 下的一个**真实位置必在根内**的子目录。
+
+    P0-blat（2026-10-06）：原实现是 `(SANDBOX_ROOT / proj).resolve()`，但 pathlib 的
+    `/` 运算符在右操作数为**绝对路径**时会直接丢弃左操作数 ——
+    实测 `Path("F:/ws/code_sandbox") / "F:/repo/my_creative_agent"` == `F:/repo/my_creative_agent`。
+    ⇒ 任何绝对路径型 project 都能让工作目录落到磁盘任意位置（实测可写到 F:/tmp/... ），
+    这是独立于受信根设置的**第二道逃逸口**，且在生产默认配置（roots=[]）下就成立。
+
+    P0-1（2026-10-06）：仅取末段名字**还不够** —— 末段 `.resolve()` **会跟随
+    目录级 junction/symlink**。实测两步即可越界：① 一次 `run_python` 生成代码执行
+    `mklink /J code_sandbox\\stage2 <仓外目录>`（junction **不需要管理员权限**）
+    ② 第二次用 `project="stage2"`（纯项目名，完全通过字符白名单）⇒ 落点仓外。
+    而 `write_code_file`/`read_code_file`/`list_code_files` 走同一条路，
+    且**不需要 `ALLOW_CODE_EXEC`** ⇒ 门槛更低。
+
+    ⚠️ 本函数**只算路径、不创建目录**（`mkdir` 在调用方：`:454`/`:551`）——
+    所以这里的校验**不会引入「先建后校验」的 TOCTOU 窗口**。
+    命中 junction 逃逸时**返回 None**（调用方已有 `base_dir is None` 早退分支）
+    而不是回退到某个固定目录：回退目录自己可能正是一个 junction，等于把洞换个位置。
+    """
+    safe = _sandbox_leaf(proj)
+    candidate = SANDBOX_ROOT / safe
+    if _path_is_within(candidate, SANDBOX_ROOT):
+        return candidate
+    # 真实位置逃出 SANDBOX_ROOT（目录级 junction/symlink 指到根外）⇒ 拒绝该落点。
+    # 刻意不 mkdir：调用方拿 None 会走早退分支，不会把文件写进根外。
+    return None  # type: ignore[return-value]
+
 
 
 def _canonical_under(child: Path, root: Path) -> bool:
@@ -480,6 +606,42 @@ project 是沙箱项目名。"""
     return "\n".join(lines)
 
 
+def _safe_workdir(base_dir: Path | None, project: str) -> Path | None:
+    """兜底守卫：工作目录**绝不能**是项目源码根，也**绝不能**逃出沙箱/受信边界。
+
+    P0-blat（2026-10-06）防御纵深，与 _project_dir 的修法互不依赖 ——
+    未来任何新增调用方、或 FORGE_TRUSTED_CODE_ROOTS 被误设成仓库根，
+    都不应再能把源码树当 CWD。命中时改道到隔离沙箱目录。
+
+    P0-1（2026-10-06）：再叠加一道**落点校验**——若 base_dir 的**真实位置**
+    （解析所有 symlink/junction 之后）跑出了它自己声明的**父目录**，说明它是
+    「指向别处的目录级 junction/symlink」⇒ 拒绝（返 None）。
+    这条**独立于** `_sandbox_dir`：即便有人绕过 `_sandbox_dir` 直接把一个
+    根外落点塞进来（未来新增调用方、或误设环境变量），这里仍会拦。
+    """
+    if base_dir is None:
+        return None
+    if _is_source_root(base_dir):
+        proj = (project or "").strip()
+        safe = "".join(ch for ch in Path(proj).name if ch.isalnum() or ch in "_-") or "workspace"
+        return _sandbox_dir(f"{safe}__redirected")
+    # 目录级 junction/symlink 逃逸：真实位置跑出了**自己声明的父目录** ⇒ 落点不可信。
+    #
+    # ⚠️ **判据必须两侧都 realpath + 分量比较**（2026-10-06 实测踩过）：
+    # 早先写成 `normcase(abspath(x)) != normcase(realpath(x))` 是**错的**——
+    # `abspath` **不展开 8.3 短名**而 `realpath` 展开，于是 GitHub runner
+    #（tempdir = RUNNER~1）上短名 root 下**每个正常落点**都被误判成 junction
+    # ⇒ 9 条测试全红。这正是 tests/test_path_normalization_symmetry.py 守的
+    # 那类不对称，也说明「realpath 两侧对称」是本项目反复踩的坑。
+    #
+    # 现在的判据：realpath(落点) 必须仍在 realpath(声明的父目录) 之内——
+    # `_path_is_within` 内部两侧都 realpath + normcase + 按分量比较，天然对称。
+    parent = Path(os.path.dirname(str(base_dir).rstrip("\\/")) or ".")
+    if not _path_is_within(base_dir, parent):
+        return None
+    return base_dir
+
+
 def run_python_impl(
     project: str, filename: str = "", code: str = "", args: str = "", timeout: int = 40
 ) -> str:
@@ -494,10 +656,14 @@ def run_python_impl(
     # 否则走沙箱 project。绝不扫描 code 文本。
     trusted_run = trusted_root_for(project, filename, args)
     base_dir = trusted_run if trusted_run is not None else _project_dir(project)
+    base_dir = _safe_workdir(base_dir, project)
     if base_dir is None:
         return "错误：项目名只能包含字母、数字、下划线和连字符。"
     base_dir.mkdir(parents=True, exist_ok=True)
 
+    # P0-blat（2026-10-06）：inline_tmp 只标记「本次调用自己生成的 _inline_*.py」。
+    # 用户经 filename 传入的既有文件绝不能删—— 两者用这个独立的标记区分，不靠文件名猜测。
+    inline_tmp: Path | None = None
     run_file: Path | None = None
     if (filename or "").strip():
         # 若 filename 是受信根内绝对路径，直接使用；否则按相对路径解析到 base_dir。
@@ -513,12 +679,44 @@ def run_python_impl(
         if not run_file.exists():
             return f"错误：沙箱里找不到文件 {filename}（先用 write_code_file 写文件）。"
     elif (code or "").strip():
-        stamp = datetime.now().strftime("%H%M%S_%f")
-        run_file = base_dir / f"_inline_{stamp}.py"
-        run_file.write_text(code, encoding="utf-8")
+        # P2-2（2026-10-06）：`datetime.now()` 的**实际**时间分辨率约 1.6ms
+        # （实测 300ms 采样 194 个不同值，中位间隔 1.6ms；远粗于 `%f` 暗示的 1µs）
+        # ⇒ 并发调用极易撞名，第二个调用在 write_text 阶段就 PermissionError 崩溃
+        # （Windows 文件锁）。实测 12 并发只产生 5 个文件名、7 个调用崩溃。
+        # ⚠️ 责任归属：**HEAD 已有**，非上一轮清理改动引入（HEAD 对照 8 并发挂 4 个）。
+        # 改用 `tempfile.mkstemp`：内核级 O_EXCL 原子创建，**并发下不可能撞名**，
+        # 也不需要「撞名后重试」这种补救分支。前缀保留 `_inline_` 以维持
+        # `.gitignore` 的 `/_inline_*.py` 规则与既有清理测试的 `rglob("_inline_*.py")`。
+        try:
+            fd, tmp_name = tempfile.mkstemp(prefix="_inline_", suffix=".py", dir=str(base_dir))
+        except OSError:
+            # 沙箱根不可写等：交回原有语义（明确报错，不静默走危险分支）
+            return "错误：无法在沙箱目录创建临时脚本（目录不可写？）。"
+        run_file = Path(tmp_name)
+        inline_tmp = run_file
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fh.write(code)
     else:
         return "错误：需要提供 filename 或 code 二者之一。"
 
+    try:
+        return _run_python_file(base_dir, run_file, args, timeout)
+    finally:
+        # 每次调用必产生的确定性垃圾：无论成功/失败/超时/子进程创建失败都必须清掉。
+        # 早于本修复时全文件无任何 unlink ⇒ 磁盘单调增长（实测 benchmark_fixture 已积55 个）。
+        if inline_tmp is not None:
+            try:
+                inline_tmp.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+
+def _run_python_file(base_dir: Path, run_file: Path, args: str, timeout: int) -> str:
+    """在 base_dir 下执行 run_file 并整理输出（run_python_impl 的执行段）。
+
+    单独抽出成函数，是为了让 run_python_impl 的 try/finally 能覆盖**所有**返回路径
+    （成功 / 超时 / 子进程创建失败 / 异常），而不是逐个 return 前手写清理。
+    """
     if not isinstance(timeout, int) or timeout <= 0:
         timeout = DEFAULT_TIMEOUT
     timeout = min(int(timeout), 120)
@@ -592,6 +790,17 @@ def run_tests_impl(project: str, target: str = "", extra_args: str = "", timeout
     base_dir = trusted_run if trusted_run is not None else _project_dir(project)
     if base_dir is None:
         return "错误：项目名只能包含字母、数字、下划线和连字符。"
+    # P1-1（2026-10-06）：与 run_python_impl 对称接入 _safe_workdir。
+    # 上一轮只加在 run_python_impl，run_tests_impl 是**同一缺陷的漏网分支**：
+    # 它走 trusted_root_for 的「绝对 filename」分支（:307-317）直接 `return root`，
+    # 而 _is_source_root 的判据只加在 _project_dir 的两个分支上，管不到这条路。
+    # 实测（FORGE_TRUSTED_CODE_ROOTS=仓库根 + target=仓内绝对路径）：
+    # PROBE_CWD_IS_BASE_DIR = True，且 pytest 退出码 0（看起来"成功"）。
+    # 危害不止 CWD：pytest **收集阶段**就会执行 conftest.py 与已注册插件
+    # ⇒ 这是一条真实的代码执行通道，且 .pytest_cache/__pycache__ 写进仓内。
+    base_dir = _safe_workdir(base_dir, project)
+    if base_dir is None:
+        return "错误：测试目标必须落在受信代码根内，且不能是项目源码根。"
     base_dir = base_dir.resolve()
 
     argv = [sys.executable, "-m", "pytest"]

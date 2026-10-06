@@ -120,8 +120,34 @@ CHANGE_TEST_MAP: list[tuple[tuple[str, ...], list[str]]] = [
     # 修法是给工具装 `failure_error_function`（官方机制），只放行**业务边界错误**。
     # 这条护栏会**自己模拟新版 SDK**（本地 0.22.0 对新版零鉴别力），
     # 且双向：业务错误必须可见 / 内部错误（含本机路径）必须隐藏。
+    # 向量引擎缓存自洽（10-05 实测，`var/_probe3.py` 逐段复现）：
+    # `_try_load_embedder` 曾**先**置 `_EMBEDDER_LOADED=True`、**再**判
+    # `_embed_enabled()`，而 `enabled=False` 早退时**没清 `_EMBEDDER`** ⇒
+    # 模块态变成「标志位=True + 陈旧引擎对象」的自相矛盾态；第二次调用命中
+    # 缓存短路把陈旧引擎交出去 ⇒ 声明「纯 BM25」的测试悄悄走 hybrid、
+    # 无关文档被误召回（`pytest tests/test_sources_rag.py tests/test_rag.py`
+    # ≥2 failed，而 `tests/test_rag.py` 单跑全绿 ⇒ **单跑绿不证明隔离有效**）。
+    # ⚠️ 这里刻意写「≥2 failed」而不是某个具体数字：**失败条数依赖环境**
+    # （本机 `pypdf`/`models/` 是否可用决定了哪些测试类真正走到向量路径，
+    # 10-06 复核实测为 2 failed，与早前注释里写的「4 failed」不符）。
+    # 硬编码具体数字会误导后人，反过来按错误数字去「复现」。
+    # 该护栏注入**鸭子类型假引擎**（只需 `embed_batch`）—— 真引擎依赖
+    # `models/` + `onnxruntime`，两者在 CI 上都不存在，用真引擎判据会恒绿。
     (("rag.py", "runtime/tool_errors.py"),
-     ["tests/test_tool_error_visibility.py", "tests/test_rag.py"]),
+     ["tests/test_tool_error_visibility.py", "tests/test_rag_isolation.py",
+      "tests/test_rag.py"]),
+    # 改 `tests/test_rag.py` 自身的 setUp/tearDown 也要跑隔离护栏——
+    # 那些方法本身就是被守护对象（护栏会**实际调用**每个「声明关向量」的
+    # 测试类的 setUp，检查三个向量全局真的被重置了）。
+    # 漏了这条，改坏 setUp 时护栏不会跟着跑（= 判据在关键路径上失效）。
+    (("tests/test_rag.py",),
+     ["tests/test_rag_isolation.py", "tests/test_rag.py"]),
+    # 改护栏文件自身也必须触发护栏（10-06 补漏）：
+    # 此前本文件不在任何映射键里 ⇒ 改 `tests/test_rag_isolation.py`
+    # 会选中 0 项测试 ⇒ **「把判据改弱/删掉」这条路径全程无人拦**。
+    # 护栏自己必须和被守护对象同时跑，否则它退化成什么样都不会有人发现。
+    (("tests/test_rag_isolation.py",),
+     ["tests/test_rag_isolation.py", "tests/test_rag.py"]),
     # TUI 交互测试的 **负载下flaky**（10-05 实测：单跑 8/8 绿、负载下2/6 红）。
     # 真因不是「等待时长不够」而是 `textual` 的
     # `NoMatches: No nodes match '#artifact-preview-content'`

@@ -36,6 +36,10 @@ data/
 /tmp/
 /.tmp/
 /_tmp/
+# run_python 内联代码落盘的执行脚本（code_exec.run_python_impl 生成，运行后自动清理；
+# 这里兜底防止进程被杀/机器断电时残留被 git add -A 收走）。
+# ⚠️ 只锚定本仓自己的命名前缀，**不要**加匹配任意 8 字符名的通配 —— 会误伤用户正常文件。
+/_inline_*.py
 
 # 统一运行时、测试与临时产物（仅 var/README.md 纳入版本管理）
 var/

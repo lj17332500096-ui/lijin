@@ -189,10 +189,35 @@ _EMBEDDER_LOADED = False
 
 
 def _try_load_embedder() -> tuple[object | None, str | None]:
-    """加载一次向量引擎；返回 (engine, 错误说明)。加载失败会缓存原因，避免反复尝试。"""
+    r"""加载一次向量引擎；返回 (engine, 错误说明)。加载失败会缓存原因，避免反复尝试。
+
+    ⚠️ **重载路径必须先清空 `_EMBEDDER`/`_EMBED_ERROR`**（2026-10-05 加固）。
+    旧写法先置 `_EMBEDDER_LOADED = True`、**再**判 `_embed_enabled()`，而
+    `enabled=False` 的早退分支**没有清 `_EMBEDDER`** ⇒ 模块级状态会变成
+    「标志位=True + 陈旧引擎对象」的自相矛盾态；紧接着的第二次调用命中
+    `_EMBEDDER_LOADED` 缓存短路，会把**上一次那个陈旧引擎**原样交出去。
+
+    📌 **归因（10-06 交叉实验实测，勿再改回，也不要把下面两段对调）**：
+
+    - 该不自洽态**在生产路径上不可达**。全仓唯一把 `_EMBEDDER_LOADED` 置回
+      False 的地方是模块初始化（`grep -rn "_EMBEDDER_LOADED\s*=\s*False"
+      --include=*.py .` 仅命中本文件），生产代码没有任何重置点，
+      而陈旧态的必要条件正是「`_EMBEDDER` 有值 + `_EMBEDDER_LOADED=False`」。
+    - 真正触发它的是**测试隔离缺陷**：`tests/test_rag.py` 的 setUp/tearDown
+      曾只重置 `_EMBEDDER_LOADED`、把 `_EMBEDDER` 留在原地。
+    - 交叉实验（10-06，见 `var/04-test/测试报告.md` §A4）证明**两侧修法各自
+      独立**都能让测试全绿：只修测试侧 ⇒ 22 passed；只修本产品侧 ⇒ 同样全绿。
+
+    ⇒ 本处改动是**第二道防线**，不是「测试走 hybrid 的根」。之所以仍要保留：
+    「只重置标志位」的调用方一旦再次出现（例如新测试类、新的重试入口），
+    错误应在**产生处**收敛，而不是指望每个调用方都记得清理对象。
+    """
     global _EMBEDDER, _EMBED_ERROR, _EMBEDDER_LOADED
     if _EMBEDDER_LOADED:
         return _EMBEDDER, _EMBED_ERROR
+    # 重载：先清空旧值，保证「置 True」之后三个全局彼此自洽
+    _EMBEDDER = None
+    _EMBED_ERROR = None
     _EMBEDDER_LOADED = True
 
     if not _embed_enabled():
@@ -214,8 +239,10 @@ def _try_load_embedder() -> tuple[object | None, str | None]:
         _EMBEDDER = engine
     except EmbeddingEngineError as exc:
         error = str(exc)
+        engine = None      # 半成品（已构造、未 load）绝不能交出去
     except Exception as exc:  # 依赖缺失、文件损坏等一律降级，不中断主流程
         error = f"向量模型加载失败（{type(exc).__name__}: {exc}）"
+        engine = None      # 同上：否则调用方 `if engine is None` 会误判为加载成功
     _EMBED_ERROR = error
     return engine, error
 

@@ -664,11 +664,18 @@ class SourcesRecoveryTests(unittest.TestCase):
         res = store.fts_search(pid, "hello")
         self.assertTrue(any(r["source_id"] == s1["id"] for r in res))
         # 清理进程级共享态（避免影响后续 rag 测试的向量引擎缓存/DB 指向）
+        # ⚠️ **三个向量全局要一起清**（2026-10-05 实测）：`_try_load_embedder`
+        # 在 `_EMBEDDER_LOADED=False` 时会**重新**判定 `_embed_enabled()`；
+        # 只清标志位、留着 `_EMBEDDER` 对象，会让后续「纯 BM25」测试
+        # 悄悄变 hybrid（`models/bge-small-zh-v1.5/` 本地是存在的）。
+        # 详见 `tests/test_rag.py::KeywordSearchTests` 的注释与
+        # `tests/test_rag_isolation.py` 护栏。
         try:
             import rag as _rag
 
             _rag._EMBEDDER = None
             _rag._EMBEDDER_LOADED = False
+            _rag._EMBED_ERROR = None
             _rag.EMBED_MODEL_SETTING = ""
         except Exception:
             pass
