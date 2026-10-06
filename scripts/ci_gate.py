@@ -133,6 +133,9 @@ CHANGE_TEST_MAP: list[tuple[tuple[str, ...], list[str]]] = [
     # 硬编码具体数字会误导后人，反过来按错误数字去「复现」。
     # 该护栏注入**鸭子类型假引擎**（只需 `embed_batch`）—— 真引擎依赖
     # `models/` + `onnxruntime`，两者在 CI 上都不存在，用真引擎判据会恒绿。
+    # 同一文件另含两族判据：`_try_load_embedder` 的缓存自洽、**磁盘索引
+    # 陈旧向量不得被恢复**（`StaleIndexVectorsNotRestoredTests`，
+    # 只用 JSON 载荷⇒ 不依赖 models/，CI 同样有鉴别力）。
     (("rag.py", "runtime/tool_errors.py"),
      ["tests/test_tool_error_visibility.py", "tests/test_rag_isolation.py",
       "tests/test_rag.py"]),

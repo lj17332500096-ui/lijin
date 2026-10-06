@@ -45,6 +45,10 @@ import rag  # noqa: E402
 from agents.tool_context import ToolContext  # noqa: E402
 
 
+#: 哨兵：表示「payload 里根本没有 embed_model 这个键」（区别于值为 None/空串）
+_MISSING = object()
+
+
 class _FakeEngine:
     """鸭子类型假向量引擎：恒返回同一向量 ⇒ 一旦被调用，检索结果就会被污染。
 
@@ -636,6 +640,114 @@ class HalfBakedEngineTests(_EmbedStateMixin, unittest.TestCase):
         finally:
             rag.OnnxEmbedEngine = saved_engine_cls
             rag.INDEX_PATH = orig_index
+
+
+class StaleIndexVectorsNotRestoredTests(unittest.TestCase):
+    """**磁盘索引**里的陈旧向量不得被恢复（与缓存三全局无关的独立通道）。
+
+    ⚠️ **为什么需要这条**（10-06 实测，`var/_probe_load.py` 逐段可复现）：
+
+    `RagIndex.load()` 曾只校验 `len(vectors) == len(chunks)` 就把向量恢复进内存，
+    **完全不检查 `embed_model`** —— 而 `save()` 明明把它写进了 payload
+    （`rag.py` 里 `embed_model` 只有那一处写、**零处读**，是个死字段）。
+    ⇒ 模型 X 建的索引被模型 Y（或关向量的配置）读出来时，陈旧向量一直躺在
+    `self.vectors` 里。
+
+    **为什么当时没立刻误召回**（这点要说清，否则会误判严重性）：
+    `_dense_rank` 里有 `engine, _ = _try_load_embedder(); if engine is None: return []`，
+    配置为 off 时引擎必为 `None` ⇒ 走不到向量路径。**但那是检索期的第二道防线，
+    不是加载期的。** 一旦换配置/换机器使引擎可用，这些与当前分块对不上号的
+    陈旧向量就会参与排序。
+
+    🔑 **本护栏不依赖 `models/` 目录、不依赖 onnxruntime**（只用 JSON 载荷），
+    因此 CI 上同样有鉴别力（`models/` 不入库这件事在这里不构成影响）。
+    """
+
+    def setUp(self) -> None:
+        self._orig_index = rag.INDEX_PATH
+        self._orig_root = rag.WORKSPACE_ROOT
+        self._orig_setting = rag.EMBED_MODEL_SETTING
+        self._orig_embedder = rag._EMBEDDER
+        self._orig_loaded = rag._EMBEDDER_LOADED
+        self._tmp = _make_workspace()
+        rag.WORKSPACE_ROOT = self._tmp
+        rag.INDEX_PATH = self._tmp / "rag_index.json"
+
+    def tearDown(self) -> None:
+        rag.INDEX_PATH = self._orig_index
+        rag.WORKSPACE_ROOT = self._orig_root
+        rag.EMBED_MODEL_SETTING = self._orig_setting
+        rag._EMBEDDER = self._orig_embedder
+        rag._EMBEDDER_LOADED = self._orig_loaded
+
+    def _write_index(self, *, embed_model: object, vectors: object) -> None:
+        payload = {
+            "version": 1,
+            "root": str(self._tmp),
+            "files": ["运动笔记.md"],
+            "chunks": [{"text": "我每天早晨跑步三十分钟。",
+                        "file": "运动笔记.md", "line": 1}],
+            "pdf_support": False,
+        }
+        if embed_model is not _MISSING:
+            payload["embed_model"] = embed_model
+        payload["vectors"] = vectors
+        rag.INDEX_PATH.write_text(
+            json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+    def test_vectors_discarded_when_switch_is_off(self) -> None:
+        """① 开关已关闭 ⇒ 一律不恢复（声明关了就是关了，不能被磁盘内容推翻）。"""
+        self._write_index(embed_model=str(BASE), vectors=[[0.1, 0.2]])
+        rag.EMBED_MODEL_SETTING = "off"
+        rag._EMBEDDER = None
+        rag._EMBEDDER_LOADED = True
+        index = rag.RagIndex.load(self._tmp)
+        self.assertIsNotNone(index, "前提不成立：索引应能加载")
+        self.assertIsNone(
+            index.vectors,
+            "向量开关已关闭却仍恢复了磁盘向量 ⇒ 声明「纯 BM25」被磁盘内容推翻")
+
+    def test_vectors_discarded_when_model_mismatches(self) -> None:
+        """③ 记录的 `embed_model` 与当前不一致 ⇒ 丢弃，交给重建。"""
+        self._write_index(embed_model="some-other-model-X", vectors=[[0.1, 0.2]])
+        rag.EMBED_MODEL_SETTING = str(BASE)      # 与写入时不同
+        rag._EMBEDDER = None
+        rag._EMBEDDER_LOADED = True
+        index = rag.RagIndex.load(self._tmp)
+        self.assertIsNotNone(index, "前提不成立：索引应能加载")
+        self.assertIsNone(
+            index.vectors,
+            "模型不一致却复用了旧向量 ⇒ 排序结果无可解释性"
+            "（向量与当前分块/模型对不上号）")
+
+    def test_vectors_discarded_when_model_field_absent(self) -> None:
+        """② 旧版本索引没记 `embed_model` ⇒ 保守丢弃。"""
+        self._write_index(embed_model=_MISSING, vectors=[[0.1, 0.2]])
+        rag.EMBED_MODEL_SETTING = str(BASE)
+        rag._EMBEDDER = None
+        rag._EMBEDDER_LOADED = True
+        index = rag.RagIndex.load(self._tmp)
+        self.assertIsNotNone(index, "前提不成立：索引应能加载")
+        self.assertIsNone(
+            index.vectors,
+            "未记录模型的旧索引被复用了向量 ⇒ 无法判断向量来自哪个模型")
+
+    def test_matching_model_still_usable(self) -> None:
+        """反向：配置与记录**一致**时必须仍能复用，否则就是过度收紧。
+
+        这是误伤方向的判据 —— 只丢不保会让向量检索永久失效。
+        """
+        rag.EMBED_MODEL_SETTING = str(BASE)
+        self._write_index(embed_model=str(BASE), vectors=[[0.1, 0.2]])
+        # 让 _embed_enabled() 为 True（显式非空路径分支，与磁盘无关）
+        rag._EMBEDDER = None
+        rag._EMBEDDER_LOADED = False
+        index = rag.RagIndex.load(self._tmp)
+        self.assertIsNotNone(index, "前提不成立：索引应能加载")
+        self.assertIsNotNone(
+            index.vectors,
+            "模型一致的索引却丢弃了向量 ⇒ 判据过度收紧，"
+            "会让「同一模型跨会话复用向量」永久失效")
 
 
 if __name__ == "__main__":

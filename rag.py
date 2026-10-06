@@ -381,6 +381,34 @@ def _top_indices(scores: list[float], top_k: int) -> list[int]:
 # 索引与检索
 # ---------------------------------------------------------------------------
 
+def _index_vectors_usable(saved_model: object) -> bool:
+    """磁盘索引里的向量**还能不能用**（`RagIndex.load` 的闸门）。
+
+    ⚠️ 这是一条**独立于 `_EMBEDDER_LOADED` 的污染通道**（2026-10-06 实测，
+    `var/_probe_load.py`）：`load()` 曾只校验 `len(vectors) == len(chunks)`
+    就把向量恢复进内存，**完全不检查 `embed_model`**—— 而 `save()` 明明把它
+    写进了 payload。⇒ 模型 X 建的索引被模型 Y（或关向量的配置）读出来时，
+    陈旧向量会一直躺在 `self.vectors` 里。
+
+    为什么**当时没立刻误召回**：`_dense_rank` 里还有
+    `engine, _ = _try_load_embedder(); if engine is None: return []`，
+    配置为 off 时引擎必为 None ⇒ 走不到向量路径。**但那是检索期的第二道防线，
+    不是加载期的**。一旦换配置/换机器使引擎可用，这些陈旧向量就会参与排序，
+    且与当前分块对不上号。
+
+    这里在**加载期**就把它挡住，三条判据：
+      ① 向量开关已关闭 ⇒ 一律不用（声明关了就是关了，不能被磁盘内容推翻）；
+      ② 索引没记 `embed_model`（旧版本索引）⇒ 保守丢弃，重新建；
+      ③ 记录的模型与当前不一致 ⇒ 丢弃，交给 `_ensure_vectors` 重建。
+    丢弃后 `self.vectors` 保持 `None`，`_ensure_vectors` 会按当前配置重算。
+    """
+    if not _embed_enabled():
+        return False
+    if not isinstance(saved_model, str) or not saved_model:
+        return False
+    return saved_model == str(EMBED_MODEL_SETTING or EMBED_DEFAULT_DIR)
+
+
 class RagIndex:
     """本地检索索引：文件清单 + 文本分块；可选携带向量（dense）做混合检索。"""
 
@@ -561,7 +589,8 @@ class RagIndex:
         index.pdf_support = bool(payload.get("pdf_support", False))
         if isinstance(payload.get("vectors"), list):
             vectors = payload["vectors"]
-            if len(vectors) == len(index.chunks):
+            if len(vectors) == len(index.chunks) and _index_vectors_usable(
+                    payload.get("embed_model")):
                 index.vectors = vectors
         return index
 
